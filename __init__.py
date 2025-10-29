@@ -25,10 +25,19 @@ _services = None
 
 def _safe_import(name: str):
     try:
-        module = __import__(f".{name}", globals(), locals(), ["*"], 1)
+        # In pyscript, use relative imports within the app package
+        if name == "core":
+            from . import core as module
+        elif name == "ha_triggers":
+            from . import ha_triggers as module
+        elif name == "ha_services":
+            from . import ha_services as module
+        else:
+            log.error(f"Unknown module: {name}")
+            return None
         return module
-    except Exception:  # pragma: no cover - defensive import
-        log.debug(f"Optional module '{name}' not available yet")
+    except Exception as e:
+        log.debug(f"Optional module '{name}' not available yet: {e}")
         return None
 
 
@@ -126,6 +135,5 @@ def shutdown() -> None:
         log.error(f"Error shutting down orchestrator: {e}")
 
 
-# The startup_load_config function is triggered by @time_trigger("startup")
-# No need to manually call setup() - pyscript will auto-run the trigger function
-# when the module loads and Home Assistant starts
+# Call setup at module load time
+setup()

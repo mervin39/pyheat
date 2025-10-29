@@ -89,7 +89,7 @@ def _request_recompute():
         return
     
     _debounce_pending = True
-    _debounce_task = task.create(_debounced_recompute())
+    _debounce_task = task.create(_debounced_recompute)
 
 
 # ============================================================================
