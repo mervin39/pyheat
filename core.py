@@ -17,6 +17,7 @@ from . import scheduler
 from . import room_controller
 from . import trv
 from . import status
+from . import boiler
 
 
 class PyHeatOrchestrator:
@@ -34,15 +35,13 @@ class PyHeatOrchestrator:
         self.scheduler = scheduler.init()
         self.room_controller = room_controller.init()
         self.trv = trv.init()
-        
-        # Module references (to be implemented)
-        self.boiler = None
+        self.boiler = boiler.init()
         
         # State tracking
         self.last_recompute = None
         self.recompute_count = 0
         
-        log.info("PyHeatOrchestrator: initialized with sensors, scheduler, room_controller, and trv modules")
+        log.info("PyHeatOrchestrator: initialized with sensors, scheduler, room_controller, trv, and boiler modules")
     
     async def recompute_all(self):
         """Recompute all room states, valve positions, and boiler demand.
@@ -114,6 +113,22 @@ class PyHeatOrchestrator:
             # Publish per-room entities
             await self._publish_room_entities(room_id, room_status)
         
+        # Aggregate rooms calling for heat
+        rooms_calling_for_heat = [
+            status["room_id"] for status in room_statuses 
+            if status.get("call_for_heat", False)
+        ]
+        
+        # Update boiler based on room demand
+        boiler_status = None
+        if self.boiler:
+            boiler_result = self.boiler.update(rooms_calling_for_heat)
+            boiler_status = {
+                "on": boiler_result["boiler_on"],
+                "rooms_calling": len(boiler_result["rooms_calling"]),
+                "reason": boiler_result["reason"]
+            }
+        
         # Get master enable and holiday mode
         master_enable = state.get("input_boolean.pyheat_master_enable") == "on"
         holiday = state.get("input_boolean.pyheat_holiday_mode") == "on"
@@ -123,7 +138,7 @@ class PyHeatOrchestrator:
             master_enable=master_enable,
             holiday=holiday,
             rooms=room_statuses,
-            boiler=None  # TODO: Add boiler status when implemented
+            boiler=boiler_status
         )
         
         # Publish global status entity
@@ -434,6 +449,10 @@ class PyHeatOrchestrator:
         if self.trv:
             self.trv.reload_rooms(rooms_cfg)
             log.info("TRV controllers reloaded")
+        
+        if self.boiler:
+            self.boiler.reload_rooms(rooms_cfg)
+            log.info("Boiler controller reloaded")
         
         log.info("Configuration reloaded successfully")
         
