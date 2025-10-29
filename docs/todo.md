@@ -78,13 +78,14 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 ## 📋 Planned
 
 ### Phase 2: Boiler & Safety
-- [ ] **`boiler.py`** - Boiler control with safety
+- [ ] **`boiler.py`** - Boiler control with safety ⏸️ **DEFERRED - awaiting hardware setup**
   - Anti short-cycling
   - TRV-open interlock
   - Force-off handling
+  - Note: Skipping for now until boiler hardware is properly configured
 
 ### Phase 3: Integration
-- [ ] **`ha_services.py`** - Service registration
+- [ ] **`ha_services.py`** - Service registration 🔨 **IN PROGRESS**
   - All pyheat.* services mapped
   - Argument validation
   - Error handling

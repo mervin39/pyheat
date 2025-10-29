@@ -256,13 +256,27 @@ class PyHeatOrchestrator:
             target: Target temperature in °C
             minutes: Duration in minutes
         """
-        log.info(f"[STUB] svc_override: room={room}, target={target}°C, minutes={minutes}")
+        log.info(f"svc_override: room={room}, target={target}°C, minutes={minutes}")
         
-        # TODO: Implement:
-        # - Validate room exists
-        # - Start/restart timer.pyheat_{room}_override
-        # - Update room_controller with override
-        # - Trigger recompute
+        # Get room controller
+        room_obj = self.room_controller.get_room(room) if self.room_controller else None
+        if not room_obj:
+            log.error(f"svc_override: room '{room}' not found")
+            raise ValueError(f"Room '{room}' not found")
+        
+        # Apply override to room
+        now = datetime.now(tz=timezone.utc)
+        room_obj.apply_override(target=target, minutes=minutes, now=now)
+        
+        # Start/restart timer
+        timer_entity = f"timer.pyheat_{room}_override"
+        duration = minutes * 60  # Convert to seconds
+        service.call("timer", "start", entity_id=timer_entity, duration=duration)
+        
+        log.info(f"Override applied to {room}: {target}°C for {minutes}m")
+        
+        # Trigger recompute
+        await self.recompute_all()
     
     async def svc_boost(self, room: str, delta: float, minutes: int):
         """Service: Apply delta boost to current target.
@@ -272,9 +286,27 @@ class PyHeatOrchestrator:
             delta: Temperature delta in °C (can be negative)
             minutes: Duration in minutes
         """
-        log.info(f"[STUB] svc_boost: room={room}, delta={delta:+.1f}°C, minutes={minutes}")
+        log.info(f"svc_boost: room={room}, delta={delta:+.1f}°C, minutes={minutes}")
         
-        # TODO: Implement similar to override but with delta logic
+        # Get room controller
+        room_obj = self.room_controller.get_room(room) if self.room_controller else None
+        if not room_obj:
+            log.error(f"svc_boost: room '{room}' not found")
+            raise ValueError(f"Room '{room}' not found")
+        
+        # Apply boost to room
+        now = datetime.now(tz=timezone.utc)
+        room_obj.apply_boost(delta=delta, minutes=minutes, now=now)
+        
+        # Start/restart timer
+        timer_entity = f"timer.pyheat_{room}_override"
+        duration = minutes * 60  # Convert to seconds
+        service.call("timer", "start", entity_id=timer_entity, duration=duration)
+        
+        log.info(f"Boost applied to {room}: {delta:+.1f}°C for {minutes}m")
+        
+        # Trigger recompute
+        await self.recompute_all()
     
     async def svc_cancel_override(self, room: str):
         """Service: Cancel any active override/boost.
@@ -282,12 +314,25 @@ class PyHeatOrchestrator:
         Args:
             room: Room ID
         """
-        log.info(f"[STUB] svc_cancel_override: room={room}")
+        log.info(f"svc_cancel_override: room={room}")
         
-        # TODO: Implement:
-        # - Stop timer.pyheat_{room}_override
-        # - Clear room_controller override
-        # - Trigger recompute
+        # Get room controller
+        room_obj = self.room_controller.get_room(room) if self.room_controller else None
+        if not room_obj:
+            log.error(f"svc_cancel_override: room '{room}' not found")
+            raise ValueError(f"Room '{room}' not found")
+        
+        # Clear override
+        room_obj.clear_override()
+        
+        # Cancel timer
+        timer_entity = f"timer.pyheat_{room}_override"
+        service.call("timer", "cancel", entity_id=timer_entity)
+        
+        log.info(f"Override/boost cancelled for {room}")
+        
+        # Trigger recompute
+        await self.recompute_all()
     
     async def svc_set_mode(self, room: str, mode: str):
         """Service: Set room mode (auto/manual/off).
@@ -296,12 +341,19 @@ class PyHeatOrchestrator:
             room: Room ID
             mode: One of "auto", "manual", "off"
         """
-        log.info(f"[STUB] svc_set_mode: room={room}, mode={mode}")
+        log.info(f"svc_set_mode: room={room}, mode={mode}")
         
-        # TODO: Implement:
-        # - Validate mode
-        # - Update input_select.pyheat_{room}_mode
-        # - Mode change will trigger state_change -> recompute
+        # Capitalize mode for input_select (Auto, Manual, Off)
+        mode_capitalized = mode.capitalize()
+        
+        # Update input_select
+        mode_entity = f"input_select.pyheat_{room}_mode"
+        service.call("input_select", "select_option", entity_id=mode_entity, option=mode_capitalized)
+        
+        log.info(f"Mode set to {mode} for {room}")
+        
+        # Trigger recompute (will also happen via state_change trigger)
+        await self.recompute_all()
     
     async def svc_set_default_target(self, room: str, target: float):
         """Service: Update default_target in schedules.yaml.
@@ -310,25 +362,83 @@ class PyHeatOrchestrator:
             room: Room ID
             target: New default target in °C
         """
-        log.info(f"[STUB] svc_set_default_target: room={room}, target={target}°C")
+        log.info(f"svc_set_default_target: room={room}, target={target}°C")
         
-        # TODO: Implement:
-        # - Load current schedules
-        # - Update room's default_target
-        # - Write back to schedules.yaml via config_loader
-        # - Reload scheduler module
-        # - Trigger recompute
+        # Import config_loader
+        from . import config_loader
+        
+        # Load current schedules
+        schedules_cfg, path, err = await config_loader.load_schedules()
+        if not schedules_cfg:
+            log.error(f"svc_set_default_target: failed to load schedules: {err}")
+            raise ValueError(f"Failed to load schedules: {err}")
+        
+        # Find and update room
+        found = False
+        for room_sched in schedules_cfg.get("rooms", []):
+            if room_sched.get("id") == room:
+                room_sched["default_target"] = target
+                found = True
+                log.info(f"Updated default_target for {room} to {target}°C")
+                break
+        
+        if not found:
+            log.error(f"svc_set_default_target: room '{room}' not found in schedules")
+            raise ValueError(f"Room '{room}' not found in schedules")
+        
+        # Write back to file
+        ok, err = await config_loader.write_schedules(schedules_cfg)
+        if not ok:
+            log.error(f"svc_set_default_target: failed to save schedules.yaml: {err}")
+            raise RuntimeError(f"Failed to save schedules.yaml: {err}")
+        
+        # Reload scheduler module
+        if self.scheduler:
+            self.scheduler.reload(schedules_cfg)
+        
+        log.info(f"Schedules saved and reloaded")
+        
+        # Trigger recompute
+        await self.recompute_all()
     
     async def svc_reload_config(self):
         """Service: Reload configuration from disk."""
-        log.info(f"[STUB] svc_reload_config")
+        log.info("svc_reload_config: reloading configuration from disk")
         
-        # TODO: Implement:
-        # - Call config_loader.reload_configs()
-        # - Rebuild room registry
-        # - Reload scheduler
-        # - Reload sensors
-        # - Trigger recompute
+        # Import config_loader
+        from . import config_loader
+        
+        # Reload configs from disk
+        ok, err = await config_loader.reload_configs()
+        if not ok:
+            log.error(f"svc_reload_config: failed to reload: {err}")
+            raise RuntimeError(f"Failed to reload configuration: {err}")
+        
+        # Get reloaded configs
+        rooms_cfg, _, _ = await config_loader.load_rooms()
+        schedules_cfg, _, _ = await config_loader.load_schedules()
+        
+        # Reload modules
+        if self.sensors:
+            self.sensors.reload_rooms(rooms_cfg)
+            log.info("Sensors reloaded")
+        
+        if self.scheduler:
+            self.scheduler.reload(schedules_cfg)
+            log.info("Scheduler reloaded")
+        
+        if self.room_controller:
+            self.room_controller.reload_rooms(rooms_cfg)
+            log.info("Room controllers reloaded")
+        
+        if self.trv:
+            self.trv.reload(rooms_cfg)
+            log.info("TRV controllers reloaded")
+        
+        log.info("Configuration reloaded successfully")
+        
+        # Trigger recompute
+        await self.recompute_all()
     
     async def svc_replace_schedules(self, schedule_dict: Dict):
         """Service: Replace schedules with new dict and save.
@@ -336,14 +446,27 @@ class PyHeatOrchestrator:
         Args:
             schedule_dict: New schedules dictionary
         """
-        log.info(f"[STUB] svc_replace_schedules")
-        log.debug(f"  Schedules for {len(schedule_dict.get('rooms', []))} room(s)")
+        log.info("svc_replace_schedules: replacing schedules")
+        log.debug(f"  New schedules for {len(schedule_dict.get('rooms', []))} room(s)")
         
-        # TODO: Implement:
-        # - Validate schedule_dict
-        # - Write via config_loader.write_schedules()
-        # - Reload scheduler
-        # - Trigger recompute
+        # Import config_loader
+        from . import config_loader
+        
+        # Write schedules (validates first)
+        ok, err = await config_loader.write_schedules(schedule_dict)
+        if not ok:
+            log.error(f"svc_replace_schedules: validation/write failed: {err}")
+            raise ValueError(f"Failed to replace schedules: {err}")
+        
+        # Reload scheduler
+        if self.scheduler:
+            self.scheduler.reload(schedule_dict)
+            log.info("Scheduler reloaded with new schedules")
+        
+        log.info("Schedules replaced successfully")
+        
+        # Trigger recompute
+        await self.recompute_all()
     
     def shutdown(self):
         """Cleanup on shutdown."""
