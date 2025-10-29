@@ -153,11 +153,15 @@ class PyHeatOrchestrator:
             room_id: Room identifier
             room_status: Room status dict from room.compute()
         """
+        # Get room name for friendly_name (capitalize room_id as fallback)
+        room_name = room_status.get("room_name", room_id.replace("_", " ").title())
+        
         # Build room status entity
         status_str, status_attrs = status.build_room_status(room_status)
         
         # Publish room status
         status_entity = "sensor.pyheat_" + room_id + "_status"
+        status_attrs["friendly_name"] = room_name + " Status"
         state.set(
             status_entity,
             value=status_str,
@@ -171,7 +175,12 @@ class PyHeatOrchestrator:
             state.set(
                 temp_entity,
                 value=round(temp, 1),
-                new_attributes={"unit_of_measurement": "°C", "device_class": "temperature"}
+                new_attributes={
+                    "unit_of_measurement": "°C",
+                    "device_class": "temperature",
+                    "state_class": "measurement",
+                    "friendly_name": room_name + " Temperature"
+                }
             )
         
         # Publish room target
@@ -181,7 +190,12 @@ class PyHeatOrchestrator:
             state.set(
                 target_entity,
                 value=round(target, 1),
-                new_attributes={"unit_of_measurement": "°C", "device_class": "temperature"}
+                new_attributes={
+                    "unit_of_measurement": "°C",
+                    "device_class": "temperature",
+                    "state_class": "measurement",
+                    "friendly_name": room_name + " Target"
+                }
             )
         
         # Publish call for heat
@@ -189,7 +203,10 @@ class PyHeatOrchestrator:
         state.set(
             cfh_entity,
             value="on" if room_status.get("call_for_heat") else "off",
-            new_attributes={"device_class": "heat"}
+            new_attributes={
+                "device_class": "heat",
+                "friendly_name": room_name + " Calling For Heat"
+            }
         )
         
         # Publish valve percent
@@ -198,7 +215,12 @@ class PyHeatOrchestrator:
         state.set(
             valve_entity,
             value=valve_percent,
-            new_attributes={"unit_of_measurement": "%", "min": 0, "max": 100}
+            new_attributes={
+                "unit_of_measurement": "%",
+                "min": 0,
+                "max": 100,
+                "friendly_name": room_name + " Valve"
+            }
         )
         
         # Control TRV valve
@@ -208,7 +230,8 @@ class PyHeatOrchestrator:
         state_entity = "sensor.pyheat_" + room_id + "_state"
         state.set(
             state_entity,
-            value=room_status.get("state", "unknown")
+            value=room_status.get("state", "unknown"),
+            new_attributes={"friendly_name": room_name + " State"}
         )
     
     async def handle_state_change(self, entity_id: str, old_value: Any, new_value: Any):
