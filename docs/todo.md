@@ -36,15 +36,19 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 ## 🚧 In Progress
 
 ### Phase 1: Core Domain Logic
-- [ ] **`sensors.py`** - Temperature sensor fusion
+- [x] **`sensors.py`** - Temperature sensor fusion ✨ NEW
   - Primary/fallback sensor averaging
-  - Staleness detection
+  - Staleness detection (timeout_m)
   - Per-room temperature publishing
+  - Sensor status diagnostics
+  - Integrated with orchestrator
   
-- [ ] **`scheduler.py`** - Schedule resolution
-  - Schedule block evaluation
+- [x] **`scheduler.py`** - Schedule resolution ✨ NEW
+  - Schedule block evaluation by day/time
   - Override/boost application
   - Holiday mode integration
+  - Current block info for status
+  - Integrated with orchestrator
 
 ## 📋 Planned
 
@@ -89,9 +93,15 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## 📝 Notes
 
-**Current Status:** Bootstrap complete, constants defined. Ready to implement domain logic modules.
+**Current Status:** Sensors and scheduler modules implemented and integrated. Both modules loading and configuring successfully.
+
+**Test Results:**
+- ✅ SensorManager: 1 room (pete) with 1 sensor configured
+- ✅ ScheduleManager: 1 room schedule with 12 blocks loaded
+- ✅ Both modules wired into orchestrator
+- ✅ Configuration loading on startup working
 
 **Next Steps:** 
-1. Implement `sensors.py` for temperature fusion
-2. Implement `scheduler.py` for target resolution
-3. Wire both into orchestrator for basic functionality
+1. Implement `room_controller.py` for room state machine and logic
+2. Test temperature fusion and schedule resolution
+3. Begin entity publishing for visibility
