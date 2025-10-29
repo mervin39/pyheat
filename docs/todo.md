@@ -58,15 +58,16 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
   - Override/boost state tracking with expiry
   - Status string generation
   - Integrated with orchestrator
+  
+- [x] **`trv.py`** - TRV control adapter ✨ NEW
+  - TRVController class for individual TRV management
+  - Valve command issuing (opening/closing degree)
+  - Feedback reading from z2m sensors
+  - Command/feedback matching for interlock
+  - TRV interlock status reporting
+  - Integrated with orchestrator
 
 ## 📋 Planned
-
-### Phase 1: Core Domain Logic (continued)
-  
-- [ ] **`trv.py`** - TRV control adapter
-  - Valve command issuing
-  - Feedback reading
-  - Command/feedback matching
 
 ### Phase 2: Boiler & Safety
 - [ ] **`boiler.py`** - Boiler control with safety
@@ -97,16 +98,16 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## 📝 Notes
 
-**Current Status:** Core domain logic modules (sensors, scheduler, room_controller) implemented and integrated. All modules loading successfully.
+**Current Status:** Core domain logic complete! All primary modules (sensors, scheduler, room_controller, trv) implemented and integrated.
 
 **Test Results:**
 - ✅ SensorManager: 1 room (pete) with 1 sensor configured
 - ✅ ScheduleManager: 1 room schedule with 12 blocks loaded, default 19.5°C
 - ✅ RoomControllerManager: 1 room (pete) initialized with hysteresis (0.40/0.10), bands (0.30/0.80/1.50)
-- ✅ All three modules wired into orchestrator
+- ✅ TRVManager: 1 TRV (pete) with command/feedback entities configured
+  - Commands: number.trv_pete_valve_opening_degree, number.trv_pete_valve_closing_degree
+  - Feedback: sensor.trv_pete_valve_opening_degree_z2m, sensor.trv_pete_valve_closing_degree_z2m
+- ✅ All four modules wired into orchestrator
 - ✅ Configuration loading on startup working cleanly
 
-**Next Steps:** Implement trv.py for TRV control adapter (valve commands and feedback reading) 
-1. Implement `room_controller.py` for room state machine and logic
-2. Test temperature fusion and schedule resolution
-3. Begin entity publishing for visibility
+**Next Steps:** Implement boiler.py for boiler control with anti-cycling and TRV interlock safety
