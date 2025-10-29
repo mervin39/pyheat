@@ -105,10 +105,15 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
   - Orchestrator service handlers fully implemented
   - Timer integration working (override/boost)
   
-- [ ] **Core orchestrator implementation** - Replace stubs
-  - Wire up all modules
-  - Implement recompute_all()
-  - Entity publishing
+- [x] **Core orchestrator implementation** ✨ COMPLETE
+  - All modules wired up (sensors, scheduler, room_controller, trv, boiler)
+  - recompute_all() fully implemented with debouncing
+  - Entity publishing working (_publish_room_entities)
+  - **TRV integration**: orchestrator calls trv.set_valve_percent() ✅
+  - Service handlers complete and tested
+  - State change handlers working
+  - Event handlers (cron tick) working
+  - Timer handlers integrated
 
 ### Phase 4: Testing & Polish
 - [ ] End-to-end testing
@@ -125,6 +130,13 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 - ✅ Sensor reading fixed: temperature 17.9°C from sensor.roomtemp_pete
 - ✅ Room controller: auto mode, target 21.0°C (schedule), heating active
 - ✅ Status publishing: global and per-room entities working
+- ✅ **TRV control working END-TO-END**:
+  - Commands sent via service.call("number", "set_value", ...)
+  - Physical valve responds (audible clicks)
+  - Feedback sensors update correctly (sensor.*_z2m entities)
+  - Valve bands working (100% max, 65% mid, 35% low, 0% off)
+  - Mode changes trigger valve updates (auto/manual/off)
+  - Rate limiting enforced (30s minimum between updates)
 - ✅ **Boiler control working**: 
   - Auto mode + heat demand → boiler ON (input_boolean.pyheat_boiler_actor = on)
   - Manual mode (low target) → boiler OFF
@@ -140,5 +152,6 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 **Next Steps:** 
 - Test replace_schedules service (final service to test)
-- Boiler module (deferred - awaiting hardware setup)
-- End-to-end integration testing
+- End-to-end integration testing with multiple rooms
+- Edge case testing (sensor failures, network issues)
+- Performance monitoring
