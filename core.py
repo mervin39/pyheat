@@ -7,20 +7,17 @@ Responsibilities:
 - Applies state precedence, runs recomputes, and enforces safety/interlocks
 - Routes events from ha_triggers to appropriate handlers
 
-This is currently a STUB implementation to allow triggers to fire and log.
-Full implementation will follow as other modules are built.
+Partial implementation: sensors and scheduler modules are now integrated.
 """
 
 from datetime import datetime, timezone
 from typing import Dict, Optional, Any
+from . import sensors
+from . import scheduler
 
 
 class PyHeatOrchestrator:
-    """Central orchestrator for Pyheat heating control.
-    
-    This is a stub implementation that provides the interface expected by
-    ha_triggers.py but doesn't yet implement the full logic.
-    """
+    """Central orchestrator for Pyheat heating control."""
     
     def __init__(self):
         """Initialize the orchestrator."""
@@ -29,9 +26,11 @@ class PyHeatOrchestrator:
         # Room registry (will be populated by config_loader)
         self.rooms = {}
         
+        # Initialize module singletons
+        self.sensors = sensors.init()
+        self.scheduler = scheduler.init()
+        
         # Module references (to be implemented)
-        self.scheduler = None
-        self.sensors = None
         self.room_controllers = {}
         self.trv = None
         self.boiler = None
@@ -40,7 +39,7 @@ class PyHeatOrchestrator:
         self.last_recompute = None
         self.recompute_count = 0
         
-        log.info("PyHeatOrchestrator: initialized (stub)")
+        log.info("PyHeatOrchestrator: initialized with sensors and scheduler modules")
     
     async def recompute_all(self):
         """Recompute all room states, valve positions, and boiler demand.

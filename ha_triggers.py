@@ -151,6 +151,20 @@ async def on_startup():
     _room_registry = config_loader.build_room_registry(rooms_cfg, schedules_cfg)
     log.info(f"Room registry built with {len(_room_registry)} room(s)")
     
+    # Load configurations into modules
+    if _orchestrator:
+        log.info("Loading configurations into sensor and scheduler modules...")
+        
+        # Load sensors
+        if _orchestrator.sensors:
+            _orchestrator.sensors.reload_rooms(rooms_cfg)
+            log.debug("Sensors module configured")
+        
+        # Load schedules
+        if _orchestrator.scheduler:
+            _orchestrator.scheduler.reload(schedules_cfg)
+            log.debug("Scheduler module configured")
+    
     log.info("=== Pyheat configuration ready ===")
     
     # Trigger immediate recompute (if orchestrator exists)
