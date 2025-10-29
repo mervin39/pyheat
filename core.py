@@ -194,11 +194,15 @@ class PyHeatOrchestrator:
         
         # Publish valve percent
         valve_entity = "number.pyheat_" + room_id + "_valve_percent"
+        valve_percent = room_status.get("valve_percent", 0)
         state.set(
             valve_entity,
-            value=room_status.get("valve_percent", 0),
+            value=valve_percent,
             new_attributes={"unit_of_measurement": "%", "min": 0, "max": 100}
         )
+        
+        # Control TRV valve
+        await self.trv.set_valve_percent(room_id, valve_percent)
         
         # Publish room state
         state_entity = "sensor.pyheat_" + room_id + "_state"

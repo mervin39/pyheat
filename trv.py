@@ -69,10 +69,10 @@ class TRVController:
         # Issue commands to HA entities
         try:
             # Set opening degree
-            await state.setattr(self.cmd_open_entity, value=opening)
+            state.set(self.cmd_open_entity, value=opening)
             
             # Set closing degree
-            await state.setattr(self.cmd_close_entity, value=closing)
+            state.set(self.cmd_close_entity, value=closing)
             
             log.debug(f"TRVController {self.room_id}: commands sent successfully")
             
