@@ -1,6 +1,6 @@
 # Pyheat - Home Assistant Heating Control
 
-A sophisticated Home Assistant heating controller written in Pyscript that manages smart TRV control, boiler operation, per-room temperature monitoring, and flexible scheduling.
+A Home Assistant heating controller written in Pyscript that manages smart TRV control, boiler operation, per-room temperature monitoring, and flexible scheduling.
 
 ## Overview
 
@@ -40,15 +40,15 @@ Defines each room's sensors, TRV, and control parameters.
 
 ```yaml
 rooms:
-  - id: pete
-    name: "Pete's Room"
+  - id: <room_id>
+    name: "<Room Name>"
     precision: 1  # Temperature decimal places
     sensors:
-      - entity_id: sensor.roomtemp_pete
+      - entity_id: sensor.roomtemp_<room_id>
         role: primary  # primary or fallback
         timeout_m: 180  # Minutes before considered stale
     trv:
-      entity_id: climate.trv_pete  # Used to derive command entities
+      entity_id: climate.trv_<room_id>  # Used to derive command entities
     hysteresis:
       on_delta_c: 0.40   # Start heating when target - temp >= this
       off_delta_c: 0.10  # Stop heating when target - temp <= this
@@ -65,9 +65,9 @@ rooms:
 ```
 
 **TRV Control Notes:**
-- `climate.trv_pete` is used **only** to derive the actual control entities
-- Pyheat controls via `number.trv_pete_valve_opening_degree` and `number.trv_pete_valve_closing_degree`
-- Feedback via `sensor.trv_pete_valve_opening_degree_z2m` and `sensor.trv_pete_valve_closing_degree_z2m`
+- `climate.trv_<room_id>` is used **only** to derive the actual control entities
+- Pyheat controls via `number.trv_<room_id>_valve_opening_degree` and `number.trv_<room_id>_valve_closing_degree`
+- Feedback via `sensor.trv_<room_id>_valve_opening_degree_z2m` and `sensor.trv_<room_id>_valve_closing_degree_z2m`
 - This bypasses the TRV's internal logic for precise control
 
 ### Schedules Configuration (`config/schedules.yaml`)
@@ -76,7 +76,7 @@ Defines per-room heating schedules with default targets and timed blocks.
 
 ```yaml
 rooms:
-  - id: pete
+  - id: <room_id>
     default_target: 19.5  # °C used outside scheduled blocks
     week:
       mon:
@@ -155,10 +155,10 @@ Set an absolute temperature override for a room.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8123/api/services/pyheat/override \
+curl -X POST https://YOUR_HA_URL/api/services/pyheat/override \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"room": "pete", "target": 22.0, "minutes": 60}'
+  -d '{"room": "living_room", "target": 22.0, "minutes": 60}'
 ```
 
 **Notes:**
@@ -178,10 +178,10 @@ Apply a delta-based temperature boost.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8123/api/services/pyheat/boost \
+curl -X POST https://YOUR_HA_URL/api/services/pyheat/boost \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"room": "pete", "delta": 2.0, "minutes": 45}'
+  -d '{"room": "bedroom", "delta": 2.0, "minutes": 45}'
 ```
 
 **Notes:**
@@ -198,10 +198,10 @@ Cancel active override or boost for a room.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8123/api/services/pyheat/cancel_override \
+curl -X POST https://YOUR_HA_URL/api/services/pyheat/cancel_override \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"room": "pete"}'
+  -d '{"room": "living_room"}'
 ```
 
 ### `pyheat.set_mode`
@@ -214,10 +214,10 @@ Change a room's operating mode.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8123/api/services/pyheat/set_mode \
+curl -X POST https://YOUR_HA_URL/api/services/pyheat/set_mode \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"room": "pete", "mode": "manual"}'
+  -d '{"room": "bedroom", "mode": "manual"}'
 ```
 
 **Modes:**
@@ -235,10 +235,10 @@ Update a room's default target temperature in the schedule.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8123/api/services/pyheat/set_default_target \
+curl -X POST https://YOUR_HA_URL/api/services/pyheat/set_default_target \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"room": "pete", "target": 20.0}'
+  -d '{"room": "living_room", "target": 20.0}'
 ```
 
 **Notes:**
@@ -255,7 +255,7 @@ Reload all configurations from disk.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8123/api/services/pyheat/reload_config \
+curl -X POST https://YOUR_HA_URL/api/services/pyheat/reload_config \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json"
 ```
@@ -275,14 +275,14 @@ Atomically replace the entire schedules configuration.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8123/api/services/pyheat/replace_schedules \
+curl -X POST https://YOUR_HA_URL/api/services/pyheat/replace_schedules \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
   "schedule": {
     "rooms": [
       {
-        "id": "pete",
+        "id": "living_room",
         "default_target": 19.5,
         "week": {
           "mon": [
@@ -316,14 +316,14 @@ curl -X POST http://localhost:8123/api/services/pyheat/replace_schedules \
 Read the current schedule from the status entity attributes:
 
 ```bash
-curl -s http://localhost:8123/api/states/sensor.pyheat_pete_status \
+curl -s https://YOUR_HA_URL/api/states/sensor.pyheat_<room_id>_status \
   -H "Authorization: Bearer YOUR_TOKEN" | jq '.attributes'
 ```
 
 ### Get All Room States
 
 ```bash
-curl -s http://localhost:8123/api/states \
+curl -s https://YOUR_HA_URL/api/states \
   -H "Authorization: Bearer YOUR_TOKEN" | \
   jq '.[] | select(.entity_id | startswith("sensor.pyheat_"))'
 ```
@@ -331,21 +331,21 @@ curl -s http://localhost:8123/api/states \
 ### Get Room Target Temperature
 
 ```bash
-curl -s http://localhost:8123/api/states/sensor.pyheat_pete_target \
+curl -s https://YOUR_HA_URL/api/states/sensor.pyheat_<room_id>_target \
   -H "Authorization: Bearer YOUR_TOKEN" | jq '.state'
 ```
 
 ### Get Room Temperature
 
 ```bash
-curl -s http://localhost:8123/api/states/sensor.pyheat_pete_temperature \
+curl -s https://YOUR_HA_URL/api/states/sensor.pyheat_<room_id>_temperature \
   -H "Authorization: Bearer YOUR_TOKEN" | jq '.state'
 ```
 
 ### Get Global Status
 
 ```bash
-curl -s http://localhost:8123/api/states/sensor.pyheat_status \
+curl -s https://YOUR_HA_URL/api/states/sensor.pyheat_status \
   -H "Authorization: Bearer YOUR_TOKEN" | \
   jq '{state: .state, mode: .attributes.mode, active_rooms: .attributes.active_rooms}'
 ```
@@ -441,12 +441,12 @@ This triggers automatic reload within seconds.
 ### Check TRV Commands
 
 ```bash
-# Check commanded valve position
-curl -s http://localhost:8123/api/states/number.trv_pete_valve_opening_degree \
+# Check commanded valve position (example for "bedroom" room)
+curl -s https://YOUR_HA_URL/api/states/number.trv_bedroom_valve_opening_degree \
   -H "Authorization: Bearer YOUR_TOKEN" | jq '.state'
 
 # Check feedback (actual position)
-curl -s http://localhost:8123/api/states/sensor.trv_pete_valve_opening_degree_z2m \
+curl -s https://YOUR_HA_URL/api/states/sensor.trv_bedroom_valve_opening_degree_z2m \
   -H "Authorization: Bearer YOUR_TOKEN" | jq '.state'
 ```
 
