@@ -78,11 +78,16 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 ## 📋 Planned
 
 ### Phase 2: Boiler & Safety
-- [ ] **`boiler.py`** - Boiler control with safety ⏸️ **DEFERRED - awaiting hardware setup**
-  - Anti short-cycling
-  - TRV-open interlock
-  - Force-off handling
-  - Note: Skipping for now until boiler hardware is properly configured
+- [x] **`boiler.py`** - Dummy boiler control ✨ IMPLEMENTED
+  - Simple on/off based on room demand
+  - Uses input_boolean.pyheat_boiler_actor as control entity
+  - Integrated into orchestrator recompute_all()
+  - **Tested and working**: boiler ON when room calls for heat, OFF when no demand
+  - Future enhancements (deferred):
+    - Anti short-cycling (minimum on/off times)
+    - TRV-open interlock safety check
+    - Force-off handling
+    - Real hardware integration
 
 ### Phase 3: Integration
 - [x] **`ha_services.py`** - Service registration ✨ COMPLETE
@@ -116,10 +121,14 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 **Current Status:** All core modules and services complete! System is operational end-to-end.
 
 **Test Results:**
-- ✅ All modules loading: sensors, scheduler, room_controller, trv, status, ha_services
+- ✅ All modules loading: sensors, scheduler, room_controller, trv, status, ha_services, **boiler**
 - ✅ Sensor reading fixed: temperature 17.9°C from sensor.roomtemp_pete
 - ✅ Room controller: auto mode, target 21.0°C (schedule), heating active
 - ✅ Status publishing: global and per-room entities working
+- ✅ **Boiler control working**: 
+  - Auto mode + heat demand → boiler ON (input_boolean.pyheat_boiler_actor = on)
+  - Manual mode (low target) → boiler OFF
+  - Logs confirm: "turning boiler ON (demand from 1 room(s))" / "turning boiler OFF (no demand)"
 - ✅ Services in **pyheat domain** (pyheat.*, not pyscript.*):
   - **pyheat.boost**: Tested with delta +1.5°C for 45min → status "boost(+1.5) 44m", target=21.0°C ✅
   - **pyheat.override**: Tested with absolute 22.0°C for 30min → status "override(22.0) 29m" ✅
