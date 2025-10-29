@@ -15,6 +15,7 @@ Services:
 - pyheat.set_mode(room, mode) - Change room mode (auto/manual/off)
 - pyheat.set_default_target(room, target) - Update room's default target in schedules.yaml
 - pyheat.reload_config() - Reload rooms.yaml and schedules.yaml
+- pyheat.get_schedules() - Get current schedules configuration
 - pyheat.replace_schedules(schedule) - Atomically replace schedules.yaml
 """
 
@@ -352,4 +353,34 @@ async def replace_schedules(schedule: Dict[str, Any] = None):
         return {"success": True}
     except Exception as e:
         log.error(f"pyheat.replace_schedules failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@service("pyheat.get_schedules")
+async def get_schedules():
+    """Get the current schedules configuration.
+    
+    Returns:
+        Dict with:
+        - success: bool
+        - schedules: dict (the complete schedules.yaml contents)
+        - error: str (if failed)
+        
+    Behavior:
+        - Returns the current in-memory schedules
+        - Does NOT reload from disk
+        - Use this to read before modifying with replace_schedules
+    """
+    # Call orchestrator
+    if not _orchestrator:
+        log.error("pyheat.get_schedules: orchestrator not available")
+        return {"success": False, "error": "orchestrator not available"}
+    
+    log.debug("pyheat.get_schedules: retrieving current schedules")
+    
+    try:
+        schedules = await _orchestrator.svc_get_schedules()
+        return {"success": True, "schedules": schedules}
+    except Exception as e:
+        log.error(f"pyheat.get_schedules failed: {e}")
         return {"success": False, "error": str(e)}

@@ -471,6 +471,27 @@ class PyHeatOrchestrator:
         # Trigger recompute
         await self.recompute_all()
     
+    async def svc_get_schedules(self) -> Dict:
+        """Service: Get current schedules configuration.
+        
+        Returns:
+            Dict containing the current schedules (schedules.yaml format)
+        """
+        log.debug("svc_get_schedules: retrieving current schedules")
+        
+        # Import config_loader
+        from . import config_loader
+        
+        # Load current schedules from disk (most up-to-date)
+        schedules_cfg, ok, err = await config_loader.load_schedules()
+        
+        if not ok:
+            log.error(f"svc_get_schedules: failed to load schedules: {err}")
+            raise ValueError(f"Failed to load schedules: {err}")
+        
+        log.debug(f"svc_get_schedules: returning {len(schedules_cfg.get('rooms', []))} room schedule(s)")
+        return schedules_cfg
+    
     async def svc_replace_schedules(self, schedule_dict: Dict):
         """Service: Replace schedules with new dict and save.
         
