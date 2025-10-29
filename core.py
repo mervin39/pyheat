@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 from . import sensors
 from . import scheduler
+from . import room_controller
 
 
 class PyHeatOrchestrator:
@@ -29,9 +30,9 @@ class PyHeatOrchestrator:
         # Initialize module singletons
         self.sensors = sensors.init()
         self.scheduler = scheduler.init()
+        self.room_controller = room_controller.init()
         
         # Module references (to be implemented)
-        self.room_controllers = {}
         self.trv = None
         self.boiler = None
         
@@ -39,7 +40,7 @@ class PyHeatOrchestrator:
         self.last_recompute = None
         self.recompute_count = 0
         
-        log.info("PyHeatOrchestrator: initialized with sensors and scheduler modules")
+        log.info("PyHeatOrchestrator: initialized with sensors, scheduler, and room_controller modules")
     
     async def recompute_all(self):
         """Recompute all room states, valve positions, and boiler demand.

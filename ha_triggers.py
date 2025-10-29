@@ -153,7 +153,7 @@ async def on_startup():
     
     # Load configurations into modules
     if _orchestrator:
-        log.info("Loading configurations into sensor and scheduler modules...")
+        log.info("Loading configurations into modules...")
         
         # Load sensors
         if _orchestrator.sensors:
@@ -164,6 +164,11 @@ async def on_startup():
         if _orchestrator.scheduler:
             _orchestrator.scheduler.reload(schedules_cfg)
             log.debug("Scheduler module configured")
+        
+        # Load room controllers
+        if _orchestrator.room_controller:
+            _orchestrator.room_controller.reload_rooms(rooms_cfg)
+            log.debug("Room controller module configured")
     
     log.info("=== Pyheat configuration ready ===")
     
