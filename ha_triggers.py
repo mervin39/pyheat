@@ -169,6 +169,11 @@ async def on_startup():
         if _orchestrator.room_controller:
             _orchestrator.room_controller.reload_rooms(rooms_cfg)
             log.debug("Room controller module configured")
+        
+        # Load TRVs
+        if _orchestrator.trv:
+            _orchestrator.trv.reload_rooms(rooms_cfg)
+            log.debug("TRV module configured")
     
     log.info("=== Pyheat configuration ready ===")
     
