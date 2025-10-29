@@ -67,6 +67,14 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
   - TRV interlock status reporting
   - Integrated with orchestrator
 
+- [x] **`status.py`** - Status composition ✨ NEW
+  - Global status formatting (sensor.pyheat_status)
+  - Per-room status strings (sensor.pyheat_<room>_status)
+  - Short reason strings for all states
+  - Attributes formatting with mode, temps, targets
+  - Stateless utility functions
+  - Imported by orchestrator
+
 ## 📋 Planned
 
 ### Phase 2: Boiler & Safety
@@ -74,10 +82,6 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
   - Anti short-cycling
   - TRV-open interlock
   - Force-off handling
-  
-- [ ] **`status.py`** - Status composition
-  - Global status entity
-  - Per-room status strings
 
 ### Phase 3: Integration
 - [ ] **`ha_services.py`** - Service registration
@@ -98,7 +102,7 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## 📝 Notes
 
-**Current Status:** Core domain logic complete! All primary modules (sensors, scheduler, room_controller, trv) implemented and integrated.
+**Current Status:** All core modules complete! Sensors, scheduler, room_controller, trv, and status modules implemented and integrated.
 
 **Test Results:**
 - ✅ SensorManager: 1 room (pete) with 1 sensor configured
@@ -107,7 +111,8 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 - ✅ TRVManager: 1 TRV (pete) with command/feedback entities configured
   - Commands: number.trv_pete_valve_opening_degree, number.trv_pete_valve_closing_degree
   - Feedback: sensor.trv_pete_valve_opening_degree_z2m, sensor.trv_pete_valve_closing_degree_z2m
-- ✅ All four modules wired into orchestrator
+- ✅ StatusModule: Stateless functions for global and per-room status composition
+- ✅ All five modules imported by orchestrator
 - ✅ Configuration loading on startup working cleanly
 
-**Next Steps:** Implement boiler.py for boiler control with anti-cycling and TRV interlock safety
+**Next Steps:** Implement ha_services.py to expose pyheat.* service calls, then begin orchestrator recompute_all() implementation
