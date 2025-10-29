@@ -221,14 +221,9 @@ class PyHeatOrchestrator:
             old_value: Previous state value
             new_value: New state value
         """
-        log.debug(f"[STUB] handle_state_change: {entity_id}")
-        log.debug(f"  Old: {old_value}")
-        log.debug(f"  New: {new_value}")
-        
-        # TODO: Implement state change handling:
-        # - Route to appropriate module (sensors, trv, etc.)
-        # - Update internal state
-        # - May trigger recompute via ha_triggers debounce
+        # State change handling is done by ha_triggers which calls recompute
+        # This method exists for logging and potential future per-entity handling
+        log.debug(f"State change: {entity_id}: {old_value} -> {new_value}")
     
     async def handle_event(self, event_type: str, data: Dict):
         """Handle generic events.
@@ -237,19 +232,13 @@ class PyHeatOrchestrator:
             event_type: Type of event (e.g., "cron_tick")
             data: Event data dictionary
         """
-        log.debug(f"[STUB] handle_event: {event_type}")
-        
         if event_type == "cron_tick":
             # Periodic tick for schedule evaluation and stale checks
+            # Recompute is triggered by ha_triggers after this returns
             now = data.get("timestamp", datetime.now(tz=timezone.utc))
-            log.debug(f"  Cron tick at {now.strftime('%H:%M:%S')}")
-            
-            # TODO: Implement:
-            # - Check for schedule boundary crossings
-            # - Mark stale sensors
-            # - Update time-based state
+            log.debug(f"Cron tick at {now.strftime('%H:%M:%S')}")
         else:
-            log.debug(f"  Unhandled event type: {event_type}")
+            log.debug(f"Unhandled event type: {event_type}")
     
     async def handle_timer(self, room_id: str):
         """Handle timer events for room overrides/boosts.
@@ -257,13 +246,9 @@ class PyHeatOrchestrator:
         Args:
             room_id: ID of the room whose timer changed
         """
-        log.info(f"[STUB] handle_timer: {room_id}")
-        
-        # TODO: Implement:
-        # - Read timer state (active/paused/idle)
-        # - Read remaining time
-        # - Update room_controller override state
-        # - Trigger recompute
+        # Timer state is read during recompute from HA timer entity
+        # This method exists for logging and potential future timer-specific handling
+        log.debug(f"Timer event for room: {room_id}")
     
     # Service handlers (called by ha_services.py when implemented)
     
@@ -494,9 +479,6 @@ class PyHeatOrchestrator:
     def shutdown(self):
         """Cleanup on shutdown."""
         log.info("PyHeatOrchestrator: shutting down...")
-        
-        # TODO: Cleanup resources
-        
         log.info("PyHeatOrchestrator: shutdown complete")
 
 
