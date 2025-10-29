@@ -66,13 +66,13 @@ class TRVController:
         
         log.info(f"TRVController {self.room_id}: setting valve to {percent}% (open={opening}, close={closing})")
         
-        # Issue commands to HA entities
+        # Issue commands to HA entities using number.set_value service
         try:
             # Set opening degree
-            state.set(self.cmd_open_entity, value=opening)
+            service.call("number", "set_value", entity_id=self.cmd_open_entity, value=opening)
             
             # Set closing degree
-            state.set(self.cmd_close_entity, value=closing)
+            service.call("number", "set_value", entity_id=self.cmd_close_entity, value=closing)
             
             log.debug(f"TRVController {self.room_id}: commands sent successfully")
             
