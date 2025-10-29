@@ -49,15 +49,19 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
   - Holiday mode integration
   - Current block info for status
   - Integrated with orchestrator
+  
+- [x] **`room_controller.py`** - Room state machine ✨ NEW
+  - Room class with first-class state management
+  - Target resolution (precedence: off → manual → override → schedule)
+  - Call-for-heat with asymmetric hysteresis
+  - Valve percentage with stepped bands + step hysteresis
+  - Override/boost state tracking with expiry
+  - Status string generation
+  - Integrated with orchestrator
 
 ## 📋 Planned
 
 ### Phase 1: Core Domain Logic (continued)
-- [ ] **`room_controller.py`** - Room state machine
-  - Target resolution (precedence chain)
-  - Call-for-heat with hysteresis
-  - Valve percentage with bands
-  - Status string generation
   
 - [ ] **`trv.py`** - TRV control adapter
   - Valve command issuing
@@ -93,15 +97,16 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## 📝 Notes
 
-**Current Status:** Sensors and scheduler modules implemented and integrated. Both modules loading and configuring successfully.
+**Current Status:** Core domain logic modules (sensors, scheduler, room_controller) implemented and integrated. All modules loading successfully.
 
 **Test Results:**
 - ✅ SensorManager: 1 room (pete) with 1 sensor configured
-- ✅ ScheduleManager: 1 room schedule with 12 blocks loaded
-- ✅ Both modules wired into orchestrator
-- ✅ Configuration loading on startup working
+- ✅ ScheduleManager: 1 room schedule with 12 blocks loaded, default 19.5°C
+- ✅ RoomControllerManager: 1 room (pete) initialized with hysteresis (0.40/0.10), bands (0.30/0.80/1.50)
+- ✅ All three modules wired into orchestrator
+- ✅ Configuration loading on startup working cleanly
 
-**Next Steps:** 
+**Next Steps:** Implement trv.py for TRV control adapter (valve commands and feedback reading) 
 1. Implement `room_controller.py` for room state machine and logic
 2. Test temperature fusion and schedule resolution
 3. Begin entity publishing for visibility
