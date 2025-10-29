@@ -36,6 +36,7 @@ class Room:
             config: Room configuration from rooms.yaml with optional tuning
         """
         self.room_id = room_id
+        self.room_name = config.get("name", room_id.replace("_", " ").title())
         
         # Configuration
         self.precision = config.get("precision", 1)
@@ -397,6 +398,7 @@ class Room:
         
         return {
             "room_id": self.room_id,
+            "room_name": self.room_name,
             "state": self.state,
             "temp": self.temp,
             "target": self.target,
@@ -465,6 +467,7 @@ class Room:
         """
         return {
             "room_id": self.room_id,
+            "room_name": self.room_name,
             "state": self.state,
             "mode": self.mode,
             "temp": self.temp,
