@@ -217,16 +217,20 @@ class SensorManager:
                 fallback_temps.append(temp_value)
         
         # Apply fusion logic
+        precision = self.rooms[room_id].get("precision", 1)
+        
         if primary_temps:
             # Use primary sensors
             fused = sum(primary_temps) / len(primary_temps)
-            log.debug(f"SensorManager: room {room_id} temp from {len(primary_temps)} primary sensor(s): {fused:.2f}°C")
-            return fused, False
+            fused_rounded = round(fused, precision)
+            log.debug(f"SensorManager: room {room_id} temp from {len(primary_temps)} primary sensor(s): {fused_rounded:.{precision}f}°C")
+            return fused_rounded, False
         elif fallback_temps:
             # Fall back to fallback sensors
             fused = sum(fallback_temps) / len(fallback_temps)
-            log.debug(f"SensorManager: room {room_id} temp from {len(fallback_temps)} fallback sensor(s): {fused:.2f}°C")
-            return fused, False
+            fused_rounded = round(fused, precision)
+            log.debug(f"SensorManager: room {room_id} temp from {len(fallback_temps)} fallback sensor(s): {fused_rounded:.{precision}f}°C")
+            return fused_rounded, False
         else:
             # No sensors available - room is stale
             log.warning(f"SensorManager: room {room_id} has no available sensors (STALE)")

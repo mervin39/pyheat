@@ -6,6 +6,9 @@ rooms:
       - entity_id: sensor.roomtemp_pete
         role: primary
         timeout_m: 180
+      - entity_id: sensor.pete_snzb02_temperature
+        role: primary
+        timeout_m: 180
     trv:
       entity_id: climate.trv_pete
     hysteresis:
