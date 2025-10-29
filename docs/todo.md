@@ -86,17 +86,17 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ### Phase 3: Integration
 - [x] **`ha_services.py`** - Service registration ✨ COMPLETE
-  - All pyheat.* services registered under pyscript domain
+  - All pyheat.* services registered under **pyheat domain** (not pyscript)
   - Argument validation with proper error messages
   - Error handling and exceptions
   - All 7 services working:
-    - pyscript.override(room, target, minutes)
-    - pyscript.boost(room, delta, minutes)
-    - pyscript.cancel_override(room)
-    - pyscript.set_mode(room, mode)
-    - pyscript.set_default_target(room, target)
-    - pyscript.reload_config()
-    - pyscript.replace_schedules(schedule)
+    - **pyheat.override**(room, target, minutes) ✅
+    - **pyheat.boost**(room, delta, minutes) ✅
+    - **pyheat.cancel_override**(room) ✅
+    - **pyheat.set_mode**(room, mode)
+    - **pyheat.set_default_target**(room, target)
+    - **pyheat.reload_config**()
+    - **pyheat.replace_schedules**(schedule)
   - Orchestrator service handlers fully implemented
   - Timer integration working (override/boost)
   
@@ -120,12 +120,14 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 - ✅ Sensor reading fixed: temperature 17.9°C from sensor.roomtemp_pete
 - ✅ Room controller: auto mode, target 19.5°C (schedule), heating active
 - ✅ Status publishing: global and per-room entities working
-- ✅ Services tested:
-  - pyscript.boost(room="pete", delta=2.0, minutes=60) ✅ Working!
-  - Status shows: "boost(+2.0) 59m", target=21.5°C, override_active=true
-  - Timer started and countdown working
+- ✅ Services in **pyheat domain** (pyheat.*, not pyscript.*):
+  - pyheat.boost(room="pete", delta=1.5, minutes=45) ✅ Working!
+  - Status shows: "boost(+1.5) 44m", target=21.0°C, override_active=true
+  - pyheat.cancel_override(room="pete") ✅ Working!
+  - Status restored: "heating", target=19.5°C, override_active=false
+  - Timer integration confirmed (start/cancel working)
 
 **Next Steps:** 
-- Testing additional services (override, cancel_override, set_mode)
+- Testing remaining services (override, set_mode, set_default_target)
 - Boiler module (deferred - awaiting hardware setup)
 - End-to-end integration testing
