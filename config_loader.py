@@ -130,6 +130,10 @@ def _write_file_sync(path: str, content: str) -> Optional[str]:
         try:
             os.write(temp_fd, content.encode("utf-8"))
             os.close(temp_fd)
+            
+            # Set permissions to 644 (readable by all, writable by owner)
+            os.chmod(temp_path, 0o644)
+            
             os.replace(temp_path, path)
             return None
         except Exception:
