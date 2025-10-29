@@ -1,0 +1,61 @@
+# -----------------------------------------------------------------------------
+# NOT CURRENTLY USED
+# PyHeat Generic Thermostats 
+#
+# These create the climate entities for the Home Assistant UI.
+# Each thermostat links a temperature sensor to its manual request switch.
+# -----------------------------------------------------------------------------
+
+- platform: generic_thermostat
+  unique_id: pyheat_abbys_room_thermostat
+  name: PyHeat Abbys Room Thermostat
+  heater: input_boolean.pyheat_abbys_room_manual_request
+  target_sensor: input_number.pyheat_abbys_room_temp
+  min_temp: 15
+  max_temp: 25
+  target_temp: 20
+
+- platform: generic_thermostat
+  unique_id: pyheat_bathroom_thermostat
+  name: PyHeat Bathroom Thermostat
+  heater: input_boolean.pyheat_bathroom_manual_request
+  target_sensor: input_number.pyheat_bathroom_temp
+  min_temp: 15
+  max_temp: 25
+  target_temp: 21
+
+- platform: generic_thermostat
+  unique_id: pyheat_dining_room_thermostat
+  name: PyHeat Dining Room Thermostat
+  heater: input_boolean.pyheat_dining_room_manual_request
+  target_sensor: input_number.pyheat_dining_room_temp
+  min_temp: 15
+  max_temp: 25
+  target_temp: 20
+
+- platform: generic_thermostat
+  unique_id: pyheat_living_room_thermostat
+  name: PyHeat Living Room Thermostat
+  heater: input_boolean.pyheat_living_room_manual_request
+  target_sensor: input_number.pyheat_living_room_temp
+  min_temp: 15
+  max_temp: 25
+  target_temp: 21
+
+- platform: generic_thermostat
+  unique_id: pyheat_office_thermostat
+  name: PyHeat Office Thermostat
+  heater: input_boolean.pyheat_office_manual_request
+  target_sensor: input_number.pyheat_office_temp
+  min_temp: 15
+  max_temp: 25
+  target_temp: 20
+
+- platform: generic_thermostat
+  unique_id: pyheat_petes_room_thermostat
+  name: PyHeat Petes Room Thermostat
+  heater: input_boolean.pyheat_petes_room_manual_request
+  target_sensor: input_number.pyheat_petes_room_temp
+  min_temp: 15
+  max_temp: 25
+  target_temp: 20

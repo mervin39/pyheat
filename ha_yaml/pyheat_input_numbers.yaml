@@ -1,0 +1,60 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_input_numbers.yaml
+# Included via: input_number: !include_dir_merge_named yaml/input_number
+# Symlink target: yaml/input_number/pyheat_input_numbers.yaml
+# Contents: per-room manual setpoint inputs (°C) for Pyheat.
+# -----------------------------------------------------------------------------
+
+pyheat_pete_manual_setpoint:
+  name: "Pete’s Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_abby_manual_setpoint:
+  name: "Abby’s Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_office_manual_setpoint:
+  name: "Office Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_lounge_manual_setpoint:
+  name: "Living Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_games_manual_setpoint:
+  name: "Dining Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_bathroom_manual_setpoint:
+  name: "Bathroom Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator

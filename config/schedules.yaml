@@ -1,0 +1,47 @@
+rooms:
+  - id: pete
+    default_target: 19.5
+    week:
+      mon:
+        - start: "06:30"
+          end: "08:30"
+          target: 20.5
+        - start: "18:00"
+          end: "22:30"
+          target: 21.0
+      tue:
+        - start: "06:30"
+          end: "08:30"
+          target: 20.5
+        - start: "18:00"
+          end: "22:30"
+          target: 21.0
+      wed:
+        - start: "06:30"
+          end: "08:30"
+          target: 20.5
+        - start: "18:00"
+          end: "22:30"
+          target: 21.0
+      thu:
+        - start: "06:30"
+          end: "08:30"
+          target: 20.5
+        - start: "18:00"
+          end: "22:30"
+          target: 21.0
+      fri:
+        - start: "06:30"
+          end: "08:30"
+          target: 20.5
+        - start: "17:00"
+          end: "23:00"
+          target: 21.5
+      sat:
+        - start: "08:00"
+          end: "23:00"
+          target: 21.5
+      sun:
+        - start: "08:00"
+          end: "22:00"
+          target: 21.0

@@ -1,0 +1,14 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_input_booleans.yaml
+# Included via: input_boolean: !include_dir_merge_named yaml/input_boolean
+# Symlink target: yaml/input_boolean/pyheat_input_booleans.yaml
+# Contents: master enable, holiday mode, boiler actor toggles.
+# -----------------------------------------------------------------------------
+
+pyheat_master_enable:
+  name: PyHeat Master Enable
+  icon: mdi:home-automation
+
+pyheat_holiday_mode:
+  name: PyHeat Holiday Mode
+  icon: mdi:airplane
