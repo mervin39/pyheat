@@ -148,10 +148,11 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
   - **pyheat.set_mode**: Switched auto→manual→auto → mode changes reflected, targets updated ✅
   - **pyheat.set_default_target**: Changed 19.5→20.0 → schedules.yaml updated, config reloaded ✅
   - **pyheat.reload_config**: Reloaded all modules (sensors, scheduler, rooms, TRV) successfully ✅
+  - **pyheat.replace_schedules**: Replaced entire schedule → schedules.yaml atomically updated, scheduler reloaded, new targets applied ✅
   - Timer integration confirmed (start/cancel working)
 
 **Next Steps:** 
-- Test replace_schedules service (final service to test)
 - End-to-end integration testing with multiple rooms
 - Edge case testing (sensor failures, network issues)
 - Performance monitoring
+- **All 7 services fully tested and working!** ✅
