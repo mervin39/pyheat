@@ -127,25 +127,36 @@ def build_status(
     else:
         mode = "enabled"
     
-    # Filter rooms calling for heat
-    calling_rooms = [
-        r for r in rooms
-        if r.get("call_for_heat", False) and r.get("state") not in ["off", "stale"]
-    ]
+    # Filter rooms calling for heat (avoid list comprehension for pyscript)
+    calling_rooms = []
+    for r in rooms:
+        if r.get("call_for_heat", False) and r.get("state") not in ["off", "stale"]:
+            calling_rooms.append(r)
     
-    active_room_ids = [r.get("room_id") for r in calling_rooms]
+    # Get active room IDs (avoid list comprehension)
+    active_room_ids = []
+    for r in calling_rooms:
+        active_room_ids.append(r.get("room_id"))
+    
     room_calling_count = len(calling_rooms)
     any_call_for_heat = room_calling_count > 0
     
-    # Determine state string
+    # Determine state string (avoid all() generator expression)
+    all_stale = True
+    for r in rooms:
+        if r.get("state") != "stale":
+            all_stale = False
+            break
+    
     if not master_enable:
         state_str = "disabled"
-    elif all(r.get("state") == "stale" for r in rooms):
+    elif all_stale and len(rooms) > 0:
         # All rooms stale
         state_str = "error (all stale)"
     elif any_call_for_heat:
         # At least one room calling
-        state_str = f"heating ({room_calling_count} room{'s' if room_calling_count != 1 else ''})"
+        suffix = 's' if room_calling_count != 1 else ''
+        state_str = "heating (" + str(room_calling_count) + " room" + suffix + ")"
     else:
         # Idle
         state_str = "idle"

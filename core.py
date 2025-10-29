@@ -54,24 +54,143 @@ class PyHeatOrchestrator:
         4. Computes valve percentages
         5. Aggregates room demands
         6. Controls boiler with safety checks
-        
-        Currently a STUB that just logs.
+        7. Publishes status entities
         """
         self.recompute_count += 1
-        self.last_recompute = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=timezone.utc)
+        self.last_recompute = now
         
-        log.info(f"[STUB] recompute_all() called (count: {self.recompute_count})")
-        log.debug(f"  Timestamp: {self.last_recompute.isoformat()}")
-        log.debug(f"  Rooms in registry: {len(self.rooms)}")
+        log.debug(f"recompute_all() called (count: {self.recompute_count}) at {now.strftime('%H:%M:%S')}")
         
-        # TODO: Implement full recompute logic:
-        # - Get current temps from sensors module
-        # - Resolve targets from scheduler module
-        # - Update room_controller for each room
-        # - Aggregate call-for-heat states
-        # - Check TRV feedback for interlock
-        # - Control boiler via boiler module
-        # - Publish status entities
+        # Get all room controllers
+        all_rooms = self.room_controller.get_all_rooms() if self.room_controller else {}
+        
+        if not all_rooms:
+            log.debug("No rooms configured yet")
+            return
+        
+        # Collect room status from each room
+        room_statuses = []
+        
+        for room_id, room in all_rooms.items():
+            # Get current temperature from sensors
+            temp = None
+            is_stale = True
+            if self.sensors:
+                temp, is_stale = self.sensors.get_room_temp(room_id, now)
+            
+            # Get scheduled target from scheduler
+            schedule_target = None
+            if self.scheduler:
+                schedule_target = self.scheduler.get_scheduled_target(room_id, now)
+            
+            # Get mode and manual setpoint from HA
+            mode_entity = "input_select.pyheat_" + room_id + "_mode"
+            mode_val = state.get(mode_entity)
+            mode = mode_val.lower() if mode_val else "auto"
+            manual_setpoint = None
+            if mode == "manual":
+                setpoint_entity = "input_number.pyheat_" + room_id + "_manual_setpoint"
+                manual_val = state.get(setpoint_entity)
+                if manual_val is not None:
+                    try:
+                        manual_setpoint = float(manual_val)
+                    except (ValueError, TypeError):
+                        log.warning(f"Invalid manual setpoint for {room_id}: {manual_val}")
+            
+            # Update room inputs
+            room.update_inputs(
+                temp=temp,
+                is_stale=is_stale,
+                mode=mode,
+                schedule_target=schedule_target,
+                manual_setpoint=manual_setpoint,
+            )
+            
+            # Compute room state
+            room_status = room.compute(now)
+            room_statuses.append(room_status)
+            
+            # Publish per-room entities
+            await self._publish_room_entities(room_id, room_status)
+        
+        # Get master enable and holiday mode
+        master_enable = state.get("input_boolean.pyheat_master_enable") == "on"
+        holiday = state.get("input_boolean.pyheat_holiday_mode") == "on"
+        
+        # Build and publish global status
+        state_str, attributes = status.build_status(
+            master_enable=master_enable,
+            holiday=holiday,
+            rooms=room_statuses,
+            boiler=None  # TODO: Add boiler status when implemented
+        )
+        
+        # Publish global status entity
+        state.set("sensor.pyheat_status", value=state_str, new_attributes=attributes)
+        
+        log.debug(f"Published status: {state_str} ({len(room_statuses)} rooms)")
+    
+    async def _publish_room_entities(self, room_id: str, room_status: Dict[str, Any]):
+        """Publish per-room entities.
+        
+        Args:
+            room_id: Room identifier
+            room_status: Room status dict from room.compute()
+        """
+        # Build room status entity
+        status_str, status_attrs = status.build_room_status(room_status)
+        
+        # Publish room status
+        status_entity = "sensor.pyheat_" + room_id + "_status"
+        state.set(
+            status_entity,
+            value=status_str,
+            new_attributes=status_attrs
+        )
+        
+        # Publish room temperature
+        temp = room_status.get("temp")
+        if temp is not None:
+            temp_entity = "sensor.pyheat_" + room_id + "_temperature"
+            state.set(
+                temp_entity,
+                value=round(temp, 1),
+                new_attributes={"unit_of_measurement": "°C", "device_class": "temperature"}
+            )
+        
+        # Publish room target
+        target = room_status.get("target")
+        if target is not None:
+            target_entity = "sensor.pyheat_" + room_id + "_target"
+            state.set(
+                target_entity,
+                value=round(target, 1),
+                new_attributes={"unit_of_measurement": "°C", "device_class": "temperature"}
+            )
+        
+        # Publish call for heat
+        cfh_entity = "binary_sensor.pyheat_" + room_id + "_calling_for_heat"
+        state.set(
+            cfh_entity,
+            value="on" if room_status.get("call_for_heat") else "off",
+            new_attributes={"device_class": "heat"}
+        )
+        
+        # Publish valve percent
+        valve_entity = "number.pyheat_" + room_id + "_valve_percent"
+        state.set(
+            valve_entity,
+            value=room_status.get("valve_percent", 0),
+            new_attributes={"unit_of_measurement": "%", "min": 0, "max": 100}
+        )
+        
+        # Publish room state
+        state_entity = "sensor.pyheat_" + room_id + "_state"
+        state.set(
+            state_entity,
+            value=room_status.get("state", "unknown")
+        )
     
     async def handle_state_change(self, entity_id: str, old_value: Any, new_value: Any):
         """Handle state change from Home Assistant.

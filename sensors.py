@@ -188,15 +188,33 @@ class SensorManager:
         for entity_id in sensor_ids:
             sensor = self.sensors[entity_id]
             
-            # Skip if no value or stale
-            if sensor["value"] is None or self.is_sensor_stale(entity_id, now):
+            # Read current value from Home Assistant state
+            state_val = state.get(entity_id)
+            
+            # Skip if no state or state is unavailable/unknown
+            if state_val is None or state_val in ["unavailable", "unknown"]:
+                continue
+            
+            # Try to parse as float
+            try:
+                temp_value = float(state_val)
+            except (ValueError, TypeError):
+                log.warning(f"SensorManager: invalid temperature value for {entity_id}: {state_val}")
+                continue
+            
+            # Update sensor cache (for staleness tracking)
+            sensor["value"] = temp_value
+            sensor["last_update"] = now
+            
+            # Check staleness
+            if self.is_sensor_stale(entity_id, now):
                 continue
             
             # Add to appropriate list
             if sensor["role"] == "primary":
-                primary_temps.append(sensor["value"])
+                primary_temps.append(temp_value)
             else:  # fallback
-                fallback_temps.append(sensor["value"])
+                fallback_temps.append(temp_value)
         
         # Apply fusion logic
         if primary_temps:

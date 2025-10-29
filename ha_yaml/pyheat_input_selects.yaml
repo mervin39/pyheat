@@ -45,7 +45,7 @@ pyheat_office_mode:
     - 'Off'
   icon: mdi:cogs
 
-pyheat_petes_room_mode:
+pyheat_pete_mode:
   name: Pete's Room Heating Mode
   options:
     - Auto
