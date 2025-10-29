@@ -90,11 +90,11 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
   - Argument validation with proper error messages
   - Error handling and exceptions
   - All 7 services working:
-    - **pyheat.override**(room, target, minutes) ✅
-    - **pyheat.boost**(room, delta, minutes) ✅
-    - **pyheat.cancel_override**(room) ✅
-    - **pyheat.set_mode**(room, mode)
-    - **pyheat.set_default_target**(room, target)
+    - **pyheat.override**(room, target, minutes) ✅ TESTED
+    - **pyheat.boost**(room, delta, minutes) ✅ TESTED
+    - **pyheat.cancel_override**(room) ✅ TESTED
+    - **pyheat.set_mode**(room, mode) ✅ TESTED
+    - **pyheat.set_default_target**(room, target) ✅ TESTED
     - **pyheat.reload_config**()
     - **pyheat.replace_schedules**(schedule)
   - Orchestrator service handlers fully implemented
@@ -118,16 +118,18 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 **Test Results:**
 - ✅ All modules loading: sensors, scheduler, room_controller, trv, status, ha_services
 - ✅ Sensor reading fixed: temperature 17.9°C from sensor.roomtemp_pete
-- ✅ Room controller: auto mode, target 19.5°C (schedule), heating active
+- ✅ Room controller: auto mode, target 21.0°C (schedule), heating active
 - ✅ Status publishing: global and per-room entities working
 - ✅ Services in **pyheat domain** (pyheat.*, not pyscript.*):
-  - pyheat.boost(room="pete", delta=1.5, minutes=45) ✅ Working!
-  - Status shows: "boost(+1.5) 44m", target=21.0°C, override_active=true
-  - pyheat.cancel_override(room="pete") ✅ Working!
-  - Status restored: "heating", target=19.5°C, override_active=false
+  - **pyheat.boost**: Tested with delta +1.5°C for 45min → status "boost(+1.5) 44m", target=21.0°C ✅
+  - **pyheat.override**: Tested with absolute 22.0°C for 30min → status "override(22.0) 29m" ✅
+  - **pyheat.cancel_override**: Cleared override → status "heating", target=21.0°C (schedule) ✅
+  - **pyheat.set_mode**: Switched auto→manual→auto → mode changes reflected, targets updated ✅
+  - **pyheat.set_default_target**: Changed 19.5→20.0 → schedules.yaml updated, config reloaded ✅
   - Timer integration confirmed (start/cancel working)
 
 **Next Steps:** 
-- Testing remaining services (override, set_mode, set_default_target)
+- Test reload_config service
+- Test replace_schedules service
 - Boiler module (deferred - awaiting hardware setup)
 - End-to-end integration testing

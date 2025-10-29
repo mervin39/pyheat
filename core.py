@@ -432,7 +432,7 @@ class PyHeatOrchestrator:
             log.info("Room controllers reloaded")
         
         if self.trv:
-            self.trv.reload(rooms_cfg)
+            self.trv.reload_rooms(rooms_cfg)
             log.info("TRV controllers reloaded")
         
         log.info("Configuration reloaded successfully")
