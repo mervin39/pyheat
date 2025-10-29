@@ -50,7 +50,7 @@ def init(orchestrator):
 # Service Implementations
 # ============================================================================
 
-@service
+@service("pyheat.override")
 async def override(room: str = None, target: float = None, minutes: int = None):
     """Set an absolute target override for a room.
     
@@ -109,7 +109,7 @@ async def override(room: str = None, target: float = None, minutes: int = None):
         return {"success": False, "error": str(e)}
 
 
-@service
+@service("pyheat.boost")
 async def boost(room: str = None, delta: float = None, minutes: int = None):
     """Apply a delta boost to the current target for a room.
     
@@ -169,7 +169,7 @@ async def boost(room: str = None, delta: float = None, minutes: int = None):
         return {"success": False, "error": str(e)}
 
 
-@service
+@service("pyheat.cancel_override")
 async def cancel_override(room: str = None):
     """Cancel any active override or boost for a room.
     
@@ -203,7 +203,7 @@ async def cancel_override(room: str = None):
         return {"success": False, "error": str(e)}
 
 
-@service
+@service("pyheat.set_mode")
 async def set_mode(room: str = None, mode: str = None):
     """Set the mode for a room.
     
@@ -245,7 +245,7 @@ async def set_mode(room: str = None, mode: str = None):
         return {"success": False, "error": str(e)}
 
 
-@service
+@service("pyheat.set_default_target")
 async def set_default_target(room: str = None, target: float = None):
     """Update the default target temperature for a room in schedules.yaml.
     
@@ -293,7 +293,7 @@ async def set_default_target(room: str = None, target: float = None):
         return {"success": False, "error": str(e)}
 
 
-@service
+@service("pyheat.reload_config")
 async def reload_config():
     """Reload rooms.yaml and schedules.yaml configuration files.
     
@@ -318,7 +318,7 @@ async def reload_config():
         return {"success": False, "error": str(e)}
 
 
-@service
+@service("pyheat.replace_schedules")
 async def replace_schedules(schedule: Dict[str, Any] = None):
     """Atomically replace the schedules.yaml configuration.
     
