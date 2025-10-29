@@ -16,6 +16,7 @@ from . import sensors
 from . import scheduler
 from . import room_controller
 from . import trv
+from . import status
 
 
 class PyHeatOrchestrator:

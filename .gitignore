@@ -1,3 +1,4 @@
 __pycache__/
 home-assistant.log
 pyscript_working.log
+.long-lived-access-token-ha
