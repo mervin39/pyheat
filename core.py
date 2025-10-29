@@ -115,8 +115,8 @@ class PyHeatOrchestrator:
         
         # Aggregate rooms calling for heat
         rooms_calling_for_heat = [
-            status["room_id"] for status in room_statuses 
-            if status.get("call_for_heat", False)
+            room_status["room_id"] for room_status in room_statuses 
+            if room_status.get("call_for_heat", False)
         ]
         
         # Update boiler based on room demand
