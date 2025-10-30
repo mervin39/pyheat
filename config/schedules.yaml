@@ -1,169 +1,178 @@
 rooms:
-  - id: pete
-    default_target: 10
-    week:
-      fri:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      mon:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      - end: '14:00'
-        start: '11:00'
-        target: 21.0
-      sat: []
-      sun: []
-      thu:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      tue:
-      - end: '10:00'
-        start: 07:00
-        target: 21.0
-      wed:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-  - id: lounge
-    default_target: 10
-    week:
-      fri:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      mon:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      - end: '14:00'
-        start: '11:00'
-        target: 21.0
-      sat: []
-      sun: []
-      thu:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      tue:
-      - end: '10:00'
-        start: 07:00
-        target: 21.0
-      wed:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-  - id: games
-    default_target: 10
-    week:
-      fri:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      mon:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      - end: '14:00'
-        start: '11:00'
-        target: 21.0
-      sat: []
-      sun: []
-      thu:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      tue:
-      - end: '10:00'
-        start: 07:00
-        target: 21.0
-      wed:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-  - id: abby
-    default_target: 10
-    week:
-      fri:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      mon:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      - end: '14:00'
-        start: '11:00'
-        target: 21.0
-      sat: []
-      sun: []
-      thu:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      tue:
-      - end: '10:00'
-        start: 07:00
-        target: 21.0
-      wed:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-  - id: office
-    default_target: 10
-    week:
-      fri:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      mon:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      - end: '14:00'
-        start: '11:00'
-        target: 21.0
-      sat: []
-      sun: []
-      thu:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      tue:
-      - end: '10:00'
-        start: 07:00
-        target: 21.0
-      wed:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-  - id: bathroom
-    default_target: 10
-    week:
-      fri:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      mon:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      - end: '14:00'
-        start: '11:00'
-        target: 21.0
-      sat: []
-      sun: []
-      thu:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
-      tue:
-      - end: '10:00'
-        start: 07:00
-        target: 21.0
-      wed:
-      - end: 09:00
-        start: 07:00
-        target: 21.0
+- default_target: 10.0
+  id: pete
+  week:
+    fri:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    mon:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    - end: '14:00'
+      start: '11:00'
+      target: 21.0
+    sat:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    - end: '15:00'
+      start: '13:00'
+      target: 21.0
+    - end: '13:00'
+      start: '11:00'
+      target: 21.0
+    sun: []
+    thu:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    tue:
+    - end: '10:00'
+      start: 07:00
+      target: 21.0
+    wed:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+- default_target: 10.0
+  id: lounge
+  week:
+    fri:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    mon:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    - end: '14:00'
+      start: '11:00'
+      target: 21.0
+    sat: []
+    sun: []
+    thu:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    tue:
+    - end: '10:00'
+      start: 07:00
+      target: 21.0
+    wed:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+- default_target: 10.0
+  id: games
+  week:
+    fri:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    mon:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    - end: '14:00'
+      start: '11:00'
+      target: 21.0
+    sat: []
+    sun: []
+    thu:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    tue:
+    - end: '10:00'
+      start: 07:00
+      target: 21.0
+    wed:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+- default_target: 10.0
+  id: abby
+  week:
+    fri:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    mon:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    - end: '14:00'
+      start: '11:00'
+      target: 21.0
+    sat: []
+    sun: []
+    thu:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    tue:
+    - end: '10:00'
+      start: 07:00
+      target: 21.0
+    wed:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+- default_target: 10.0
+  id: office
+  week:
+    fri:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    mon:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    - end: '14:00'
+      start: '11:00'
+      target: 21.0
+    sat: []
+    sun: []
+    thu:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    tue:
+    - end: '10:00'
+      start: 07:00
+      target: 21.0
+    wed:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+- default_target: 10.0
+  id: bathroom
+  week:
+    fri:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    mon:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    - end: '14:00'
+      start: '11:00'
+      target: 21.0
+    sat: []
+    sun: []
+    thu:
+    - end: 09:00
+      start: 07:00
+      target: 21.0
+    tue:
+    - end: '10:00'
+      start: 07:00
+      target: 21.0
+    wed:
+    - end: 09:00
+      start: 07:00
+      target: 21.0

@@ -16,6 +16,7 @@ Services:
 - pyheat.set_default_target(room, target) - Update room's default target in schedules.yaml
 - pyheat.reload_config() - Reload rooms.yaml and schedules.yaml
 - pyheat.get_schedules() - Get current schedules configuration
+- pyheat.get_rooms() - Get current rooms configuration
 - pyheat.replace_schedules(schedule) - Atomically replace schedules.yaml
 """
 
@@ -385,4 +386,32 @@ async def get_schedules():
         return schedules
     except Exception as e:
         log.error(f"pyheat.get_schedules failed: {e}")
+        raise
+
+
+@service("pyheat.get_rooms", supports_response="only")
+async def get_rooms():
+    """Get the current rooms configuration.
+    
+    Returns:
+        Dict with the complete rooms.yaml contents
+        
+    Behavior:
+        - Returns the current in-memory rooms configuration
+        - Does NOT reload from disk
+        - Use this to read the current rooms setup
+        - Must use ?return_response=true in REST API calls
+    """
+    # Call orchestrator
+    if not _orchestrator:
+        log.error("pyheat.get_rooms: orchestrator not available")
+        raise ValueError("orchestrator not available")
+    
+    log.debug("pyheat.get_rooms: retrieving current rooms")
+    
+    try:
+        rooms = await _orchestrator.svc_get_rooms()
+        return rooms
+    except Exception as e:
+        log.error(f"pyheat.get_rooms failed: {e}")
         raise

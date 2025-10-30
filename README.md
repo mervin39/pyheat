@@ -324,6 +324,66 @@ Returns:
 - Use before modifying schedules with `replace_schedules`
 - Does NOT reload from disk (returns in-memory version)
 
+### `pyheat.get_rooms`
+
+Get the current rooms configuration.
+
+**Arguments:** None
+
+**Example:**
+```bash
+curl -X POST "https://YOUR_HA_URL/api/services/pyheat/get_rooms?return_response=true" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json"
+```
+
+Returns:
+```json
+{
+  "service_response": {
+    "rooms": [
+      {
+        "id": "living_room",
+        "name": "Living Room",
+        "precision": 1,
+        "sensors": [
+          {
+            "entity_id": "sensor.living_room_temperature",
+            "role": "primary",
+            "timeout_m": 180
+          }
+        ],
+        "trv": {
+          "entity_id": "climate.trv_living_room"
+        },
+        "hysteresis": {
+          "on_delta_c": 0.4,
+          "off_delta_c": 0.1
+        },
+        "valve_bands": {
+          "t_low": 0.3,
+          "t_mid": 0.8,
+          "t_max": 1.5,
+          "low_percent": 35.0,
+          "mid_percent": 65.0,
+          "max_percent": 100.0,
+          "step_hysteresis_c": 0.05
+        },
+        "valve_update": {
+          "min_interval_s": 30
+        }
+      }
+    ]
+  }
+}
+```
+
+**Notes:**
+- Returns current `rooms.yaml` contents
+- MUST use `?return_response=true` parameter
+- Shows full room configuration including sensors, TRVs, and tuning parameters
+- Does NOT reload from disk (returns in-memory version)
+
 ### `pyheat.replace_schedules`
 
 Atomically replace the entire schedules configuration.
