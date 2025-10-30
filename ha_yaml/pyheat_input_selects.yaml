@@ -29,7 +29,7 @@ pyheat_games_mode:
     - 'Off'
   icon: mdi:cogs
 
-pyheat_living_room_mode:
+pyheat_lounge_mode:
   name: Living Room Heating Mode
   options:
     - Auto
