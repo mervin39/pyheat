@@ -24,3 +24,48 @@ rooms:
       step_hysteresis_c: 0.05
     valve_update:
       min_interval_s: 30
+  - id: games
+    name: "Dining Room"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_games
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_games
+  - id: lounge
+    name: "Living Room"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_lounge
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_lounge
+  - id: abby
+    name: "Abby's Room"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_abby
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_abby
+  - id: office
+    name: "Office"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_office
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_office
+  - id: bathroom
+    name: "Bathroom"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_bathroom
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_bathroom
