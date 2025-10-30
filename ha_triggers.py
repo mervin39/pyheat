@@ -213,16 +213,14 @@ async def on_holiday_mode_change(var_name=None, value=None, old_value=None):
     _request_recompute()
 
 
-# NOTE: Per-room triggers (mode, setpoint, timers, sensors, TRV feedback) are
-# kept as explicit @state_trigger decorators for ALL rooms.
-# Pyscript requires decorators to be evaluated at import time, so they cannot be
-# generated dynamically. However, multiple decorators on shared handler functions
-# ensures <1s response time for all rooms.
+# NOTE: Per-room triggers use multiple @state_trigger decorators on shared functions.
+# This is fully supported by pyscript (confirmed in documentation).
+# Multiple decorators are OR'ed together - any matching trigger fires the function.
 #
 # TO ADD A NEW ROOM:
 # 1. Add room to config/rooms.yaml and config/schedules.yaml
 # 2. Create required Home Assistant helper entities (see README.md)
-# 3. Add @state_trigger decorators for the new room (sections below)
+# 3. Add new @state_trigger lines for the new room to each function below
 # 4. Restart pyscript to reload this file
 
 
@@ -231,43 +229,13 @@ async def on_holiday_mode_change(var_name=None, value=None, old_value=None):
 # ============================================================================
 
 @state_trigger("input_select.pyheat_pete_mode")
-async def on_pete_mode_change(var_name=None, value=None, old_value=None):
-    """React to pete room mode changes."""
-    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_select.pyheat_games_mode")
-async def on_games_mode_change(var_name=None, value=None, old_value=None):
-    """React to games room mode changes."""
-    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_select.pyheat_lounge_mode")
-async def on_lounge_mode_change(var_name=None, value=None, old_value=None):
-    """React to lounge room mode changes."""
-    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_select.pyheat_abby_mode")
-async def on_abby_mode_change(var_name=None, value=None, old_value=None):
-    """React to abby room mode changes."""
-    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_select.pyheat_office_mode")
-async def on_office_mode_change(var_name=None, value=None, old_value=None):
-    """React to office room mode changes."""
-    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_select.pyheat_bathroom_mode")
-async def on_bathroom_mode_change(var_name=None, value=None, old_value=None):
-    """React to bathroom room mode changes."""
+async def on_room_mode_change(var_name=None, value=None, old_value=None):
+    """React to any room mode changes."""
     log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
     _request_recompute()
 
@@ -277,43 +245,13 @@ async def on_bathroom_mode_change(var_name=None, value=None, old_value=None):
 # ============================================================================
 
 @state_trigger("input_number.pyheat_pete_manual_setpoint")
-async def on_pete_setpoint_change(var_name=None, value=None, old_value=None):
-    """React to pete room setpoint changes."""
-    log.info(f"Room setpoint changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_number.pyheat_games_manual_setpoint")
-async def on_games_setpoint_change(var_name=None, value=None, old_value=None):
-    """React to games room setpoint changes."""
-    log.info(f"Room setpoint changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_number.pyheat_lounge_manual_setpoint")
-async def on_lounge_setpoint_change(var_name=None, value=None, old_value=None):
-    """React to lounge room setpoint changes."""
-    log.info(f"Room setpoint changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_number.pyheat_abby_manual_setpoint")
-async def on_abby_setpoint_change(var_name=None, value=None, old_value=None):
-    """React to abby room setpoint changes."""
-    log.info(f"Room setpoint changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_number.pyheat_office_manual_setpoint")
-async def on_office_setpoint_change(var_name=None, value=None, old_value=None):
-    """React to office room setpoint changes."""
-    log.info(f"Room setpoint changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("input_number.pyheat_bathroom_manual_setpoint")
-async def on_bathroom_setpoint_change(var_name=None, value=None, old_value=None):
-    """React to bathroom room setpoint changes."""
+async def on_room_setpoint_change(var_name=None, value=None, old_value=None):
+    """React to any room manual setpoint changes."""
     log.info(f"Room setpoint changed [{var_name}]: {old_value} -> {value}")
     _request_recompute()
 
@@ -323,43 +261,13 @@ async def on_bathroom_setpoint_change(var_name=None, value=None, old_value=None)
 # ============================================================================
 
 @state_trigger("timer.pyheat_pete_boost_timer")
-async def on_pete_timer_change(var_name=None, value=None, old_value=None):
-    """React to pete boost timer changes."""
-    log.info(f"Room timer changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("timer.pyheat_games_boost_timer")
-async def on_games_timer_change(var_name=None, value=None, old_value=None):
-    """React to games boost timer changes."""
-    log.info(f"Room timer changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("timer.pyheat_lounge_boost_timer")
-async def on_lounge_timer_change(var_name=None, value=None, old_value=None):
-    """React to lounge boost timer changes."""
-    log.info(f"Room timer changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("timer.pyheat_abby_boost_timer")
-async def on_abby_timer_change(var_name=None, value=None, old_value=None):
-    """React to abby boost timer changes."""
-    log.info(f"Room timer changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("timer.pyheat_office_boost_timer")
-async def on_office_timer_change(var_name=None, value=None, old_value=None):
-    """React to office boost timer changes."""
-    log.info(f"Room timer changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("timer.pyheat_bathroom_boost_timer")
-async def on_bathroom_timer_change(var_name=None, value=None, old_value=None):
-    """React to bathroom boost timer changes."""
+async def on_room_timer_change(var_name=None, value=None, old_value=None):
+    """React to any room boost timer changes."""
     log.info(f"Room timer changed [{var_name}]: {old_value} -> {value}")
     _request_recompute()
 
@@ -369,43 +277,13 @@ async def on_bathroom_timer_change(var_name=None, value=None, old_value=None):
 # ============================================================================
 
 @state_trigger("sensor.pete_room_temperature")
-async def on_pete_sensor_change(var_name=None, value=None, old_value=None):
-    """React to pete temperature sensor changes."""
-    log.debug(f"Sensor changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("sensor.games_room_temperature")
-async def on_games_sensor_change(var_name=None, value=None, old_value=None):
-    """React to games temperature sensor changes."""
-    log.debug(f"Sensor changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("sensor.lounge_temperature")
-async def on_lounge_sensor_change(var_name=None, value=None, old_value=None):
-    """React to lounge temperature sensor changes."""
-    log.debug(f"Sensor changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("sensor.abby_room_temperature")
-async def on_abby_sensor_change(var_name=None, value=None, old_value=None):
-    """React to abby temperature sensor changes."""
-    log.debug(f"Sensor changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("sensor.office_temperature")
-async def on_office_sensor_change(var_name=None, value=None, old_value=None):
-    """React to office temperature sensor changes."""
-    log.debug(f"Sensor changed [{var_name}]: {old_value} -> {value}")
-    _request_recompute()
-
-
 @state_trigger("sensor.bathroom_temperature")
-async def on_bathroom_sensor_change(var_name=None, value=None, old_value=None):
-    """React to bathroom temperature sensor changes."""
+async def on_sensor_change(var_name=None, value=None, old_value=None):
+    """React to any temperature sensor changes."""
     log.debug(f"Sensor changed [{var_name}]: {old_value} -> {value}")
     _request_recompute()
 
