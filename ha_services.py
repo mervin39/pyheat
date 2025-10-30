@@ -356,31 +356,29 @@ async def replace_schedules(schedule: Dict[str, Any] = None):
         return {"success": False, "error": str(e)}
 
 
-@service("pyheat.get_schedules")
+@service("pyheat.get_schedules", supports_response="only")
 async def get_schedules():
     """Get the current schedules configuration.
     
     Returns:
-        Dict with:
-        - success: bool
-        - schedules: dict (the complete schedules.yaml contents)
-        - error: str (if failed)
+        Dict with the complete schedules.yaml contents
         
     Behavior:
         - Returns the current in-memory schedules
         - Does NOT reload from disk
         - Use this to read before modifying with replace_schedules
+        - Must use ?return_response=true in REST API calls
     """
     # Call orchestrator
     if not _orchestrator:
         log.error("pyheat.get_schedules: orchestrator not available")
-        return {"success": False, "error": "orchestrator not available"}
+        raise ValueError("orchestrator not available")
     
     log.debug("pyheat.get_schedules: retrieving current schedules")
     
     try:
         schedules = await _orchestrator.svc_get_schedules()
-        return {"success": True, "schedules": schedules}
+        return schedules
     except Exception as e:
         log.error(f"pyheat.get_schedules failed: {e}")
-        return {"success": False, "error": str(e)}
+        raise
