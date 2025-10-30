@@ -294,7 +294,7 @@ async def set_default_target(room: str = None, target: float = None):
         return {"success": False, "error": str(e)}
 
 
-@service("pyheat.reload_config")
+@service("pyheat.reload_config", supports_response="optional")
 async def reload_config():
     """Reload rooms.yaml and schedules.yaml configuration files.
     
@@ -303,20 +303,24 @@ async def reload_config():
         - Validates configuration
         - Applies if valid, keeps last good config if invalid
         - Triggers immediate recompute
+        
+    Response (if ?return_response=true):
+        - room_count: number of rooms loaded
+        - schedule_count: number of room schedules loaded
     """
     # Call orchestrator
     if not _orchestrator:
         log.error("pyheat.reload_config: orchestrator not available")
-        return {"success": False, "error": "orchestrator not available"}
+        raise ValueError("orchestrator not available")
     
     log.info("pyheat.reload_config: reloading configuration")
     
     try:
-        await _orchestrator.svc_reload_config()
-        return {"success": True}
+        result = await _orchestrator.svc_reload_config()
+        return result
     except Exception as e:
         log.error(f"pyheat.reload_config failed: {e}")
-        return {"success": False, "error": str(e)}
+        raise
 
 
 @service("pyheat.replace_schedules")

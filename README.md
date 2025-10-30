@@ -144,6 +144,8 @@ rooms:
 
 All services are in the `pyheat` domain and trigger immediate recomputation.
 
+**Service Responses:** Some services support the `?return_response=true` parameter (HA 2023.7+) to retrieve data or diagnostic information. These services are documented with response examples below.
+
 ### `pyheat.override`
 
 Set an absolute temperature override for a room.
@@ -260,11 +262,67 @@ curl -X POST https://YOUR_HA_URL/api/services/pyheat/reload_config \
   -H "Content-Type: application/json"
 ```
 
+**With response:**
+```bash
+curl -X POST "https://YOUR_HA_URL/api/services/pyheat/reload_config?return_response=true" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json"
+```
+
+Returns:
+```json
+{
+  "service_response": {
+    "room_count": 3,
+    "schedule_count": 3
+  }
+}
+```
+
 **Notes:**
 - Re-reads `rooms.yaml` and `schedules.yaml`
 - Validates before applying
 - Keeps last good config on validation failure
 - Reloads all modules (sensors, scheduler, rooms, TRV)
+- Optionally returns reload statistics with `?return_response=true`
+
+### `pyheat.get_schedules`
+
+Get the current schedule configuration.
+
+**Arguments:** None
+
+**Example:**
+```bash
+curl -X POST "https://YOUR_HA_URL/api/services/pyheat/get_schedules?return_response=true" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json"
+```
+
+Returns:
+```json
+{
+  "service_response": {
+    "rooms": [
+      {
+        "id": "living_room",
+        "default_target": 20.0,
+        "week": {
+          "mon": [{"start": "07:00", "end": "09:00", "target": 21.0}],
+          "tue": [],
+          ...
+        }
+      }
+    ]
+  }
+}
+```
+
+**Notes:**
+- Returns current `schedules.yaml` contents
+- MUST use `?return_response=true` parameter
+- Use before modifying schedules with `replace_schedules`
+- Does NOT reload from disk (returns in-memory version)
 
 ### `pyheat.replace_schedules`
 

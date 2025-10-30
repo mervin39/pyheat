@@ -429,7 +429,11 @@ class PyHeatOrchestrator:
         await self.recompute_all()
     
     async def svc_reload_config(self):
-        """Service: Reload configuration from disk."""
+        """Service: Reload configuration from disk.
+        
+        Returns:
+            Dict with reload statistics (if supports_response used)
+        """
         log.info("svc_reload_config: reloading configuration from disk")
         
         # Import config_loader
@@ -470,6 +474,12 @@ class PyHeatOrchestrator:
         
         # Trigger recompute
         await self.recompute_all()
+        
+        # Return stats for optional response
+        return {
+            "room_count": len(rooms_cfg.get("rooms", [])),
+            "schedule_count": len(schedules_cfg.get("rooms", []))
+        }
     
     async def svc_get_schedules(self) -> Dict:
         """Service: Get current schedules configuration.
