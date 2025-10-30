@@ -87,8 +87,12 @@ class TRVController:
         """
         try:
             # Read feedback from sensors
-            fb_open = state.get(self.fb_open_entity)
-            fb_close = state.get(self.fb_close_entity)
+            try:
+                fb_open = state.get(self.fb_open_entity)
+                fb_close = state.get(self.fb_close_entity)
+            except NameError as e:
+                log.warning(f"TRVController {self.room_id}: feedback entity does not exist: {e}")
+                return None
             
             # Check validity
             if fb_open is None or fb_close is None:

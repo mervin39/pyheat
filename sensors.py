@@ -189,7 +189,11 @@ class SensorManager:
             sensor = self.sensors[entity_id]
             
             # Read current value from Home Assistant state
-            state_val = state.get(entity_id)
+            try:
+                state_val = state.get(entity_id)
+            except NameError:
+                log.warning(f"SensorManager: entity {entity_id} does not exist in Home Assistant")
+                continue
             
             # Skip if no state or state is unavailable/unknown
             if state_val is None or state_val in ["unavailable", "unknown"]:

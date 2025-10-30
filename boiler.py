@@ -33,8 +33,12 @@ class BoilerManager:
         self.last_change_time = None
         
         # Read current state
-        current_state = state.get(self.boiler_entity)
-        self.boiler_on = (current_state == "on")
+        try:
+            current_state = state.get(self.boiler_entity)
+            self.boiler_on = (current_state == "on")
+        except NameError:
+            log.warning(f"BoilerManager: entity {self.boiler_entity} does not exist, assuming OFF")
+            self.boiler_on = False
         
         log.info(f"BoilerManager: initialized with entity {self.boiler_entity}")
         log.info(f"BoilerManager: current state = {'ON' if self.boiler_on else 'OFF'}")
@@ -118,9 +122,12 @@ class BoilerManager:
         log.info("BoilerManager: reload called (no configuration to reload currently)")
         
         # Re-read current state in case it was changed externally
-        current_state = state.get(self.boiler_entity)
-        self.boiler_on = (current_state == "on")
-        log.debug(f"BoilerManager: re-read state = {'ON' if self.boiler_on else 'OFF'}")
+        try:
+            current_state = state.get(self.boiler_entity)
+            self.boiler_on = (current_state == "on")
+            log.debug(f"BoilerManager: re-read state = {'ON' if self.boiler_on else 'OFF'}")
+        except NameError:
+            log.warning(f"BoilerManager: entity {self.boiler_entity} does not exist during reload")
 
 
 # Module-level instance (initialized by orchestrator)

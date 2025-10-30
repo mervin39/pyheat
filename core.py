@@ -85,17 +85,25 @@ class PyHeatOrchestrator:
             
             # Get mode and manual setpoint from HA
             mode_entity = "input_select.pyheat_" + room_id + "_mode"
-            mode_val = state.get(mode_entity)
-            mode = mode_val.lower() if mode_val else "auto"
+            try:
+                mode_val = state.get(mode_entity)
+                mode = mode_val.lower() if mode_val else "auto"
+            except NameError:
+                log.warning(f"Entity {mode_entity} does not exist, defaulting to auto mode")
+                mode = "auto"
+            
             manual_setpoint = None
             if mode == "manual":
                 setpoint_entity = "input_number.pyheat_" + room_id + "_manual_setpoint"
-                manual_val = state.get(setpoint_entity)
-                if manual_val is not None:
-                    try:
-                        manual_setpoint = float(manual_val)
-                    except (ValueError, TypeError):
-                        log.warning(f"Invalid manual setpoint for {room_id}: {manual_val}")
+                try:
+                    manual_val = state.get(setpoint_entity)
+                    if manual_val is not None:
+                        try:
+                            manual_setpoint = float(manual_val)
+                        except (ValueError, TypeError):
+                            log.warning(f"Invalid manual setpoint for {room_id}: {manual_val}")
+                except NameError:
+                    log.warning(f"Entity {setpoint_entity} does not exist")
             
             # Update room inputs
             room.update_inputs(
@@ -129,9 +137,18 @@ class PyHeatOrchestrator:
                 "reason": boiler_result["reason"]
             }
         
-        # Get master enable and holiday mode
-        master_enable = state.get("input_boolean.pyheat_master_enable") == "on"
-        holiday = state.get("input_boolean.pyheat_holiday_mode") == "on"
+                # Read global flags
+        try:
+            master_enable = state.get("input_boolean.pyheat_master_enable") == "on"
+        except NameError:
+            log.warning("Entity input_boolean.pyheat_master_enable does not exist, defaulting to True")
+            master_enable = True
+        
+        try:
+            holiday = state.get("input_boolean.pyheat_holiday_mode") == "on"
+        except NameError:
+            log.warning("Entity input_boolean.pyheat_holiday_mode does not exist, defaulting to False")
+            holiday = False
         
         # Build and publish global status
         state_str, attributes = status.build_status(
