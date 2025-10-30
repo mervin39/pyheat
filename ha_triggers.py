@@ -210,19 +210,88 @@ async def on_holiday_mode_change(var_name=None, value=None, old_value=None):
 
 
 # Dynamic triggers for per-room mode and manual setpoint
-# These will be registered based on room registry
-# For now, we'll use a pattern-based trigger that matches all pyheat helpers
+# Separate function for each room since pyscript evaluates decorators at import time
 
 @state_trigger("input_select.pyheat_pete_mode")
-async def on_room_mode_change_pete(var_name=None, value=None, old_value=None):
+async def on_pete_mode_change(var_name=None, value=None, old_value=None):
     """React to pete room mode changes."""
     log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
     _request_recompute()
 
 
+@state_trigger("input_select.pyheat_games_mode")
+async def on_games_mode_change(var_name=None, value=None, old_value=None):
+    """React to games room mode changes."""
+    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_select.pyheat_lounge_mode")
+async def on_lounge_mode_change(var_name=None, value=None, old_value=None):
+    """React to lounge room mode changes."""
+    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_select.pyheat_abby_mode")
+async def on_abby_mode_change(var_name=None, value=None, old_value=None):
+    """React to abby room mode changes."""
+    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_select.pyheat_office_mode")
+async def on_office_mode_change(var_name=None, value=None, old_value=None):
+    """React to office room mode changes."""
+    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_select.pyheat_bathroom_mode")
+async def on_bathroom_mode_change(var_name=None, value=None, old_value=None):
+    """React to bathroom room mode changes."""
+    log.info(f"Room mode changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
 @state_trigger("input_number.pyheat_pete_manual_setpoint")
-async def on_manual_setpoint_change_pete(var_name=None, value=None, old_value=None):
+async def on_pete_setpoint_change(var_name=None, value=None, old_value=None):
     """React to pete manual setpoint changes."""
+    log.info(f"Manual setpoint changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_number.pyheat_games_manual_setpoint")
+async def on_games_setpoint_change(var_name=None, value=None, old_value=None):
+    """React to games manual setpoint changes."""
+    log.info(f"Manual setpoint changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_number.pyheat_lounge_manual_setpoint")
+async def on_lounge_setpoint_change(var_name=None, value=None, old_value=None):
+    """React to lounge manual setpoint changes."""
+    log.info(f"Manual setpoint changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_number.pyheat_abby_manual_setpoint")
+async def on_abby_setpoint_change(var_name=None, value=None, old_value=None):
+    """React to abby manual setpoint changes."""
+    log.info(f"Manual setpoint changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_number.pyheat_office_manual_setpoint")
+async def on_office_setpoint_change(var_name=None, value=None, old_value=None):
+    """React to office manual setpoint changes."""
+    log.info(f"Manual setpoint changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+@state_trigger("input_number.pyheat_bathroom_manual_setpoint")
+async def on_bathroom_setpoint_change(var_name=None, value=None, old_value=None):
+    """React to bathroom manual setpoint changes."""
     log.info(f"Manual setpoint changed [{var_name}]: {old_value} -> {value}")
     _request_recompute()
 
@@ -232,31 +301,53 @@ async def on_manual_setpoint_change_pete(var_name=None, value=None, old_value=No
 # ============================================================================
 
 @state_trigger("timer.pyheat_pete_override == 'active'")
-async def on_timer_pete_started(var_name=None, value=None, old_value=None):
-    """React to pete override timer started."""
-    log.info(f"Override timer started for pete")
-    if _orchestrator:
-        await _orchestrator.handle_timer("pete")
+@state_trigger("timer.pyheat_games_override == 'active'")
+@state_trigger("timer.pyheat_lounge_override == 'active'")
+@state_trigger("timer.pyheat_abby_override == 'active'")
+@state_trigger("timer.pyheat_office_override == 'active'")
+@state_trigger("timer.pyheat_bathroom_override == 'active'")
+async def on_timer_started(var_name=None, value=None, old_value=None):
+    """React to any override timer started."""
+    # Extract room_id from entity_id (e.g., "timer.pyheat_pete_override" -> "pete")
+    room_id = var_name.replace("timer.pyheat_", "").replace("_override", "") if var_name else None
+    if room_id:
+        log.info(f"Override timer started for {room_id}")
+        if _orchestrator:
+            await _orchestrator.handle_timer(room_id)
     _request_recompute()
 
 
 @state_trigger("timer.pyheat_pete_override == 'idle'")
-async def on_timer_pete_finished(var_name=None, value=None, old_value=None):
-    """React to pete override timer finished/cancelled."""
+@state_trigger("timer.pyheat_games_override == 'idle'")
+@state_trigger("timer.pyheat_lounge_override == 'idle'")
+@state_trigger("timer.pyheat_abby_override == 'idle'")
+@state_trigger("timer.pyheat_office_override == 'idle'")
+@state_trigger("timer.pyheat_bathroom_override == 'idle'")
+async def on_timer_finished(var_name=None, value=None, old_value=None):
+    """React to any override timer finished/cancelled."""
     if old_value in ("active", "paused"):
-        log.info(f"Override timer finished/cancelled for pete")
-        if _orchestrator:
-            await _orchestrator.handle_timer("pete")
+        # Extract room_id from entity_id
+        room_id = var_name.replace("timer.pyheat_", "").replace("_override", "") if var_name else None
+        if room_id:
+            log.info(f"Override timer finished/cancelled for {room_id}")
+            if _orchestrator:
+                await _orchestrator.handle_timer(room_id)
         _request_recompute()
 
 
 # ============================================================================
 # Temperature sensor triggers
 # ============================================================================
+# Separate trigger for each sensor
 
 @state_trigger("sensor.roomtemp_pete")
-async def on_sensor_pete_change(var_name=None, value=None, old_value=None):
-    """React to pete temperature sensor changes."""
+@state_trigger("sensor.roomtemp_games")
+@state_trigger("sensor.roomtemp_lounge")
+@state_trigger("sensor.roomtemp_abby")
+@state_trigger("sensor.roomtemp_office")
+@state_trigger("sensor.roomtemp_bathroom")
+async def on_sensor_change(var_name=None, value=None, old_value=None):
+    """React to any room temperature sensor changes."""
     log.debug(f"Temperature sensor [{var_name}]: {old_value} -> {value}")
     
     if _orchestrator:
@@ -270,13 +361,35 @@ async def on_sensor_pete_change(var_name=None, value=None, old_value=None):
     _request_recompute()
 
 
+# Also monitor fallback sensors (SNZB02 sensors)
+@state_trigger("sensor.pete_snzb02_temperature")
+async def on_snzb02_sensor_change(var_name=None, value=None, old_value=None):
+    """React to SNZB02 temperature sensor changes."""
+    log.debug(f"SNZB02 sensor [{var_name}]: {old_value} -> {value}")
+    
+    if _orchestrator:
+        try:
+            temp_val = float(value) if value not in (None, "unknown", "unavailable") else None
+            await _orchestrator.handle_state_change(var_name, old_value, value)
+        except (ValueError, TypeError):
+            log.warning(f"Invalid temperature value from {var_name}: {value}")
+    
+    _request_recompute()
+
+
 # ============================================================================
 # TRV feedback triggers (for interlock)
 # ============================================================================
+# Separate triggers for each TRV
 
 @state_trigger("sensor.trv_pete_valve_opening_degree_z2m")
-async def on_trv_pete_opening_feedback(var_name=None, value=None, old_value=None):
-    """React to pete TRV opening feedback changes."""
+@state_trigger("sensor.trv_games_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_lounge_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_abby_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_office_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_bathroom_valve_opening_degree_z2m")
+async def on_trv_opening_feedback(var_name=None, value=None, old_value=None):
+    """React to TRV opening feedback changes."""
     log.debug(f"TRV opening feedback [{var_name}]: {old_value} -> {value}")
     
     if _orchestrator:
@@ -286,8 +399,13 @@ async def on_trv_pete_opening_feedback(var_name=None, value=None, old_value=None
 
 
 @state_trigger("sensor.trv_pete_valve_closing_degree_z2m")
-async def on_trv_pete_closing_feedback(var_name=None, value=None, old_value=None):
-    """React to pete TRV closing feedback changes."""
+@state_trigger("sensor.trv_games_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_lounge_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_abby_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_office_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_bathroom_valve_closing_degree_z2m")
+async def on_trv_closing_feedback(var_name=None, value=None, old_value=None):
+    """React to TRV closing feedback changes."""
     log.debug(f"TRV closing feedback [{var_name}]: {old_value} -> {value}")
     
     if _orchestrator:
