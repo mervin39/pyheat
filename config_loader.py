@@ -157,10 +157,14 @@ async def _write_yaml_file(path: str, data: Dict) -> Optional[str]:
     """
     try:
         content = yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        # Unquote time strings for consistency (e.g., '11:00' -> 11:00)
-        # YAML quotes strings that look like they might be parsed as other types
+        # YAML interprets unquoted HH:MM as sexagesimal (base 60) integers!
+        # E.g., "start: 10:00" becomes 600 (10*60+0)
+        # We must keep time strings quoted, but ensure consistent single quotes
         import re
-        content = re.sub(r"(start|end): '(\d{2}:\d{2})'", r"\1: \2", content)
+        # First, ensure all time values are quoted (handles both quoted and unquoted)
+        content = re.sub(r"(start|end): (\d{2}:\d{2})", r"\1: '\2'", content)
+        # Then normalize to unquoted (we'll keep them quoted to prevent sexagesimal parsing)
+        # Actually, let's keep them quoted for safety
     except Exception as exc:
         return f"YAML serialization error: {exc}"
     
