@@ -156,7 +156,7 @@ async def _write_yaml_file(path: str, data: Dict) -> Optional[str]:
         error_str or None on success
     """
     try:
-        content = yaml.safe_dump(data, default_flow_style=False, allow_unicode=True)
+        content = yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
     except Exception as exc:
         return f"YAML serialization error: {exc}"
     
@@ -258,6 +258,61 @@ def _validate_rooms(data: Dict) -> Tuple[bool, Optional[str]]:
             return False, f"rooms.yaml: room '{room_id}' timeout_m must be ≥ 1"
     
     return True, None
+
+
+def _normalize_schedules(data: Dict) -> None:
+    """Normalize/tidy the schedules structure for consistent YAML output.
+    
+    Reorders keys in a consistent way:
+    - Room level: id, default_target, week
+    - Week level: mon, tue, wed, thu, fri, sat, sun (in order)
+    - Block level: start, end, target (in order)
+    - Blocks are already sorted by start time from validation
+    
+    Modifies data in-place.
+    """
+    rooms_list = data.get("rooms", [])
+    weekday_order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    
+    for room in rooms_list:
+        if not isinstance(room, dict):
+            continue
+        
+        # Reorder room keys: id, default_target, week
+        room_id = room.get("id")
+        default_target = room.get("default_target")
+        week = room.get("week")
+        
+        # Clear and rebuild room dict in desired order
+        room.clear()
+        if room_id is not None:
+            room["id"] = room_id
+        if default_target is not None:
+            room["default_target"] = default_target
+        if week is not None and isinstance(week, dict):
+            # Reorder week keys to weekday order
+            ordered_week = {}
+            for day in weekday_order:
+                if day in week:
+                    blocks = week[day]
+                    if isinstance(blocks, list):
+                        # Normalize each block's key order: start, end, target
+                        normalized_blocks = []
+                        for block in blocks:
+                            if isinstance(block, dict):
+                                normalized_block = {}
+                                # Add keys in desired order
+                                if "start" in block:
+                                    normalized_block["start"] = block["start"]
+                                if "end" in block:
+                                    normalized_block["end"] = block["end"]
+                                if "target" in block:
+                                    normalized_block["target"] = block["target"]
+                                normalized_blocks.append(normalized_block)
+                        ordered_week[day] = normalized_blocks
+                    else:
+                        ordered_week[day] = blocks
+            room["week"] = ordered_week
 
 
 def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
@@ -415,7 +470,7 @@ def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
                     skip_indices.add(i)
                     skip_indices.add(i + 1)
             
-            # Collect valid non-overlapping blocks
+            # Collect valid non-overlapping blocks (already sorted by start time)
             for i, (_, _, block, _) in enumerate(parsed_blocks):
                 if i not in skip_indices:
                     valid_blocks.append(block)
@@ -425,6 +480,9 @@ def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
             
             if len(valid_blocks) < len(blocks):
                 log.info(f"schedules.yaml: room '{room_id}' {day}: kept {len(valid_blocks)}/{len(blocks)} blocks")
+    
+    # Normalize/tidy the structure
+    _normalize_schedules(data)
     
     return True, None
 
