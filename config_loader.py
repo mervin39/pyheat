@@ -321,33 +321,47 @@ def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
                     return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} not a dict"
                 
                 start = block.get("start")
-                end = block.get("end")
+                end = block.get("end")  # Optional: if missing, means block runs until midnight
                 target = block.get("target")
                 
-                # Validate time format
-                for time_str, label in [(start, "start"), (end, "end")]:
-                    if not time_str or not isinstance(time_str, str):
-                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} missing '{label}'"
+                # Validate start time (required)
+                if not start or not isinstance(start, str):
+                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} missing 'start'"
+                
+                parts = start.split(":")
+                if len(parts) != 2:
+                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} start must be HH:MM"
+                
+                try:
+                    hh, mm = int(parts[0]), int(parts[1])
+                    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                        raise ValueError()
+                    start_mins = hh * 60 + mm
+                except ValueError:
+                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} start invalid time"
+                
+                # Validate end time (optional - if missing, defaults to midnight = 24:00 = 1440 minutes)
+                if end is not None:
+                    if not isinstance(end, str):
+                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} end must be a string"
                     
-                    parts = time_str.split(":")
+                    parts = end.split(":")
                     if len(parts) != 2:
-                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} {label} must be HH:MM"
+                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} end must be HH:MM"
                     
                     try:
                         hh, mm = int(parts[0]), int(parts[1])
                         if not (0 <= hh <= 23 and 0 <= mm <= 59):
                             raise ValueError()
-                        # Normalize 23:59 to midnight (00:00 next day conceptually, but we treat as end of day)
-                        time_mins = hh * 60 + mm
+                        end_mins = hh * 60 + mm
                     except ValueError:
-                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} {label} invalid time"
+                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} end invalid time"
+                else:
+                    # No end time specified = runs until midnight (1440 minutes = 24:00)
+                    end_mins = 1440
                 
-                # Parse both times for overlap check
-                start_mins = int(start.split(":")[0]) * 60 + int(start.split(":")[1])
-                end_mins = int(end.split(":")[0]) * 60 + int(end.split(":")[1])
-                
-                # start < end (same-day only; end can be 23:59 which is treated as midnight)
-                if start_mins >= end_mins and end != "23:59":
+                # start < end (same-day only; if end is midnight it's treated as 1440 > start)
+                if start_mins >= end_mins:
                     return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} start must be < end"
                 
                 # Validate target
