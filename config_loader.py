@@ -157,6 +157,10 @@ async def _write_yaml_file(path: str, data: Dict) -> Optional[str]:
     """
     try:
         content = yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        # Unquote time strings for consistency (e.g., '11:00' -> 11:00)
+        # YAML quotes strings that look like they might be parsed as other types
+        import re
+        content = re.sub(r"(start|end): '(\d{2}:\d{2})'", r"\1: \2", content)
     except Exception as exc:
         return f"YAML serialization error: {exc}"
     
@@ -301,11 +305,15 @@ def _normalize_schedules(data: Dict) -> None:
                         for block in blocks:
                             if isinstance(block, dict):
                                 normalized_block = {}
-                                # Add keys in desired order
+                                # Add keys in desired order, ensuring time strings are unquoted
                                 if "start" in block:
-                                    normalized_block["start"] = block["start"]
+                                    # Ensure time is a plain string (not quoted in YAML)
+                                    start = str(block["start"]) if block["start"] is not None else None
+                                    normalized_block["start"] = start
                                 if "end" in block:
-                                    normalized_block["end"] = block["end"]
+                                    # Ensure time is a plain string (not quoted in YAML)
+                                    end = str(block["end"]) if block["end"] is not None else None
+                                    normalized_block["end"] = end
                                 if "target" in block:
                                     normalized_block["target"] = block["target"]
                                 normalized_blocks.append(normalized_block)
