@@ -263,18 +263,24 @@ def _validate_rooms(data: Dict) -> Tuple[bool, Optional[str]]:
 def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
     """Validate schedules.yaml structure and content.
     
+    This function is RESILIENT: it skips invalid blocks but loads valid ones.
+    Only structural errors (like missing 'rooms' list) cause complete failure.
+    
     Rules:
     - Schema: each room entry requires id, default_target, week.mon..sun keys
     - Targets: numeric °C in range 5-35
     - Times: "HH:MM" 00:00-23:59; start < end; same-day only
-    - Overlaps: overlapping blocks for a day → fail
+    - Overlaps: overlapping blocks for a day are removed (both blocks)
     - Ordering: blocks are sorted by start time on load
+    - Invalid blocks: logged as warnings and skipped (not fatal)
     
     Args:
-        data: Parsed schedules.yaml dict
+        data: Parsed schedules.yaml dict (will be MODIFIED in-place to remove invalid blocks)
     
     Returns:
         (ok: bool, error: str|None)
+        - ok=True even if some blocks were skipped (check logs for warnings)
+        - ok=False only for structural errors that prevent loading
     """
     if not isinstance(data, dict):
         return False, "schedules.yaml must be a dict"
@@ -287,38 +293,50 @@ def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
     
     for idx, room in enumerate(rooms_list):
         if not isinstance(room, dict):
-            return False, f"schedules.yaml: room #{idx} is not a dict"
+            log.warning(f"schedules.yaml: room #{idx} is not a dict - skipping")
+            continue
         
         # Required: id
         room_id = room.get("id")
         if not room_id or not isinstance(room_id, str):
-            return False, f"schedules.yaml: room #{idx} missing or invalid 'id'"
+            log.warning(f"schedules.yaml: room #{idx} missing or invalid 'id' - skipping")
+            continue
         
         # Required: default_target (numeric, 5-35)
         default_target = room.get("default_target")
         if not isinstance(default_target, (int, float)):
-            return False, f"schedules.yaml: room '{room_id}' default_target must be numeric"
-        if not (5 <= default_target <= 35):
-            return False, f"schedules.yaml: room '{room_id}' default_target must be 5-35°C"
+            log.warning(f"schedules.yaml: room '{room_id}' default_target must be numeric - using 16.0")
+            room["default_target"] = 16.0
+        elif not (5 <= default_target <= 35):
+            log.warning(f"schedules.yaml: room '{room_id}' default_target {default_target}°C out of range - using 16.0")
+            room["default_target"] = 16.0
         
         # Required: week (dict with all weekdays)
         week = room.get("week")
         if not isinstance(week, dict):
-            return False, f"schedules.yaml: room '{room_id}' missing 'week' dict"
+            log.warning(f"schedules.yaml: room '{room_id}' missing 'week' dict - creating empty week")
+            week = {}
+            room["week"] = week
         
+        # Ensure all weekdays exist
         for day in weekdays:
             if day not in week:
-                return False, f"schedules.yaml: room '{room_id}' missing weekday '{day}' in week"
+                week[day] = []
             
             blocks = week[day]
             if not isinstance(blocks, list):
-                return False, f"schedules.yaml: room '{room_id}' week.{day} must be a list"
+                log.warning(f"schedules.yaml: room '{room_id}' week.{day} not a list - resetting to empty")
+                blocks = []
+                week[day] = blocks
             
-            # Validate and sort blocks
-            parsed_blocks = []
+            # Validate blocks and collect valid ones
+            valid_blocks = []
+            parsed_blocks = []  # (start_mins, end_mins, block_dict, original_index)
+            
             for bidx, block in enumerate(blocks):
                 if not isinstance(block, dict):
-                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} not a dict"
+                    log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} not a dict - skipping")
+                    continue
                 
                 start = block.get("start")
                 end = block.get("end")  # Optional: if missing, means block runs until midnight
@@ -326,11 +344,13 @@ def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
                 
                 # Validate start time (required)
                 if not start or not isinstance(start, str):
-                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} missing 'start'"
+                    log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} missing 'start' - skipping")
+                    continue
                 
                 parts = start.split(":")
                 if len(parts) != 2:
-                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} start must be HH:MM"
+                    log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} start must be HH:MM - skipping")
+                    continue
                 
                 try:
                     hh, mm = int(parts[0]), int(parts[1])
@@ -338,16 +358,19 @@ def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
                         raise ValueError()
                     start_mins = hh * 60 + mm
                 except ValueError:
-                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} start invalid time"
+                    log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} start '{start}' invalid time - skipping")
+                    continue
                 
                 # Validate end time (optional - if missing, defaults to midnight = 24:00 = 1440 minutes)
                 if end is not None:
                     if not isinstance(end, str):
-                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} end must be a string"
+                        log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} end must be a string - skipping")
+                        continue
                     
                     parts = end.split(":")
                     if len(parts) != 2:
-                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} end must be HH:MM"
+                        log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} end must be HH:MM - skipping")
+                        continue
                     
                     try:
                         hh, mm = int(parts[0]), int(parts[1])
@@ -355,33 +378,53 @@ def _validate_schedules(data: Dict) -> Tuple[bool, Optional[str]]:
                             raise ValueError()
                         end_mins = hh * 60 + mm
                     except ValueError:
-                        return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} end invalid time"
+                        log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} end '{end}' invalid time - skipping")
+                        continue
                 else:
                     # No end time specified = runs until midnight (1440 minutes = 24:00)
                     end_mins = 1440
                 
                 # start < end (same-day only; if end is midnight it's treated as 1440 > start)
                 if start_mins >= end_mins:
-                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} start must be < end"
+                    log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} start >= end ({start} >= {end or '24:00'}) - skipping")
+                    continue
                 
                 # Validate target
                 if not isinstance(target, (int, float)):
-                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} target must be numeric"
+                    log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} target must be numeric - skipping")
+                    continue
                 if not (5 <= target <= 35):
-                    return False, f"schedules.yaml: room '{room_id}' {day} block #{bidx} target must be 5-35°C"
+                    log.warning(f"schedules.yaml: room '{room_id}' {day} block #{bidx} target {target}°C out of range (5-35) - skipping")
+                    continue
                 
-                parsed_blocks.append((start_mins, end_mins, bidx))
+                # This block is valid so far
+                parsed_blocks.append((start_mins, end_mins, block, bidx))
             
-            # Check for overlaps
+            # Check for overlaps and remove overlapping blocks
             parsed_blocks.sort()
+            skip_indices = set()
+            
             for i in range(len(parsed_blocks) - 1):
-                _, end_i, idx_i = parsed_blocks[i]
-                start_next, _, idx_next = parsed_blocks[i + 1]
+                _, end_i, _, idx_i = parsed_blocks[i]
+                start_next, _, _, idx_next = parsed_blocks[i + 1]
                 if start_next < end_i:
-                    return False, (
+                    log.warning(
                         f"schedules.yaml: room '{room_id}' {day} has overlapping blocks "
-                        f"(block #{idx_i} and #{idx_next})"
+                        f"(block #{idx_i} and #{idx_next}) - skipping both"
                     )
+                    skip_indices.add(i)
+                    skip_indices.add(i + 1)
+            
+            # Collect valid non-overlapping blocks
+            for i, (_, _, block, _) in enumerate(parsed_blocks):
+                if i not in skip_indices:
+                    valid_blocks.append(block)
+            
+            # Replace the day's blocks with only valid ones
+            week[day] = valid_blocks
+            
+            if len(valid_blocks) < len(blocks):
+                log.info(f"schedules.yaml: room '{room_id}' {day}: kept {len(valid_blocks)}/{len(blocks)} blocks")
     
     return True, None
 
