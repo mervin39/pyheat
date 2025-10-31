@@ -545,6 +545,9 @@ class PyHeatOrchestrator:
         
         Args:
             schedule_dict: New schedules dictionary
+            
+        Returns:
+            Dict with success status and metadata for verification
         """
         log.info("svc_replace_schedules: replacing schedules")
         log.debug(f"  New schedules for {len(schedule_dict.get('rooms', []))} room(s)")
@@ -556,17 +559,38 @@ class PyHeatOrchestrator:
         ok, err = await config_loader.write_schedules(schedule_dict)
         if not ok:
             log.error(f"svc_replace_schedules: validation/write failed: {err}")
-            raise ValueError(f"Failed to replace schedules: {err}")
+            return {
+                "success": False,
+                "error": err,
+                "rooms_saved": 0
+            }
         
         # Reload scheduler
         if self.scheduler:
             self.scheduler.reload(schedule_dict)
             log.info("Scheduler reloaded with new schedules")
         
-        log.info("Schedules replaced successfully")
+        # Return success with metadata for verification
+        rooms = schedule_dict.get("rooms", [])
+        total_blocks = 0
+        for room in rooms:
+            week = room.get("week", {})
+            for day_blocks in week.values():
+                total_blocks += len(day_blocks)
+        
+        result = {
+            "success": True,
+            "rooms_saved": len(rooms),
+            "total_blocks": total_blocks,
+            "room_ids": [r.get("id") for r in rooms]
+        }
+        
+        log.info(f"Schedules replaced successfully: {result}")
         
         # Trigger recompute
         await self.recompute_all()
+        
+        return result
     
     def shutdown(self):
         """Cleanup on shutdown."""

@@ -420,12 +420,45 @@ curl -X POST https://YOUR_HA_URL/api/services/pyheat/replace_schedules \
 }'
 ```
 
+**With response verification (recommended):**
+```bash
+curl -X POST "https://YOUR_HA_URL/api/services/pyheat/replace_schedules?return_response=true" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"schedule": {...}}'
+```
+
+Returns verification metadata:
+```json
+{
+  "service_response": {
+    "success": true,
+    "rooms_saved": 6,
+    "total_blocks": 49,
+    "room_ids": ["living_room", "bedroom", "kitchen"]
+  }
+}
+```
+
+Or on error:
+```json
+{
+  "service_response": {
+    "success": false,
+    "error": "Validation failed: overlapping blocks...",
+    "rooms_saved": 0
+  }
+}
+```
+
 **Notes:**
 - Validates before writing
 - Atomic write (temp file → replace)
 - Reloads scheduler on success
 - Returns error if validation fails
 - File written with 644 permissions
+- Use `?return_response=true` to get verification metadata (rooms_saved, total_blocks, room_ids)
+- Verification response enables client-side confirmation of successful save
 
 ## Reading Configuration via REST API
 

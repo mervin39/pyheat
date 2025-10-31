@@ -324,7 +324,7 @@ async def reload_config():
         raise
 
 
-@service("pyheat.replace_schedules")
+@service("pyheat.replace_schedules", supports_response="optional")
 async def replace_schedules(schedule: Dict[str, Any] = None):
     """Atomically replace the schedules.yaml configuration.
     
@@ -336,6 +336,13 @@ async def replace_schedules(schedule: Dict[str, Any] = None):
         - If valid, writes to schedules.yaml and reloads
         - If invalid, does nothing and returns error
         - Triggers immediate recompute on success
+        
+    Response (if ?return_response=true):
+        - success: bool
+        - rooms_saved: number of rooms written
+        - total_blocks: number of schedule blocks
+        - room_ids: list of room IDs saved
+        - error: error message (if success=false)
     """
     # Validate required argument
     if schedule is None:
@@ -351,11 +358,11 @@ async def replace_schedules(schedule: Dict[str, Any] = None):
         log.error("pyheat.replace_schedules: orchestrator not available")
         return {"success": False, "error": "orchestrator not available"}
     
-    log.info("pyheat.replace_schedules: replacing schedules configuration")
+    log.info("pyheat.replace_schedules: processing request")
     
     try:
-        await _orchestrator.svc_replace_schedules(schedule_dict=schedule)
-        return {"success": True}
+        result = await _orchestrator.svc_replace_schedules(schedule_dict=schedule)
+        return result
     except Exception as e:
         log.error(f"pyheat.replace_schedules failed: {e}")
         return {"success": False, "error": str(e)}
