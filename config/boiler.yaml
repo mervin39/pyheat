@@ -44,3 +44,9 @@ boiler:
     # Sum of all TRV open percentages must be >= this value
     # Default: 100 (ensures water always has somewhere to go)
     min_valve_open_percent: 100
+  
+  # Emergency safety room (fail-safe for hot water flow)
+  # If boiler is ON but no rooms calling for heat, this room's valve will be
+  # forced open to 100% to ensure there's a path for hot water.
+  # This is a CRITICAL safety feature - never run boiler with all valves closed!
+  safety_room: games  # Dining room - chosen as it's centrally located

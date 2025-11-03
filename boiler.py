@@ -94,6 +94,11 @@ class BoilerManager:
             constants.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT
         )
         
+        # Safety room configuration (emergency hot water flow path)
+        self.safety_room = boiler_cfg.get("safety_room")
+        if not self.safety_room:
+            log.warning("BoilerManager: no safety_room configured - emergency valve override disabled")
+        
         # State tracking
         self.current_state = self.STATE_OFF
         self.state_entry_time: Optional[datetime] = None
@@ -151,6 +156,8 @@ class BoilerManager:
             log.info(f"  Min valve open: {self.min_valve_open_percent}%")
             log.info(f"  Anti-cycling: min_on={self.min_on_time_s}s, min_off={self.min_off_time_s}s, off_delay={self.off_delay_s}s")
             log.info(f"  Pump overrun: {self.pump_overrun_s}s")
+            if self.safety_room:
+                log.info(f"  Safety room: {self.safety_room} (emergency valve override)")
             log.info(f"  Initial state: {self.current_state}")
     
     def _set_boiler_setpoint(self, setpoint: float) -> None:
@@ -667,6 +674,25 @@ class BoilerManager:
                     )
                     self.interlock_blocked_notified = True
         
+        # CRITICAL SAFETY: Emergency valve override
+        # If boiler is physically ON (heating) but no rooms calling for heat,
+        # force safety room valve open to ensure there's a path for hot water
+        if self.safety_room and hvac_action in ("heating", "idle"):
+            if len(rooms_calling_for_heat) == 0:
+                # Boiler is ON but no demand - EMERGENCY!
+                # Force safety room valve to 100% to prevent boiler damage
+                overridden_valves[self.safety_room] = 100
+                log.warning(f"🔴 EMERGENCY: Boiler ON with no demand! Forcing {self.safety_room} valve to 100% for safety")
+                # Also send critical notification
+                notifications.notify_critical(
+                    notifications.NotificationManager.CATEGORY_BOILER,
+                    "emergency_safety_valve",
+                    f"🔴 EMERGENCY: Boiler is heating but no rooms are calling for heat! "
+                    f"Safety valve '{self.safety_room}' has been forced open to 100% to provide "
+                    f"a flow path for hot water. This should not happen in normal operation. "
+                    f"Current state: {self.current_state}, HVAC action: {hvac_action}"
+                )
+        
         # Determine boiler_on flag
         boiler_on = self.current_state in (self.STATE_ON, self.STATE_PENDING_OFF)
         
@@ -742,6 +768,12 @@ class BoilerManager:
         if new_min != self.min_valve_open_percent:
             log.info(f"BoilerManager: min_valve_open_percent changed {self.min_valve_open_percent}% -> {new_min}%")
             self.min_valve_open_percent = new_min
+        
+        # Update safety room
+        new_safety_room = boiler_cfg.get("safety_room")
+        if new_safety_room != self.safety_room:
+            log.info(f"BoilerManager: safety_room changed {self.safety_room} -> {new_safety_room}")
+            self.safety_room = new_safety_room
         
         log.info("BoilerManager: configuration reloaded")
 
