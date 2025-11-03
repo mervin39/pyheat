@@ -295,6 +295,33 @@ async def on_sensor_change(var_name=None, value=None, old_value=None):
 
 
 # ============================================================================
+# TRV feedback sensors (valve position confirmation)
+# ============================================================================
+
+@state_trigger("sensor.trv_pete_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_pete_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_games_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_games_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_lounge_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_lounge_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_abby_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_abby_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_office_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_office_valve_closing_degree_z2m")
+@state_trigger("sensor.trv_bathroom_valve_opening_degree_z2m")
+@state_trigger("sensor.trv_bathroom_valve_closing_degree_z2m")
+async def on_trv_feedback_change(var_name=None, value=None, old_value=None):
+    """React to TRV valve position feedback changes.
+    
+    Critical for boiler safety: When in PENDING_ON state, boiler waits for TRV
+    feedback to confirm valves are at commanded positions before turning on.
+    These triggers ensure the system recomputes when feedback updates.
+    """
+    log.debug(f"TRV feedback changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+# ============================================================================
 # TRV local temperature feedback (removed - attribute triggers not supported)
 # ============================================================================
 # NOTE: Pyscript does not support triggering on entity attributes like
