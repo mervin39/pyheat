@@ -4,3 +4,4 @@ pyscript_working.log
 tail_pyscript_log.py
 .env
 .github/
+*.code-workspace
