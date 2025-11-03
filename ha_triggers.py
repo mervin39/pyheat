@@ -187,18 +187,15 @@ async def on_startup():
     # They cannot be registered dynamically in pyscript, but the decorator approach
     # ensures immediate response to state changes (<1s latency).
     
-    # Trigger immediate recompute (if orchestrator exists)
+    # Trigger delayed recompute for entity restoration (entities may not be available immediately after startup)
+    # Zigbee2MQTT, MQTT sensors, and other integrations restore state asynchronously
     if _orchestrator:
-        log.info("Triggering immediate startup recompute...")
-        await _orchestrator.recompute_all()
-        
-        # Schedule delayed recompute for late-restoring sensors (5 seconds)
-        log.info("Scheduling delayed recompute for late-restoring sensors (5s)...")
-        await task.sleep(5)
+        log.info("Scheduling delayed startup recompute for entity restoration (10s)...")
+        await task.sleep(10)
         log.info("Triggering delayed startup recompute...")
         await _orchestrator.recompute_all()
     else:
-        log.warning("Orchestrator not available; skipping startup recomputes")
+        log.warning("Orchestrator not available; skipping startup recompute")
 
 
 # ============================================================================
