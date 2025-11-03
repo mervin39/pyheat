@@ -139,10 +139,12 @@ class PyHeatOrchestrator:
         
         for room_status in room_statuses:
             room_id = room_status["room_id"]
+            # Store valve percent for ALL rooms (not just calling rooms)
+            # This allows boiler to track all valve positions for pump overrun safety
+            room_valve_percents[room_id] = room_status.get("valve_percent", 0)
+            
             if room_status.get("call_for_heat", False):
                 rooms_calling_for_heat.append(room_id)
-                # Store the valve percent calculated from bands (before interlock override)
-                room_valve_percents[room_id] = room_status.get("valve_percent", 0)
         
         # Update boiler with interlock safety (may override valve percents)
         boiler_status = None

@@ -410,6 +410,11 @@ class BoilerManager:
         for room_id in rooms_calling_for_heat:
             total_valve += overridden_valves.get(room_id, 0)
         
+        # Merge overridden valves with all room valve percents for pump overrun tracking
+        # This ensures we save ALL room valve positions, not just calling rooms
+        all_valve_positions = room_valve_percents.copy()
+        all_valve_positions.update(overridden_valves)
+        
         # Check TRV feedback confirmation
         trv_feedback_ok = self._check_trv_feedback_confirmed(
             rooms_calling_for_heat,
@@ -470,9 +475,9 @@ class BoilerManager:
                 reason = f"Pending ON: waiting for TRV confirmation ({time_in_state:.0f}s)"
         
         elif self.current_state == self.STATE_ON:
-            # Save current valve positions (only when there is demand, before overridden_valves gets cleared)
-            if has_demand and overridden_valves:
-                self.last_valve_positions = overridden_valves.copy()
+            # Save ALL valve positions (not just calling rooms) for pump overrun safety
+            if has_demand and all_valve_positions:
+                self.last_valve_positions = all_valve_positions.copy()
                 log.debug(f"BoilerManager: STATE_ON saved valve positions: {self.last_valve_positions}")
             
             if not has_demand:
