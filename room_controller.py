@@ -329,20 +329,26 @@ class Room:
         }
         valve_percent = band_map[current_band]
         
-        # Rate limiting
+        # Always update the calculated valve percent (orchestrator needs current value)
+        # Rate limiting only prevents sending frequent TRV commands, not updating calculations
+        self.valve_percent = int(valve_percent)
+        
+        # Rate limiting for TRV command timing
+        should_send_command = True
         if self._last_valve_update is not None:
             elapsed = (now - self._last_valve_update).total_seconds()
             if elapsed < self.min_interval_s and current_band == self._prev_valve_band:
-                # Too soon to update and band hasn't changed
-                log.debug(f"Room {self.room_id}: valve update rate limited ({elapsed:.1f}s < {self.min_interval_s}s)")
-                return self.valve_percent  # Keep previous value
+                # Too soon to send TRV command and band hasn't changed
+                log.debug(f"Room {self.room_id}: valve update rate limited ({elapsed:.1f}s < {self.min_interval_s}s), calc={valve_percent}%")
+                should_send_command = False
         
-        # Update state
-        if current_band != self._prev_valve_band:
-            log.debug(f"Room {self.room_id}: valve band {self._prev_valve_band} → {current_band} ({valve_percent}%)")
-        
-        self._prev_valve_band = current_band
-        self._last_valve_update = now
+        # Update state tracking only if we would send a command
+        if should_send_command:
+            if current_band != self._prev_valve_band:
+                log.debug(f"Room {self.room_id}: valve band {self._prev_valve_band} → {current_band} ({valve_percent}%)")
+            
+            self._prev_valve_band = current_band
+            self._last_valve_update = now
         
         return int(valve_percent)
     
