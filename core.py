@@ -305,9 +305,16 @@ class PyHeatOrchestrator:
             }
         )
         
-        # Publish valve percent
+        # Publish valve percent (use TRV feedback if available and consistent, otherwise use commanded value)
         valve_entity = "number.pyheat_" + room_id + "_valve_percent"
-        valve_percent = room_status.get("valve_percent", 0)
+        # Try to get TRV feedback first (returns None if inconsistent/unavailable)
+        trv_feedback = None
+        if self.trv:
+            trv_feedback = self.trv.get_feedback_percent(room_id)
+        
+        # Use feedback if available (consistent), otherwise use commanded value
+        valve_percent = trv_feedback if trv_feedback is not None else room_status.get("valve_percent", 0)
+        
         state.set(
             valve_entity,
             value=valve_percent,
