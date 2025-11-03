@@ -135,18 +135,40 @@ class BoilerManager:
             setpoint: Target temperature in °C
         """
         try:
-            service.call(
-                "climate",
-                "set_temperature",
-                entity_id=self.boiler_entity,
-                temperature=setpoint
-            )
-            log.debug(f"BoilerManager: set setpoint to {setpoint}°C")
+            # Determine if we want boiler ON or OFF based on setpoint
+            want_on = (setpoint >= self.on_setpoint)
+            
+            if want_on:
+                # Turn ON: set mode to heat and high setpoint
+                service.call(
+                    "climate",
+                    "set_hvac_mode",
+                    entity_id=self.boiler_entity,
+                    hvac_mode="heat"
+                )
+                service.call(
+                    "climate",
+                    "set_temperature",
+                    entity_id=self.boiler_entity,
+                    temperature=setpoint
+                )
+                log.debug(f"BoilerManager: set hvac_mode=heat, temperature={setpoint}°C")
+            else:
+                # Turn OFF: set mode to off (setpoint doesn't matter when off)
+                service.call(
+                    "climate",
+                    "set_hvac_mode",
+                    entity_id=self.boiler_entity,
+                    hvac_mode="off"
+                )
+                log.debug(f"BoilerManager: set hvac_mode=off")
         except Exception as e:
-            log.error(f"BoilerManager: failed to set setpoint: {e}")
+            log.error(f"BoilerManager: failed to set boiler state: {e}")
     
     def _get_hvac_action(self) -> str:
         """Get current HVAC action from boiler.
+        
+```
         
         Returns:
             'heating', 'idle', 'off', or 'unknown'

@@ -172,10 +172,19 @@ def build_status(
     
     # Add boiler info if available
     if boiler:
+        # New state machine structure
+        boiler_state = boiler.get("state", "unknown")
+        boiler_on = boiler.get("on", False)
+        
         attributes["boiler"] = {
-            "is_on": boiler.get("is_on", False),
-            "queued": boiler.get("queued", "none"),
-            "short_cycle_remaining_s": boiler.get("short_cycle_remaining_s", 0),
+            "state": boiler_state,
+            "is_on": boiler_on,
+            "hvac_action": boiler.get("hvac_action", "unknown"),
+            "reason": boiler.get("reason", ""),
+            "interlock_ok": boiler.get("interlock_ok", True),
+            "total_valve_percent": boiler.get("total_valve_percent", 0),
+            "rooms_calling": boiler.get("rooms_calling", 0),
+            "time_in_state_s": int(boiler.get("time_in_state_s", 0)),
         }
     
     return state_str, attributes
