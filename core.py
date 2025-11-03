@@ -309,8 +309,24 @@ class PyHeatOrchestrator:
         valve_entity = "number.pyheat_" + room_id + "_valve_percent"
         # Try to get TRV feedback first (returns None if inconsistent/unavailable)
         trv_feedback = None
+        valve_feedback_consistent = None
         if self.trv:
             trv_feedback = self.trv.get_feedback_percent(room_id)
+            # Determine if feedback is consistent
+            # None = no TRV, True = consistent feedback, False = inconsistent (valve moving)
+            trv_obj = self.trv.get_trv(room_id)
+            if trv_obj:
+                # Check if we have feedback entities at all
+                try:
+                    fb_open = state.get(trv_obj.fb_open_entity)
+                    fb_close = state.get(trv_obj.fb_close_entity)
+                    if fb_open is not None and fb_close is not None:
+                        # We have feedback - check if it's consistent
+                        valve_feedback_consistent = (trv_feedback is not None)
+                    # else: feedback entities don't exist, leave as None
+                except NameError:
+                    # Feedback entities don't exist
+                    valve_feedback_consistent = None
         
         # Use feedback if available (consistent), otherwise use commanded value
         valve_percent = trv_feedback if trv_feedback is not None else room_status.get("valve_percent", 0)
@@ -323,6 +339,17 @@ class PyHeatOrchestrator:
                 "min": 0,
                 "max": 100,
                 "friendly_name": room_name + " Valve"
+            }
+        )
+        
+        # Publish valve feedback consistency indicator
+        valve_fb_consistent_entity = "binary_sensor.pyheat_" + room_id + "_valve_feedback_consistent"
+        state.set(
+            valve_fb_consistent_entity,
+            value="on" if valve_feedback_consistent else "off",
+            new_attributes={
+                "friendly_name": room_name + " Valve Feedback Consistent",
+                "device_class": "connectivity"
             }
         )
         
