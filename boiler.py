@@ -97,6 +97,9 @@ class BoilerManager:
         self.pending_off_start: Optional[datetime] = None
         self.pump_overrun_start: Optional[datetime] = None
         
+        # Track last valve positions when boiler was ON (for pending_off and pump_overrun)
+        self.last_valve_positions: Dict[str, int] = {}
+        
         # Timestamp entities for anti-cycling
         self.last_on_entity = "input_datetime.pyheat_boiler_last_on"
         self.last_off_entity = "input_datetime.pyheat_boiler_last_off"
@@ -469,6 +472,9 @@ class BoilerManager:
                 reason = f"Pending ON: waiting for TRV confirmation ({time_in_state:.0f}s)"
         
         elif self.current_state == self.STATE_ON:
+            # Save current valve positions for use during pending_off and pump_overrun
+            self.last_valve_positions = overridden_valves.copy()
+            
             if not has_demand:
                 # Demand stopped, enter off-delay period
                 self._transition_to(self.STATE_PENDING_OFF, now, "demand ceased, entering off-delay")
@@ -487,6 +493,11 @@ class BoilerManager:
                 reason = f"ON: heating {len(rooms_calling_for_heat)} room(s), total valve {total_valve}%"
         
         elif self.current_state == self.STATE_PENDING_OFF:
+            # CRITICAL: Valves must stay open during pending_off because boiler is still ON
+            valves_must_stay_open = True
+            # Use last known valve positions instead of current (which would be 0%)
+            overridden_valves = self.last_valve_positions.copy()
+            
             if has_demand and interlock_ok:
                 # Demand returned during off-delay, return to ON
                 self._transition_to(self.STATE_ON, now, "demand returned")
@@ -516,6 +527,9 @@ class BoilerManager:
         
         elif self.current_state == self.STATE_PUMP_OVERRUN:
             valves_must_stay_open = True
+            # Use last known valve positions to keep valves open during pump overrun
+            overridden_valves = self.last_valve_positions.copy()
+            
             if has_demand and interlock_ok and trv_feedback_ok:
                 # New demand during pump overrun, can return to ON
                 self._transition_to(self.STATE_ON, now, "demand resumed during pump overrun")
