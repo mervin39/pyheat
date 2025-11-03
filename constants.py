@@ -159,6 +159,15 @@ TRV_ENTITY_PATTERNS: Dict[str, str] = {
 # Valve percentages are sent as integers (0-100)
 VALVE_PERCENT_INTEGER = True
 
+# TRV Command Sequencing (Anti-Thrashing)
+# To avoid inconsistent feedback states, commands are sent sequentially:
+# 1. Set opening degree, wait for confirmation
+# 2. Set closing degree, wait for confirmation
+TRV_COMMAND_SEQUENCE_ENABLED = True
+TRV_COMMAND_RETRY_INTERVAL_S = 10  # Retry interval if feedback not confirmed
+TRV_COMMAND_MAX_RETRIES = 6        # Max retries (60s total)
+TRV_COMMAND_FEEDBACK_TOLERANCE = 5  # Percent tolerance for feedback match
+
 # ============================================================================
 # Helper Entity Patterns
 # ============================================================================

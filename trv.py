@@ -44,12 +44,22 @@ class TRVController:
         # Track last commanded value
         self.last_commanded_percent: Optional[int] = None
         
+        # Sequential command state
+        self.command_in_progress: bool = False
+        
         log.debug(f"TRVController {room_id}: initialized with base '{trv_base}'")
         log.debug(f"  Commands: {self.cmd_open_entity}, {self.cmd_close_entity}")
         log.debug(f"  Feedback: {self.fb_open_entity}, {self.fb_close_entity}")
     
     async def set_valve_percent(self, percent: int) -> None:
-        """Set valve opening percentage.
+        """Set valve opening percentage with sequential command confirmation.
+        
+        To avoid inconsistent feedback states (which cause recompute thrashing),
+        commands are sent sequentially:
+        1. Set opening degree, wait for feedback confirmation
+        2. Set closing degree, wait for feedback confirmation
+        
+        If feedback doesn't confirm within retry interval, retry up to max attempts.
         
         Args:
             percent: Desired valve opening (0-100%)
@@ -57,27 +67,139 @@ class TRVController:
         # Clamp to valid range
         percent = max(0, min(100, percent))
         
+        # Skip if command already in progress (prevents race conditions during sequential commands)
+        if self.command_in_progress:
+            log.debug(f"TRVController {self.room_id}: command in progress, skipping new request for {percent}%")
+            return
+        
         # Skip if already at this position (anti-thrashing)
         if self.last_commanded_percent == percent:
             log.debug(f"TRVController {self.room_id}: valve already at {percent}%, skipping command")
             return
         
-        # Calculate opening and closing degrees
-        opening = percent
-        closing = 100 - percent
+        # Double-check current entity values to avoid redundant HA commands
+        # Even if we think we need to change, verify entities aren't already at target
+        try:
+            current_open = state.get(self.cmd_open_entity)
+            current_close = state.get(self.cmd_close_entity)
+            
+            if current_open is not None and current_close is not None:
+                try:
+                    current_open_val = int(float(current_open))
+                    current_close_val = int(float(current_close))
+                    
+                    if current_open_val == percent and current_close_val == (100 - percent):
+                        log.debug(f"TRVController {self.room_id}: entities already at {percent}%, skipping HA command")
+                        self.last_commanded_percent = percent  # Update tracking
+                        return
+                except (ValueError, TypeError):
+                    pass  # If we can't parse, proceed with command
+        except:
+            pass  # If we can't read entities, proceed with command
         
-        # Track command
-        self.last_commanded_percent = percent
+        # Calculate target values
+        target_open = percent
+        target_close = 100 - percent
         
-        log.info(f"TRVController {self.room_id}: setting valve to {percent}% (open={opening}, close={closing})")
+        log.info(f"TRVController {self.room_id}: setting valve to {percent}% (open={target_open}, close={target_close})")
         
-        # Issue commands to HA entities using number.set_value service
+        # Set lock to prevent concurrent commands
+        self.command_in_progress = True
+        
+        try:
+            if constants.TRV_COMMAND_SEQUENCE_ENABLED:
+                # Sequential command mode with feedback confirmation
+                await self._set_valve_sequential(target_open, target_close)
+            else:
+                # Legacy mode: send both commands simultaneously
+                await self._set_valve_simultaneous(target_open, target_close)
+            
+            # Track command
+            self.last_commanded_percent = percent
+        finally:
+            # Always release lock
+            self.command_in_progress = False
+    
+    async def _set_valve_sequential(self, target_open: int, target_close: int) -> None:
+        """Send valve commands sequentially with feedback confirmation.
+        
+        Args:
+            target_open: Target opening degree (0-100)
+            target_close: Target closing degree (0-100)
+        """
+        retry_interval = constants.TRV_COMMAND_RETRY_INTERVAL_S
+        max_retries = constants.TRV_COMMAND_MAX_RETRIES
+        tolerance = constants.TRV_COMMAND_FEEDBACK_TOLERANCE
+        
+        # Step 1: Set opening degree and wait for confirmation
+        log.debug(f"TRVController {self.room_id}: setting opening degree to {target_open}%")
+        for attempt in range(max_retries):
+            try:
+                service.call("number", "set_value", entity_id=self.cmd_open_entity, value=target_open)
+                
+                # Wait for feedback confirmation
+                await task.sleep(retry_interval)
+                
+                # Check feedback
+                fb_open = state.get(self.fb_open_entity)
+                if fb_open is not None:
+                    try:
+                        fb_open_val = int(float(fb_open))
+                        if abs(fb_open_val - target_open) <= tolerance:
+                            log.debug(f"TRVController {self.room_id}: opening degree confirmed at {fb_open_val}%")
+                            break  # Confirmed, proceed to closing
+                        else:
+                            log.debug(f"TRVController {self.room_id}: opening degree mismatch (target={target_open}%, fb={fb_open_val}%), retry {attempt+1}/{max_retries}")
+                    except (ValueError, TypeError):
+                        log.warning(f"TRVController {self.room_id}: invalid opening feedback '{fb_open}'")
+                else:
+                    log.warning(f"TRVController {self.room_id}: no opening feedback available")
+                    
+            except Exception as e:
+                log.error(f"TRVController {self.room_id}: failed to set opening degree: {e}")
+        
+        # Step 2: Set closing degree and wait for confirmation
+        log.debug(f"TRVController {self.room_id}: setting closing degree to {target_close}%")
+        for attempt in range(max_retries):
+            try:
+                service.call("number", "set_value", entity_id=self.cmd_close_entity, value=target_close)
+                
+                # Wait for feedback confirmation
+                await task.sleep(retry_interval)
+                
+                # Check feedback
+                fb_close = state.get(self.fb_close_entity)
+                if fb_close is not None:
+                    try:
+                        fb_close_val = int(float(fb_close))
+                        if abs(fb_close_val - target_close) <= tolerance:
+                            log.debug(f"TRVController {self.room_id}: closing degree confirmed at {fb_close_val}%")
+                            break  # Confirmed, done
+                        else:
+                            log.debug(f"TRVController {self.room_id}: closing degree mismatch (target={target_close}%, fb={fb_close_val}%), retry {attempt+1}/{max_retries}")
+                    except (ValueError, TypeError):
+                        log.warning(f"TRVController {self.room_id}: invalid closing feedback '{fb_close}'")
+                else:
+                    log.warning(f"TRVController {self.room_id}: no closing feedback available")
+                    
+            except Exception as e:
+                log.error(f"TRVController {self.room_id}: failed to set closing degree: {e}")
+        
+        log.debug(f"TRVController {self.room_id}: sequential valve command complete")
+    
+    async def _set_valve_simultaneous(self, target_open: int, target_close: int) -> None:
+        """Send both valve commands simultaneously (legacy mode).
+        
+        Args:
+            target_open: Target opening degree (0-100)
+            target_close: Target closing degree (0-100)
+        """
         try:
             # Set opening degree
-            service.call("number", "set_value", entity_id=self.cmd_open_entity, value=opening)
+            service.call("number", "set_value", entity_id=self.cmd_open_entity, value=target_open)
             
             # Set closing degree
-            service.call("number", "set_value", entity_id=self.cmd_close_entity, value=closing)
+            service.call("number", "set_value", entity_id=self.cmd_close_entity, value=target_close)
             
             log.debug(f"TRVController {self.room_id}: commands sent successfully")
             
