@@ -102,15 +102,15 @@ class Room:
                     finishes_at_clean = finishes_at_str.replace("+00:00", "").replace("Z", "")
                     self.override_expires = datetime.fromisoformat(finishes_at_clean).replace(tzinfo=timezone.utc)
                 
-                if target > 0:
+                # Only restore override if target > 5 (values ≤5 indicate cleared override that was clamped to min)
+                if target > 5.0:
                     # We have a persisted target, this is an override
                     self.override_kind = "override"
                     self.override_target = target
                     log.info(f"Room {self.room_id}: restored override from persisted state (target={target}°C, expires={self.override_expires})")
                 else:
-                    # Timer active but no persisted target means boost (delta computed on first compute())
-                    self.override_kind = "boost"
-                    log.info(f"Room {self.room_id}: detected boost (target will be computed from schedule, expires={self.override_expires})")
+                    # Timer active but no valid persisted target - stale timer, don't restore
+                    log.info(f"Room {self.room_id}: override timer active but no valid target (value={target}), not restoring")
                     
             except Exception as e:
                 log.warning(f"Room {self.room_id}: failed to restore override state: {e}")
