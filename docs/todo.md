@@ -78,16 +78,23 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 ## 📋 Planned
 
 ### Phase 2: Boiler & Safety
-- [x] **`boiler.py`** - Dummy boiler control ✨ IMPLEMENTED
-  - Simple on/off based on room demand
-  - Uses input_boolean.pyheat_boiler_actor as control entity
-  - Integrated into orchestrator recompute_all()
-  - **Tested and working**: boiler ON when room calls for heat, OFF when no demand
-  - Future enhancements (deferred):
-    - Anti short-cycling (minimum on/off times)
-    - TRV-open interlock safety check
-    - Force-off handling
-    - Real hardware integration
+- [x] **`boiler.py`** - Comprehensive boiler control ✨ COMPLETE
+  - Full state machine implementation (OFF, PENDING_ON, ON, PENDING_OFF, PUMP_OVERRUN, INTERLOCK_BLOCKED)
+  - TRV-open interlock safety check (min valve opening percent)
+  - **Event-driven timer-based anti-cycling** (Nov 3, 2025):
+    - Replaced tick-based polling with timer helpers
+    - 4 timer entities: min_on, min_off, off_delay, pump_overrun
+    - Removed 1-minute cron tick (now fully event-driven)
+    - Sub-second response time vs 60-second polling latency
+  - Binary control mode for Nest Thermostat (setpoint-based on/off)
+  - Valve position preservation during state transitions
+  - Pump overrun support for heat dissipation
+  - Minimum on/off times to prevent short-cycling
+  - Off-delay to handle brief demand interruptions
+  - Automatic valve override to meet minimum opening threshold
+  - Comprehensive status reporting with timer states
+  - **Integration**: Wired into orchestrator, tested end-to-end
+  - **Production Ready**: All safety features working, no errors in logs
 
 ### Phase 3: Integration
 - [x] **`ha_services.py`** - Service registration ✨ COMPLETE
@@ -156,3 +163,43 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 - Edge case testing (sensor failures, network issues)
 - Performance monitoring
 - **All 7 services fully tested and working!** ✅
+- **Boiler state machine fully tested and production ready!** ✅
+
+## 🎯 Recent Updates (November 3, 2025)
+
+### Boiler Safety Refactoring: Event-Driven Timers
+Completed major refactoring to replace tick-based timestamp polling with event-driven timer helpers:
+
+**What Changed:**
+- **Removed**: 1-minute cron tick for anti-cycling checks
+- **Removed**: `input_datetime` entities for timestamp tracking
+- **Added**: 4 timer helper entities with `@state_trigger` events:
+  - `timer.pyheat_boiler_min_on_timer` - Enforces minimum on time
+  - `timer.pyheat_boiler_min_off_timer` - Prevents premature restart
+  - `timer.pyheat_boiler_off_delay_timer` - Delays turn-off to prevent rapid cycling
+  - `timer.pyheat_boiler_pump_overrun_timer` - Keeps valves open during pump overrun
+
+**Benefits:**
+- ✅ True event-driven architecture (no polling)
+- ✅ Sub-second response time (vs 60-second cron latency)
+- ✅ Simpler state machine logic (no timestamp arithmetic)
+- ✅ Consistent with existing `@state_trigger` patterns
+- ✅ Visual feedback in HA UI (timer states visible)
+- ✅ Programmatic control (can pause/cancel timers)
+
+**Commits:**
+- `0946113` - Refactor boiler safety to use event-driven timer helpers
+- `03b503d` - FIX: Correctly save and preserve valve positions during state transitions
+- `9f815bc` - CRITICAL FIX: Keep valves open during pending_off and pump_overrun
+- `5ac08dd` - Fix boiler control: set HVAC mode and update status sensor
+- `e997d4b` - Fix timestamp parsing timezone awareness
+- `5313d2e` - Fix datetime timezone awareness issue
+- `1f1a75a` - Add stub mode for boiler initialization
+- `02adad3` - Implement comprehensive boiler state machine with Nest Thermostat control
+- `dd9e5cc` - Update valve percent entities after interlock override
+- `bfe4c2d` - Fix TRV method name: set_valve → set_valve_percent
+- `fbc4e8c` - Fix generator expressions and add valve percent safety clamp
+- `1685581` - Implement TRV-open interlock safety check
+
+**Status:** ✅ All changes tested and verified in production. No errors in logs. System fully operational.
+

@@ -13,7 +13,13 @@ Pyheat treats **rooms as first-class domain objects** - each room owns its senso
 - **Temperature Sensor Fusion**: Primary/fallback sensor averaging with staleness detection
 - **Override & Boost**: Temporary temperature adjustments (absolute or delta-based)
 - **Multiple Room Modes**: Auto (schedule-based), Manual (user setpoint), Off
-- **Boiler Integration**: Simple on/off control based on room demand
+- **Advanced Boiler Control**: Comprehensive safety features and state machine
+  - Event-driven timer-based anti-cycling (sub-second response)
+  - TRV-open interlock safety (prevents boiler running with closed valves)
+  - Minimum on/off times to prevent short-cycling
+  - Off-delay to handle brief demand interruptions
+  - Pump overrun support for proper heat dissipation
+  - Automatic valve override to meet minimum opening threshold
 - **Holiday Mode**: Substitute schedule targets when away
 - **REST API**: Full control via Home Assistant services
 
@@ -26,7 +32,7 @@ Pyheat treats **rooms as first-class domain objects** - each room owns its senso
 - **`scheduler.py`**: Weekly schedule resolution with override/boost support
 - **`room_controller.py`**: Per-room state machine with hysteresis and valve control
 - **`trv.py`**: TRV adapter for Sonoff TRVZB via Zigbee2MQTT
-- **`boiler.py`**: Boiler on/off control based on aggregated room demand
+- **`boiler.py`**: Comprehensive boiler state machine with safety interlocks and event-driven timers
 - **`status.py`**: Status composition for Home Assistant entities
 - **`config_loader.py`**: YAML configuration management with atomic writes
 - **`ha_triggers.py`**: Event trigger registration and debouncing
@@ -104,6 +110,49 @@ rooms:
 - Gaps between blocks use `default_target`
 - No overlapping blocks allowed on the same day
 - All weekdays (mon–sun) must be present (use `[]` for no blocks)
+
+### Boiler Configuration (`config/boiler.yaml`)
+
+Configures boiler control, safety interlocks, and anti-cycling protection.
+
+```yaml
+boiler:
+  # Boiler control entity (e.g., climate.boiler)
+  entity_id: climate.boiler
+  
+  # OpenTherm modulation support (false for binary on/off control)
+  opentherm: false
+  
+  # Binary control mode settings
+  binary_control:
+    on_setpoint_c: 30.0   # Setpoint when heat required
+    off_setpoint_c: 5.0   # Setpoint when no heat required
+  
+  # Pump overrun: Keeps TRVs open while pump dissipates residual heat
+  pump_overrun_s: 180  # Seconds (adjust based on actual boiler behavior)
+  
+  # Anti-short-cycling protection (prevents rapid on/off cycles)
+  anti_cycling:
+    min_on_time_s: 180   # Minimum ON duration
+    min_off_time_s: 180  # Minimum OFF duration
+    off_delay_s: 30      # Grace period before turning off
+  
+  # TRV interlock: Ensures sufficient flow path exists
+  interlock:
+    min_valve_open_percent: 100  # Sum of all TRV openings required
+```
+
+**Safety Features:**
+- **TRV Interlock**: Boiler cannot start unless total valve opening ≥ `min_valve_open_percent` (prevents no-flow damage)
+- **Anti-Cycling Timers**: Enforces minimum on/off times using HA timer helpers (event-driven, sub-second response)
+- **Pump Overrun**: Keeps TRVs open for `pump_overrun_s` after boiler stops to allow residual heat dissipation
+- **Off-Delay Grace Period**: Waits `off_delay_s` before turning off when demand stops (prevents nuisance cycling)
+
+**Required Timer Helpers** (defined in `ha_yaml/pyheat_timers.yaml`):
+- `timer.pyheat_boiler_min_on_timer` - Enforces minimum ON time
+- `timer.pyheat_boiler_min_off_timer` - Enforces minimum OFF time  
+- `timer.pyheat_boiler_off_delay_timer` - Grace period before shutdown
+- `timer.pyheat_boiler_pump_overrun_timer` - Pump overrun countdown
 
 ## Home Assistant Entities
 
