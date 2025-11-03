@@ -4,6 +4,31 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2024)
 
+### Pyscript Reload During Pump Overrun Bug (commit f10bdd6) - Nov 3, 2024 ⚠️ CRITICAL
+- **Issue**: TRV closed to 0% only 31 seconds into 180-second pump overrun when pyscript reloaded
+- **Symptom**: Pete's valve commanded to 100% at 19:12:33 (pump overrun start), then to 0% at 19:13:04 (pyscript reload), 149 seconds before pump overrun timer finished at 19:15:33
+- **Root Cause**: When pyscript reloads:
+  1. BoilerManager reinitializes with `current_state = STATE_OFF`
+  2. `last_valve_positions` dict is lost (empty)
+  3. Pump overrun timer (`timer.pyheat_boiler_pump_overrun_timer`) persists in HA but boiler doesn't know it's active
+  4. Delayed startup recompute (10s) runs with no knowledge of pump overrun
+  5. Room calculation says 0%, no override applied, TRV closes prematurely
+- **Impact**: Pump runs with all TRVs closed, potential boiler damage, wasted energy
+- **Solution**: 
+  1. **State restoration on startup**: Check if `pump_overrun_timer` is active, restore `STATE_PUMP_OVERRUN` if so
+  2. **Persist valve positions**: Save `last_valve_positions` to `input_text.pyheat_pump_overrun_valves` when entering pump overrun
+  3. **Restore valve positions**: Read from input_text helper on startup if pump overrun active
+  4. **Clear on completion**: Clear persisted positions when pump overrun finishes
+- **Code Changes**:
+  - `__init__`: Check `_is_timer_active(pump_overrun_timer)` before reading boiler HVAC action
+  - New helper: `_save_pump_overrun_valves()` persists dict as JSON to input_text
+  - New helper: `_clear_pump_overrun_valves()` clears persisted data
+  - Call save when entering PUMP_OVERRUN state
+  - Call clear when PUMP_OVERRUN→OFF transition
+- **New Entity**: `input_text.pyheat_pump_overrun_valves` (max 255 chars) for state persistence
+- **Testing**: Next pyscript reload during pump overrun should maintain valve positions
+- **Discovery**: Found when investigating "pete TRV shut before pump overrun finished" log entry
+
 ### ⚠️ CRITICAL - Pump Overrun Valve Override Bug (commit 1fcf85c) - Nov 3, 2024
 - **Issue**: Valves stuck open at 100% after pump overrun completed, refused to close even though room calculated 0%
 - **Symptom**: After switching pete from Manual→Auto (no demand), valve stayed at 100% indefinitely
