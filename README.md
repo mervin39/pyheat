@@ -1,6 +1,6 @@
 # Pyheat - Home Assistant Heating Control
 
-A Home Assistant heating controller written in Pyscript that manages smart TRV control, boiler operation, per-room temperature monitoring, and flexible scheduling.
+A Home Assistant heating controller written in Pyscript that manages smart TRV control, boiler operation, per-room temperature monitoring, and flexible scheduling with comprehensive state persistence across pyscript reloads.
 
 ## Overview
 
@@ -9,19 +9,32 @@ Pyheat treats **rooms as first-class domain objects** - each room owns its senso
 ### Key Features
 
 - **Smart TRV Control**: Stepped valve control with hysteresis to prevent flapping
+  - Multi-band jump optimization (skips intermediate steps for large changes)
+  - Sequential command execution with feedback confirmation
+  - Multi-layer anti-thrashing protection
+  - Rate limiting with 30s minimum between commands per room
 - **Flexible Scheduling**: Per-room weekly schedules with timed blocks
 - **Temperature Sensor Fusion**: Primary/fallback sensor averaging with staleness detection
 - **Override & Boost**: Temporary temperature adjustments (absolute or delta-based)
+  - Persists across pyscript reloads
+  - Minimum 10°C service validation
+  - Automatic expiry with timer-based tracking
 - **Multiple Room Modes**: Auto (schedule-based), Manual (user setpoint), Off
 - **Advanced Boiler Control**: Comprehensive safety features and state machine
   - Event-driven timer-based anti-cycling (sub-second response)
   - TRV-open interlock safety (prevents boiler running with closed valves)
   - Minimum on/off times to prevent short-cycling
   - Off-delay to handle brief demand interruptions
-  - Pump overrun support for proper heat dissipation
+  - Pump overrun support for proper heat dissipation (180s)
   - Automatic valve override to meet minimum opening threshold
+  - State persistence for pump overrun across pyscript reload
 - **Holiday Mode**: Substitute schedule targets when away
 - **REST API**: Full control via Home Assistant services
+- **Persistent Notifications**: Critical errors and warnings with automatic dismissal
+- **State Persistence**: Survives pyscript reloads
+  - Active override/boost targets and expiry times
+  - Pump overrun valve positions
+  - Boiler state restoration
 
 ## Architecture
 
@@ -31,12 +44,13 @@ Pyheat treats **rooms as first-class domain objects** - each room owns its senso
 - **`sensors.py`**: Temperature sensor fusion with staleness detection
 - **`scheduler.py`**: Weekly schedule resolution with override/boost support
 - **`room_controller.py`**: Per-room state machine with hysteresis and valve control
-- **`trv.py`**: TRV adapter for Sonoff TRVZB via Zigbee2MQTT
+- **`trv.py`**: TRV adapter for Sonoff TRVZB via Zigbee2MQTT with sequential commanding
 - **`boiler.py`**: Comprehensive boiler state machine with safety interlocks and event-driven timers
 - **`status.py`**: Status composition for Home Assistant entities
 - **`config_loader.py`**: YAML configuration management with atomic writes
 - **`ha_triggers.py`**: Event trigger registration and debouncing
 - **`ha_services.py`**: Home Assistant service registration
+- **`notifications.py`**: Persistent notification system with severity levels and spam prevention
 
 ## Configuration
 
@@ -201,7 +215,7 @@ Set an absolute temperature override for a room.
 
 **Arguments:**
 - `room` (string, required): Room ID
-- `target` (float, required): Target temperature in °C
+- `target` (float, required): Target temperature in °C (10-35°C)
 - `minutes` (int, required): Duration in minutes
 
 **Example:**
@@ -213,10 +227,12 @@ curl -X POST https://YOUR_HA_URL/api/services/pyheat/override \
 ```
 
 **Notes:**
+- Target must be 10-35°C (consistent with pyheat-web UI)
 - Ignored if room mode is Manual or Off
 - Overrides schedule target
 - Can be extended by calling again
 - Timer persists across HA restarts
+- State persists across pyscript reload
 
 ### `pyheat.boost`
 
@@ -224,7 +240,7 @@ Apply a delta-based temperature boost.
 
 **Arguments:**
 - `room` (string, required): Room ID
-- `delta` (float, required): Temperature increase in °C (can be negative)
+- `delta` (float, required): Temperature delta in °C (-10 to +10°C, can be negative)
 - `minutes` (int, required): Duration in minutes
 
 **Example:**
@@ -234,6 +250,14 @@ curl -X POST https://YOUR_HA_URL/api/services/pyheat/boost \
   -H "Content-Type: application/json" \
   -d '{"room": "bedroom", "delta": 2.0, "minutes": 45}'
 ```
+
+**Notes:**
+- Delta must be -10 to +10°C
+- Adds delta to current scheduled/default target
+- Computed target must be ≥10°C after applying delta
+- Ignored if room mode is Manual or Off
+- Useful for temporary comfort without knowing exact target
+- State persists across pyscript reload
 
 **Notes:**
 - Adds delta to current scheduled/default target
@@ -584,6 +608,25 @@ Valve opening percentage based on error `e = target - temp`:
 | Error Range | Valve Opening |
 |-------------|---------------|
 | `e < t_low` | 0% (closed) |
+| `t_low ≤ e < t_mid` | low_percent (default 40%) |
+| `t_mid ≤ e < t_max` | mid_percent (default 70%) |
+| `e ≥ t_max` | max_percent (default 100%) |
+
+**Step Hysteresis:**
+- Applied only for **adjacent** band transitions (e.g., 1→2, 2→1)
+- Requires error to cross threshold ± `step_hysteresis_c` (default 0.05°C)
+- Prevents oscillation at band boundaries
+
+**Multi-Band Jump Optimization:**
+- When transitioning across 2+ bands (e.g., 0→3 during boost), skip intermediate bands
+- Jumps directly to target band without hysteresis
+- Prevents slow ramp-up: 0→40%→70%→100% becomes direct 0→100%
+- Significantly improves response time for large temperature changes
+
+**Rate Limiting:**
+- Minimum `min_interval_s` (default 30s) between valve commands per room
+- Calculation always updated (orchestrator needs latest value)
+- Rate limiting only affects command timing, not computed values
 | `t_low ≤ e < t_mid` | low_percent (35%) |
 | `t_mid ≤ e < t_max` | mid_percent (65%) |
 | `e ≥ t_max` | max_percent (100%) |
@@ -712,27 +755,79 @@ To set valve to P% open:
 
 Feedback confirms actual position via Zigbee2MQTT MQTT sensors.
 
+**Sequential Command Execution:**
+- Commands sent sequentially (opening → closing) with feedback confirmation
+- 10s retry interval, up to 6 max retries per command
+- Prevents valve thrashing and inconsistent states
+- Multi-layer anti-thrashing:
+  1. `command_in_progress` lock prevents concurrent commands
+  2. Skip if `last_commanded_percent` matches target
+  3. Double-check entity values before sending HA commands
+  4. Sequential execution with feedback confirmation
+
+### State Persistence Across Pyscript Reload
+
+Pyheat maintains critical state across pyscript reloads using Home Assistant entities and timers:
+
+**Override/Boost Persistence:**
+- Active overrides/boosts tracked via `timer.pyheat_{room}_override`
+- Target temperature persisted to `input_number.pyheat_{room}_override_target`
+- Timer expiry time restored from timer's `finishes_at` attribute
+- On reload: if timer active and target ≥ 10°C, override restored with remaining time
+- Values < 10°C indicate cleared/invalid state (service minimum is 10°C)
+
+**Pump Overrun Persistence:**
+- Valve positions during pump overrun persisted to `input_text.pyheat_pump_overrun_valves` as JSON
+- Boiler state restored from `timer.pyheat_boiler_pump_overrun_timer` active status
+- On reload: if timer active, restores `STATE_PUMP_OVERRUN` and valve positions
+- Continues pump overrun until timer completes (180s total)
+- Clears persisted positions when pump overrun finishes
+
+**Benefits:**
+- User comfort maintained during pyscript updates/restarts
+- Safety: pump overrun continues even if pyscript reloads mid-cycle
+- No manual re-application of overrides needed
+- Transparent to users
+
 ## Project Status
 
-**Version:** 1.0 (Fully Operational)
+**Version:** 2.0 (Production Ready)
 
 **Completed:**
-- ✅ All core modules (sensors, scheduler, room_controller, trv, boiler, status)
+- ✅ All core modules (sensors, scheduler, room_controller, trv, boiler, status, notifications)
 - ✅ Full orchestrator with debouncing and entity publishing
-- ✅ All 7 services tested and working
-- ✅ TRV control with physical confirmation (audible valve changes)
-- ✅ Boiler integration with dummy control
+- ✅ All services tested and working (override, boost, cancel, set_mode, etc.)
+- ✅ TRV control with sequential commands and feedback confirmation
+- ✅ Comprehensive boiler safety:
+  - ✅ TRV-open interlock (prevents running with closed valves)
+  - ✅ Anti short-cycling (min on/off times)
+  - ✅ Off-delay for brief demand interruptions
+  - ✅ Pump overrun with valve preservation
+  - ✅ Automatic valve override for minimum opening threshold
+  - ✅ State persistence across pyscript reload
 - ✅ Temperature sensor fusion with staleness detection
 - ✅ Schedule management with atomic writes
-- ✅ Override/boost with timer persistence
+- ✅ Override/boost with state persistence across reload
+- ✅ Multi-room deployment (6 rooms in production)
+- ✅ Persistent notification system (critical/warning levels)
 - ✅ REST API access
+- ✅ Multi-band valve jump optimization
+- ✅ Edge case handling:
+  - ✅ Sensor failures → safe mode (valves close)
+  - ✅ TRV feedback inconsistencies → excluded from interlock
+  - ✅ Interlock failure while running → immediate shutdown with critical alert
+  - ✅ Pyscript reload during pump overrun → state restored
+  - ✅ Pyscript reload during override → restored with remaining time
 
-**Future Enhancements:**
-- Advanced boiler safety (anti short-cycling, TRV interlock)
-- OpenTherm integration
-- Multi-room testing
-- Edge case hardening (sensor failures, network issues)
-- Performance monitoring
+**Tested Scenarios:**
+- Normal heating cycles (cold → heat → satisfied → off)
+- Insufficient valve opening (interlock override)
+- Interlock failure while running (emergency shutdown)
+- Pyscript reload during pump overrun
+- Pyscript reload during active override
+- Multi-band valve transitions (optimization working)
+- Override/boost persistence and expiry
+- Sequential TRV commanding with feedback
 
 ## Specification
 
