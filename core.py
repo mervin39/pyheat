@@ -76,6 +76,15 @@ class PyHeatOrchestrator:
         # Get all room controllers
         all_rooms = self.room_controller.get_all_rooms() if self.room_controller else {}
         
+        # Sync orchestrator's rooms dict with room_controller's rooms
+        # This ensures self.rooms is populated for sanity checks and other code
+        if all_rooms and not self.rooms:
+            log.info(f"Populating orchestrator rooms dict with {len(all_rooms)} rooms from room_controller")
+            self.rooms = all_rooms
+        elif all_rooms and len(all_rooms) != len(self.rooms):
+            log.info(f"Updating orchestrator rooms dict: {len(self.rooms)} -> {len(all_rooms)} rooms")
+            self.rooms = all_rooms
+        
         if not all_rooms:
             log.debug("No rooms configured yet")
             return

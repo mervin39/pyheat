@@ -4,6 +4,22 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2025)
 
+### Sanity Check False Positives Fixed (commit TBD) - Nov 3, 2025
+- **Issue**: Frequent warnings "Boiler is ON but no rooms calling for heat" even when rooms actually calling for heat
+- **Symptom**: `🔴 Sanity check: Boiler is ON but no rooms calling for heat` warnings every minute, but office was calling for heat
+- **Root Cause**: 
+  1. `PyHeatOrchestrator.rooms` dict initialized as empty dict
+  2. Never populated with actual Room objects from `room_controller.get_all_rooms()`
+  3. Sanity check in `ha_triggers.py` checked `_orchestrator.rooms` to count rooms calling for heat
+  4. Found 0 rooms because dict was empty, triggered false positive
+- **Solution**: 
+  1. In `core.py` `recompute_all()`, sync orchestrator's `self.rooms` with `room_controller.get_all_rooms()`
+  2. Populate on first recompute if empty
+  3. Update if room count changes
+  4. Log when populating/updating for visibility
+- **Impact**: Sanity check now correctly detects rooms calling for heat, no more false positive warnings
+- **Verification**: After fix, logs show `✅ Sanity check: Boiler ON with 1 room(s) calling: office(target=25.0°C,temp=22.9°C)`
+
 ### Emergency Safety Valve & Watchdog Cron (commits cc1846d, b6f2db9, 263ee49) - Nov 3, 2025 🔴 CRITICAL SAFETY
 - **Feature**: Multi-layer defense against "boiler ON with no demand" scenario
 - **Problem**: If boiler is physically heating but no rooms calling for heat (edge case, bug, timing issue), hot water has nowhere to flow → potential boiler damage

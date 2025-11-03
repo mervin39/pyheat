@@ -423,10 +423,12 @@ async def on_sanity_check_cron():
         
         # Count rooms calling for heat
         rooms_calling = 0
+        rooms_calling_list = []
         if _orchestrator.rooms:
             for room in _orchestrator.rooms.values():
                 if room.call_for_heat:
                     rooms_calling += 1
+                    rooms_calling_list.append(f"{room.room_id}(target={room.target:.1f}°C,temp={room.temp:.1f}°C)")
         
         # Boiler ON but no demand - AUTO-FIX by triggering recompute
         # Safety room valve override will protect hardware while state machine corrects
@@ -435,6 +437,9 @@ async def on_sanity_check_cron():
             log.warning(f"🔴 Sanity check: Boiler is ON but no rooms calling for heat (state={state_name}, time_in_state={time_in_state:.0f}s) - triggering recompute to fix")
             # Trigger immediate recompute to correct the state
             _request_recompute()
+        elif is_on and rooms_calling > 0:
+            # Log which rooms are calling for heat when boiler is ON (for debugging)
+            log.debug(f"✅ Sanity check: Boiler ON with {rooms_calling} room(s) calling: {', '.join(rooms_calling_list)}")
         
         # Stuck in PENDING_ON or INTERLOCK_BLOCKED for >5 minutes - AUTO-FIX
         if state_name in [boiler.STATE_PENDING_ON, boiler.STATE_INTERLOCK_BLOCKED] and time_in_state > 300:
