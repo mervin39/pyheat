@@ -243,8 +243,10 @@ Responsible for individual rooms. Each room is a self-contained object that owns
 - Resolve the **effective target** using precedence (off → manual → override/boost → schedule/default).
 - Compute **call-for-heat** using per-room **asymmetric hysteresis** (see §State Model).
 - Compute **valve percent** using **stepped bands** + **step hysteresis** and **rate limiting** (see §Smart TRV Control).
+- **Multi-band jump optimization**: When transitioning across 2+ valve bands (e.g., 0→3 during boost), skip intermediate bands and jump directly. Prevents slow ramp-up (0→40%→70%→100% becomes direct 0→100%). Only apply step hysteresis for adjacent single-band transitions.
 - Track per-room override/boost (remaining time comes from HA timer), and expose a concise **status** string.
 - Publish room-derived entities (`sensor.pyheat_<room>_*`, `binary_sensor.pyheat_<room>_calling_for_heat`, `number.pyheat_<room>_valve_percent`).
+- **State persistence**: Restore active overrides/boosts from timer state and persisted targets on initialization.
 
 #### Public entry points
 - `update_inputs(*, temp: float|None, mode: str, schedule_target: float|None, manual_setpoint: float|None)` — set the latest inputs from sensors/scheduler/UI.
@@ -350,14 +352,36 @@ Once these agree exactly with the corresponding `number.trv_<room>_valve_...`, t
   this module just sends commands and reads feedback.
 - rooms.yaml provides a `climate.<trv_base>` per TRV. Pyheat derives the command/feedback entities from `trv_base` and never writes to the climate entity.
 
+#### Sequential Command Execution
+- Commands sent sequentially: opening degree → wait for feedback → closing degree → wait for feedback
+- Retry logic: 10s retry interval, up to 6 max retries per command
+- Feedback tolerance: ±5% deviation acceptable
+- Prevents valve thrashing and inconsistent states during transitions
+
+#### Anti-Thrashing Protection
+Multiple layers prevent unnecessary TRV commands:
+1. **Command in progress lock**: Prevents concurrent commands to same TRV
+2. **Last commanded check**: Skip if target matches `last_commanded_percent`
+3. **Entity value check**: Double-check current HA entity values before sending
+4. **Sequential execution**: Wait for feedback confirmation before next command
+
 #### Public entry points
-- `set_valve_percent(room_id: str, percent: int) -> None` — issue the opening/closing degree commands.
-- `get_feedback_percent(room_id: str) -> int|None` — return current feedback opening % (or `None` if no valid feedback is available).
+- `set_valve_percent(room_id: str, percent: int) -> None` — issue the opening/closing degree commands with sequential execution and feedback confirmation.
+- `get_feedback_percent(room_id: str) -> int|None` — return current feedback opening % (or `None` if no valid feedback is available or inconsistent - open% + close% != 100% ±5%).
 - `matches_command(room_id: str) -> bool` — `True` iff feedback **exactly equals** the last commanded opening.
-- All functions operate on derived entity IDs (number.*, sensor.*) computed from the room’s trv.entity_id
+- All functions operate on derived entity IDs (number.*, sensor.*) computed from the room's trv.entity_id
 
 ### `boiler.py`
-Responsible for boiler control. Supports simple on/off boiler control and OpenTherm boilers. At first, this will just control `input_boolean.pyheat_boiler_actor` which will represent an on/off boiler.
+Responsible for boiler control with comprehensive state machine and safety interlocks. Supports simple on/off boiler control and OpenTherm boilers (OpenTherm currently stubbed).
+
+#### State Machine
+- **STATE_OFF**: Boiler idle, no demand
+- **STATE_PENDING_ON**: Waiting for TRV feedback confirmation before turning on (max 90s timeout)
+- **STATE_ON**: Boiler running, heating active
+- **STATE_PENDING_OFF**: Off-delay period (30s) to handle brief demand interruptions
+- **STATE_PUMP_OVERRUN**: Post-shutdown circulation (180s) to dissipate heat
+- **STATE_INTERLOCK_BLOCKED**: Safety lockout due to insufficient valve opening
+- **STATE_INTERLOCK_FAILED**: Permanent failure state requiring manual intervention
 
 #### Responsibilities
 - Abstract the boiler actuator:
@@ -701,10 +725,42 @@ A single YAML file (`config/rooms.yaml`) defines each room in the house, specify
 Pyheat allows the user to override the scheduled target temperature in two ways:
 
 #### Override
-A room is targeted and a new target temperature overrides the scheduled target temperature for a specified time. This is a service that takes target temperature and time (minutes) as arguments.
+A room is targeted and a new target temperature overrides the scheduled target temperature for a specified time. This is a service that takes target temperature (10-35°C) and time (minutes) as arguments. The target and expiry time are persisted across pyscript reloads using Home Assistant input_number entities and timer attributes.
 
 #### Boost
-Boost is a special case of override, which instead of taking an absolute target temperature, takes a delta as an argument, increasing the target temperature by that delta for the duration of the override.
+Boost is a special case of override, which instead of taking an absolute target temperature, takes a delta (-10 to +10°C) as an argument, increasing the target temperature by that delta for the duration of the override. The computed target (schedule + delta) is persisted after first calculation.
+
+### State Persistence Across Pyscript Reload
+
+Pyheat implements comprehensive state persistence to maintain operation during pyscript reloads:
+
+#### Override/Boost Persistence
+- **Timer Tracking**: Active overrides/boosts tracked via `timer.pyheat_{room}_override` entities
+- **Target Persistence**: Target temperature stored in `input_number.pyheat_{room}_override_target`
+- **Restoration Logic**:
+  1. On initialization, check if override timer is active
+  2. If active, read persisted target from input_number
+  3. Parse timer's `finishes_at` attribute to restore expiry datetime
+  4. Only restore if target ≥ 10°C (values <10°C indicate cleared/invalid state)
+- **Clearing**: When override expires or is cancelled, target set to 0 (clamped to 5°C minimum by entity definition)
+- **Benefit**: User comfort maintained during pyscript updates; no manual re-application needed
+
+#### Pump Overrun Persistence
+- **Purpose**: Maintain valve positions during 180-second pump overrun safety period
+- **Valve Position Storage**: Saved as JSON to `input_text.pyheat_pump_overrun_valves`
+- **State Restoration**:
+  1. On initialization, check if `timer.pyheat_boiler_pump_overrun_timer` is active
+  2. If active, restore boiler state to `STATE_PUMP_OVERRUN`
+  3. Parse JSON from input_text to restore `last_valve_positions` dict
+  4. Continue pump overrun until timer completes
+- **Clearing**: Persisted positions cleared when pump overrun completes normally
+- **Safety**: Prevents premature valve closure if pyscript reloads mid-cycle, protecting boiler from running with closed valves
+
+#### Implementation Details
+- **Entity Minimums**: Override target entities use min=5°C (below service minimum) to detect edge cases
+- **Service Validation**: Services enforce min=10°C for override, -10 to +10°C for boost delta
+- **Boost Computation**: Delta stored initially, absolute target computed in `_resolve_target()` and persisted on first calculation
+- **Timer Coordination**: HA timers persist independently; pyscript restoration logic synchronizes with timer state
 
 ---
 
