@@ -56,10 +56,16 @@ class BoilerManager:
         """
         boiler_cfg = boiler_config.get("boiler", {})
         
-        # Required: boiler entity
+        # Check if we have a real configuration or just placeholder
+        # (orchestrator may be created before config is loaded)
         self.boiler_entity = boiler_cfg.get("entity_id")
         if not self.boiler_entity:
-            raise ValueError("boiler.yaml: entity_id is required")
+            # No entity configured - use stub mode until config reloaded
+            log.warning("BoilerManager: no entity_id configured, using stub mode (will reload when config available)")
+            self.stub_mode = True
+            self.boiler_entity = "input_boolean.pyheat_boiler_actor"  # fallback
+        else:
+            self.stub_mode = False
         
         # OpenTherm mode flag
         self.opentherm_mode = boiler_cfg.get("opentherm", False)
@@ -96,27 +102,31 @@ class BoilerManager:
         self.last_off_entity = "input_datetime.pyheat_boiler_last_off"
         
         # Read current boiler state
-        try:
-            hvac_action = state.getattr(self.boiler_entity).get("hvac_action", "off")
-            if hvac_action in ("heating", "idle"):
-                self.current_state = self.STATE_ON
-            else:
+        if not self.stub_mode:
+            try:
+                hvac_action = state.getattr(self.boiler_entity).get("hvac_action", "off")
+                if hvac_action in ("heating", "idle"):
+                    self.current_state = self.STATE_ON
+                else:
+                    self.current_state = self.STATE_OFF
+            except (NameError, AttributeError):
+                log.warning(f"BoilerManager: entity {self.boiler_entity} unavailable, assuming OFF")
                 self.current_state = self.STATE_OFF
-        except (NameError, AttributeError):
-            log.warning(f"BoilerManager: entity {self.boiler_entity} unavailable, assuming OFF")
-            self.current_state = self.STATE_OFF
         
         self.state_entry_time = datetime.now()
         
         log.info(f"BoilerManager: initialized")
-        log.info(f"  Entity: {self.boiler_entity}")
-        log.info(f"  OpenTherm mode: {self.opentherm_mode}")
-        if not self.opentherm_mode:
-            log.info(f"  Binary control: ON={self.on_setpoint}°C, OFF={self.off_setpoint}°C")
-        log.info(f"  Min valve open: {self.min_valve_open_percent}%")
-        log.info(f"  Anti-cycling: min_on={self.min_on_time_s}s, min_off={self.min_off_time_s}s, off_delay={self.off_delay_s}s")
-        log.info(f"  Pump overrun: {self.pump_overrun_s}s")
-        log.info(f"  Initial state: {self.current_state}")
+        if self.stub_mode:
+            log.warning(f"  STUB MODE: waiting for configuration reload")
+        else:
+            log.info(f"  Entity: {self.boiler_entity}")
+            log.info(f"  OpenTherm mode: {self.opentherm_mode}")
+            if not self.opentherm_mode:
+                log.info(f"  Binary control: ON={self.on_setpoint}°C, OFF={self.off_setpoint}°C")
+            log.info(f"  Min valve open: {self.min_valve_open_percent}%")
+            log.info(f"  Anti-cycling: min_on={self.min_on_time_s}s, min_off={self.min_off_time_s}s, off_delay={self.off_delay_s}s")
+            log.info(f"  Pump overrun: {self.pump_overrun_s}s")
+            log.info(f"  Initial state: {self.current_state}")
     
     def _set_boiler_setpoint(self, setpoint: float) -> None:
         """Set boiler setpoint (binary control mode).
@@ -547,6 +557,11 @@ class BoilerManager:
         if new_entity and new_entity != self.boiler_entity:
             log.info(f"BoilerManager: entity changed {self.boiler_entity} -> {new_entity}")
             self.boiler_entity = new_entity
+            
+            # Exit stub mode if we now have a real entity
+            if self.stub_mode:
+                self.stub_mode = False
+                log.info("BoilerManager: exiting stub mode, now active with real boiler entity")
         
         # Update settings (don't reset state machine)
         self.opentherm_mode = boiler_cfg.get("opentherm", False)

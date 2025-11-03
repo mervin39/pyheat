@@ -174,6 +174,12 @@ async def on_startup():
         if _orchestrator.trv:
             _orchestrator.trv.reload_rooms(rooms_cfg)
             log.debug("TRV module configured")
+        
+        # Load boiler
+        boiler_cfg, _, _ = await config_loader.load_boiler()
+        if _orchestrator.boiler:
+            _orchestrator.boiler.reload_config(boiler_cfg)
+            log.debug("Boiler module configured")
     
     log.info("=== Pyheat configuration ready ===")
     
