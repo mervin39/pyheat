@@ -170,7 +170,7 @@ class PyHeatOrchestrator:
                 final_valve_percent = valve_overrides.get(room_id, room_status.get("valve_percent", 0))
                 
                 # Command TRV to the final valve position
-                await self.trv.set_valve(room_id, final_valve_percent)
+                await self.trv.set_valve_percent(room_id, final_valve_percent)
         
                 # Read global flags
         try:
