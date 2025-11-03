@@ -4,7 +4,25 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2025)
 
-### Sanity Check False Positives Fixed (commit TBD) - Nov 3, 2025
+### Pyheat-Web Schedule Caching (commit 6868aae) - Nov 3, 2025
+- **Issue**: Excessive calls to `pyheat.get_schedules` service from pyheat-web
+- **Symptom**: 5-8 rapid calls to `pyheat.get_schedules` within milliseconds when multiple browser tabs open
+- **Root Cause**:
+  1. Multiple browser tabs/windows calling `GET /api/schedule` simultaneously
+  2. Each call in pyheat-web server's `schedule_manager.load()` fetched fresh from Pyheat
+  3. No caching, no deduplication of concurrent requests
+  4. Race condition: all requests checked cache before any completed
+- **Solution** (in pyheat-web):
+  1. Added 5-second cache TTL to `ScheduleManager`
+  2. Implemented async lock (`asyncio.Lock`) to serialize fetch operations
+  3. Double-check pattern: check cache before and after acquiring lock
+  4. Reload endpoint uses `force_refresh=True` to bypass cache
+- **Impact**: 5 simultaneous API requests now result in 1 pyheat call + 4 cache hits (~80% reduction)
+- **Verification**: 
+  - Before: 5 rapid calls at 22:38:58.222-380 (8 total within 150ms)
+  - After: 5 requests at 22:50:37 resulted in ZERO HA calls (all cache hits)
+
+### Sanity Check False Positives Fixed (commit 98f76a9) - Nov 3, 2025
 - **Issue**: Frequent warnings "Boiler is ON but no rooms calling for heat" even when rooms actually calling for heat
 - **Symptom**: `🔴 Sanity check: Boiler is ON but no rooms calling for heat` warnings every minute, but office was calling for heat
 - **Root Cause**: 
