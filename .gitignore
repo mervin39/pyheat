@@ -3,3 +3,4 @@ home-assistant.log
 pyscript_working.log
 tail_pyscript_log.py
 .env
+.github/
