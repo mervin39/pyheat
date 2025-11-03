@@ -1,0 +1,15 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_input_datetime.yaml
+# Included via: input_datetime: !include_dir_merge_named yaml/input_datetime
+# Symlink target: yaml/input_datetime/pyheat_input_datetime.yaml
+# Contents: Pyheat last on/off datetime inputs.
+# -----------------------------------------------------------------------------
+
+pyheat_boiler_last_on:
+  name: Pyheat Last On
+  has_date: true
+  has_time: true
+pyheat_boiler_last_off:
+  name: Pyheat Last Off
+  has_date: true
+  has_time: true
