@@ -389,6 +389,92 @@ async def on_boiler_timer_finished(var_name=None, value=None, old_value=None):
 
 
 # ============================================================================
+# 1-minute sanity check cron (watchdog for edge cases)
+# ============================================================================
+
+@time_trigger("cron(* * * * *)")
+async def on_sanity_check_cron():
+    """1-minute sanity check to detect and log inconsistent states.
+    
+    This is a watchdog that runs every minute to check for edge cases
+    that might have been missed by event-driven triggers. It logs warnings
+    but doesn't auto-fix immediately (especially for TRV feedback which can
+    be temporarily inconsistent during valve movements).
+    
+    Checks:
+    - Boiler state vs demand consistency
+    - TRV commanded vs feedback positions
+    - Override timer vs state consistency
+    - State machine stuck detection
+    """
+    if not _orchestrator or not _orchestrator.boiler:
+        return
+    
+    try:
+        boiler = _orchestrator.boiler
+        
+        # 1. Check boiler state consistency
+        is_on = (boiler.current_state in [boiler.STATE_ON, boiler.STATE_PENDING_OFF, boiler.STATE_PUMP_OVERRUN])
+        state_name = boiler.current_state
+        time_in_state = 0
+        if boiler.state_entry_time:
+            from datetime import datetime, timezone
+            time_in_state = (datetime.now(timezone.utc) - boiler.state_entry_time).total_seconds()
+        
+        # Count rooms calling for heat
+        rooms_calling = 0
+        if _orchestrator.rooms:
+            for room in _orchestrator.rooms.values():
+                if room.call_for_heat:
+                    rooms_calling += 1
+        
+        # Boiler ON but no demand (allow some grace time for state transitions)
+        if is_on and rooms_calling == 0 and time_in_state > 120:
+            log.warning(f"⚠️ Sanity check: Boiler is ON but no rooms calling for heat (state={state_name}, time_in_state={time_in_state:.0f}s)")
+        
+        # Stuck in PENDING_ON or INTERLOCK_BLOCKED for >5 minutes
+        if state_name in [boiler.STATE_PENDING_ON, boiler.STATE_INTERLOCK_BLOCKED] and time_in_state > 300:
+            log.warning(f"⚠️ Sanity check: Boiler stuck in {state_name} for {time_in_state:.0f}s")
+        
+        # 2. Check TRV feedback consistency (with tolerance for in-progress commands)
+        if _orchestrator.trv:
+            for room_id in _room_registry.keys():
+                trv = _orchestrator.trv.get_trv(room_id)
+                if not trv:
+                    continue
+                
+                # Skip if command in progress (valve is moving)
+                if trv.command_in_progress:
+                    continue
+                
+                # Get last commanded and current feedback
+                last_commanded = trv.last_commanded_percent
+                feedback = trv.get_feedback_percent()
+                
+                # Allow 10% tolerance and skip if feedback unavailable
+                if feedback is not None and last_commanded is not None:
+                    diff = abs(feedback - last_commanded)
+                    if diff > 10:
+                        log.warning(f"⚠️ Sanity check: {room_id} TRV mismatch - commanded {last_commanded}%, feedback {feedback}% (diff {diff}%)")
+        
+        # 3. Check override timer consistency
+        for room_id in _room_registry.keys():
+            timer_entity = f"timer.pyheat_{room_id}_override"
+            timer_state = state.get(timer_entity)
+            
+            if timer_state == "active":
+                # Timer active - check if room actually has override
+                room = _orchestrator.rooms.get(room_id)
+                if room:
+                    # Check if room has override_kind set
+                    if room.override_kind is None:
+                        log.warning(f"⚠️ Sanity check: {room_id} override timer active but override_kind is None")
+        
+    except Exception as e:
+        log.error(f"Sanity check cron error: {e}")
+
+
+# ============================================================================
 # Shutdown
 # ============================================================================
 
