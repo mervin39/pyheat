@@ -87,7 +87,10 @@ class BoilerManager:
             return {}, False, "No rooms calling for heat"
         
         # Calculate total from band-calculated percentages
-        total_from_bands = sum(room_valve_percents.get(room_id, 0) for room_id in rooms_calling)
+        # Note: Pyscript doesn't support generator expressions, use explicit loop
+        total_from_bands = 0
+        for room_id in rooms_calling:
+            total_from_bands += room_valve_percents.get(room_id, 0)
         
         # Check if we need to override
         if total_from_bands >= self.min_valve_open_percent:
@@ -101,6 +104,9 @@ class BoilerManager:
         # Need to override - distribute evenly across calling rooms
         n_rooms = len(rooms_calling)
         override_percent = int((self.min_valve_open_percent + n_rooms - 1) / n_rooms)  # Round up
+        
+        # Safety clamp: never command valve >100% even if config is misconfigured
+        override_percent = min(100, override_percent)
         
         overridden = {
             room_id: override_percent
@@ -146,7 +152,10 @@ class BoilerManager:
             room_valve_percents
         )
         
-        total_valve = sum(overridden_valves.get(room_id, 0) for room_id in rooms_calling_for_heat)
+        # Calculate total valve opening (no generator expressions in pyscript)
+        total_valve = 0
+        for room_id in rooms_calling_for_heat:
+            total_valve += overridden_valves.get(room_id, 0)
         
         # Determine if boiler should be on
         should_be_on = len(rooms_calling_for_heat) > 0 and interlock_ok
