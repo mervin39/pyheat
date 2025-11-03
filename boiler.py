@@ -472,11 +472,14 @@ class BoilerManager:
                 reason = f"Pending ON: waiting for TRV confirmation ({time_in_state:.0f}s)"
         
         elif self.current_state == self.STATE_ON:
-            # Save current valve positions for use during pending_off and pump_overrun
-            self.last_valve_positions = overridden_valves.copy()
+            # Save current valve positions (only when there is demand, before overridden_valves gets cleared)
+            if has_demand and overridden_valves:
+                self.last_valve_positions = overridden_valves.copy()
+                log.debug(f"BoilerManager: STATE_ON saved valve positions: {self.last_valve_positions}")
             
             if not has_demand:
-                # Demand stopped, enter off-delay period
+                # Demand stopped, enter off-delay period (last_valve_positions already saved above when demand existed)
+                log.debug(f"BoilerManager: STATE_ON → PENDING_OFF, preserved valve positions: {self.last_valve_positions}")
                 self._transition_to(self.STATE_PENDING_OFF, now, "demand ceased, entering off-delay")
                 self.pending_off_start = now
                 reason = f"Pending OFF: off-delay ({self.off_delay_s}s) started"
@@ -497,6 +500,7 @@ class BoilerManager:
             valves_must_stay_open = True
             # Use last known valve positions instead of current (which would be 0%)
             overridden_valves = self.last_valve_positions.copy()
+            log.debug(f"BoilerManager: STATE_PENDING_OFF using saved positions: {overridden_valves}")
             
             if has_demand and interlock_ok:
                 # Demand returned during off-delay, return to ON
@@ -508,19 +512,12 @@ class BoilerManager:
                     reason = f"Pending OFF: waiting for min_on_time ({self.min_on_time_s}s)"
                 else:
                     # Turn off and enter pump overrun
-                    self._transition_to(self.STATE_PUMP_OVERRUN, now, "off-delay elapsed, confirmed off")
-                    
-                    # Wait for boiler to actually turn off before setting low setpoint
-                    if hvac_action == "off":
-                        self._set_boiler_setpoint(self.off_setpoint)
-                        self._record_timestamp(self.last_off_entity, now)
-                        self.pump_overrun_start = now
-                        reason = "Pump overrun: boiler confirmed off"
-                        valves_must_stay_open = True
-                    else:
-                        # Still waiting for boiler to turn off
-                        reason = f"Waiting for boiler to turn off (hvac_action={hvac_action})"
-                        valves_must_stay_open = True
+                    self._transition_to(self.STATE_PUMP_OVERRUN, now, "off-delay elapsed, turning off")
+                    self._set_boiler_setpoint(self.off_setpoint)  # Command boiler to turn off
+                    self._record_timestamp(self.last_off_entity, now)
+                    self.pump_overrun_start = now
+                    reason = "Pump overrun: boiler commanded off"
+                    valves_must_stay_open = True
             else:
                 elapsed = (now - self.pending_off_start).total_seconds() if self.pending_off_start else 0
                 reason = f"Pending OFF: off-delay {elapsed:.0f}/{self.off_delay_s}s"
