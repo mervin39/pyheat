@@ -4,6 +4,31 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2024)
 
+### Override/Boost Persistence Across Pyscript Reload (commit 73e9d3d) - Nov 2024
+- **Issue**: Override/boost state lost during pyscript reload, valves closed even with active timer
+- **Symptom**: Bathroom override to 18°C reverted to schedule 12°C on pyscript reload, all valves closed
+- **Root Cause**: When pyscript reloads:
+  1. RoomController reinitializes with `override_kind = None`, `override_target = None`
+  2. Override timer (`timer.pyheat_{room}_override`) persists in HA but room doesn't know it's active
+  3. Room resolution returns schedule target instead of override target
+  4. Valves commanded to 0% even though override should still be active
+- **Impact**: User comfort lost, manual re-application required after every pyscript reload
+- **Solution**:
+  1. **Persist override target**: Save computed target to `input_number.pyheat_{room}_override_target` when override/boost applied
+  2. **Restore on startup**: Check if override timer active, read persisted target, restore override state
+  3. **Boost special case**: Boost stores delta initially, target computed in `_resolve_target()` from `schedule_target + delta`, then persisted
+  4. **Clear on expiry**: Clear persisted target when override expires or is manually cleared
+- **Code Changes**:
+  - `__init__`: Check if `timer.pyheat_{room}_override` active, restore override_kind and override_target from persisted entities
+  - `apply_override()`: Persist target to `input_number.pyheat_{room}_override_target`
+  - `apply_boost()`: Defer persistence to `_resolve_target()` where target is computed
+  - `_resolve_target()`: For boost, persist computed target (schedule + delta) on first calculation
+  - `clear_override()`: Clear persisted target (set to 0)
+- **New Entities**: `input_number.pyheat_{room}_override_target` for all 6 rooms (5-35°C range)
+- **Simplification**: Originally planned to persist override_kind and override_delta separately, but simplified to only persist target temperature. Override vs boost distinction doesn't matter after application - both just set a target and expiry time.
+- **Testing**: Requires HA restart to load new input_number entities, then test override/boost during pyscript reload
+- **Related Issue**: Part of broader pyscript reload state loss problem, also addressed by pump overrun persistence
+
 ### Pyscript Reload During Pump Overrun Bug (commit f10bdd6) - Nov 3, 2024 ⚠️ CRITICAL
 - **Issue**: TRV closed to 0% only 31 seconds into 180-second pump overrun when pyscript reloaded
 - **Symptom**: Pete's valve commanded to 100% at 19:12:33 (pump overrun start), then to 0% at 19:13:04 (pyscript reload), 149 seconds before pump overrun timer finished at 19:15:33
