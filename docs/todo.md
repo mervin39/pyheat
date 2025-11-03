@@ -4,6 +4,36 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2025)
 
+### Emergency Safety Valve & Watchdog Cron (commits cc1846d, b6f2db9, 263ee49) - Nov 3, 2025 🔴 CRITICAL SAFETY
+- **Feature**: Multi-layer defense against "boiler ON with no demand" scenario
+- **Problem**: If boiler is physically heating but no rooms calling for heat (edge case, bug, timing issue), hot water has nowhere to flow → potential boiler damage
+- **Solution - Layer 1: Emergency Safety Valve (Immediate)**:
+  - Configure `safety_room: games` in `boiler.yaml`
+  - If `hvac_action='heating'` AND `len(rooms_calling_for_heat)==0`
+  - Automatically force safety room valve to 100% via `overridden_valves`
+  - Sends CRITICAL notification and logs warning
+  - Provides immediate hardware protection (hot water has flow path)
+- **Solution - Layer 2: Watchdog Cron (1-2 minutes)**:
+  - 1-minute cron job (`@time_trigger("cron(* * * * *)")`) checks system health
+  - Detects boiler ON with no demand (>120s grace period)
+  - Triggers `_request_recompute()` to force state machine re-evaluation
+  - Also detects stuck states (PENDING_ON, INTERLOCK_BLOCKED >5 min)
+- **Solution - Layer 3: State Machine (Root Cause)**:
+  - Recompute triggered by Layer 2 evaluates demand
+  - STATE_ON with no demand → PENDING_OFF → PUMP_OVERRUN → OFF
+  - Properly turns boiler OFF and resolves root cause
+- **Defense in Depth**:
+  1. T+0s: Safety valve activates (games to 100%)
+  2. T+60-120s: Watchdog triggers recompute
+  3. T+60-120s: State machine turns boiler OFF
+  4. T+210-300s: Pump overrun completes, all valves close
+- **Additional Checks**:
+  - TRV feedback consistency (10% tolerance, skips in-progress commands)
+  - Override timer vs state consistency
+  - Stuck state detection with auto-recovery
+- **Impact**: Hardware protection + automatic recovery for edge cases
+- **Testing**: Would have immediately mitigated the boiler-ON-no-demand issue found earlier
+
 ### Override/Boost Persistence Across Pyscript Reload (commit 73e9d3d) - Nov 2025
 - **Issue**: Override/boost state lost during pyscript reload, valves closed even with active timer
 - **Symptom**: Bathroom override to 18°C reverted to schedule 12°C on pyscript reload, all valves closed

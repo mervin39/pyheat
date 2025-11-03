@@ -152,15 +152,23 @@ boiler:
     off_delay_s: 30      # Grace period before turning off
   
   # TRV interlock: Ensures sufficient flow path exists
+  # TRV interlock: Ensures sufficient flow path exists
   interlock:
     min_valve_open_percent: 100  # Sum of all TRV openings required
+  
+  # Emergency safety room: Failsafe hot water flow path
+  # If boiler is heating but no rooms calling for heat, this room's valve
+  # will be forced to 100% to prevent boiler damage
+  safety_room: games  # Room ID to use as emergency valve
 ```
 
 **Safety Features:**
-- **TRV Interlock**: Boiler cannot start unless total valve opening ≥ `min_valve_open_percent` (prevents no-flow damage)
+- **Emergency Safety Valve**: If boiler is physically heating with no demand, forces safety room valve to 100% (prevents no-flow damage)
+- **TRV Interlock**: Boiler cannot start unless total valve opening ≥ `min_valve_open_percent` (prevents no-flow damage at startup)
 - **Anti-Cycling Timers**: Enforces minimum on/off times using HA timer helpers (event-driven, sub-second response)
 - **Pump Overrun**: Keeps TRVs open for `pump_overrun_s` after boiler stops to allow residual heat dissipation
 - **Off-Delay Grace Period**: Waits `off_delay_s` before turning off when demand stops (prevents nuisance cycling)
+- **1-Minute Sanity Check**: Watchdog cron detects stuck states and triggers auto-recovery
 
 **Required Timer Helpers** (defined in `ha_yaml/pyheat_timers.yaml`):
 - `timer.pyheat_boiler_min_on_timer` - Enforces minimum ON time
@@ -799,12 +807,14 @@ Pyheat maintains critical state across pyscript reloads using Home Assistant ent
 - ✅ All services tested and working (override, boost, cancel, set_mode, etc.)
 - ✅ TRV control with sequential commands and feedback confirmation
 - ✅ Comprehensive boiler safety:
-  - ✅ TRV-open interlock (prevents running with closed valves)
+  - ✅ Emergency safety valve (forces safety room to 100% if boiler heating with no demand)
+  - ✅ TRV-open interlock (prevents running with closed valves at startup)
   - ✅ Anti short-cycling (min on/off times)
   - ✅ Off-delay for brief demand interruptions
   - ✅ Pump overrun with valve preservation
   - ✅ Automatic valve override for minimum opening threshold
   - ✅ State persistence across pyscript reload
+  - ✅ 1-minute watchdog cron with auto-recovery
 - ✅ Temperature sensor fusion with staleness detection
 - ✅ Schedule management with atomic writes
 - ✅ Override/boost with state persistence across reload
@@ -818,6 +828,8 @@ Pyheat maintains critical state across pyscript reloads using Home Assistant ent
   - ✅ Interlock failure while running → immediate shutdown with critical alert
   - ✅ Pyscript reload during pump overrun → state restored
   - ✅ Pyscript reload during override → restored with remaining time
+  - ✅ Boiler ON with no demand → emergency safety valve + auto-recovery
+  - ✅ Stuck state detection → 1-minute watchdog triggers recompute
 
 **Tested Scenarios:**
 - Normal heating cycles (cold → heat → satisfied → off)
@@ -827,6 +839,7 @@ Pyheat maintains critical state across pyscript reloads using Home Assistant ent
 - Pyscript reload during active override
 - Multi-band valve transitions (optimization working)
 - Override/boost persistence and expiry
+- Emergency safety valve activation (boiler ON with no demand)
 - Sequential TRV commanding with feedback
 
 ## Specification
