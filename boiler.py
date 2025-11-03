@@ -186,8 +186,17 @@ class BoilerManager:
         try:
             timestamp_str = state.get(entity)
             if timestamp_str:
-                # Parse ISO format datetime string
-                return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                # Parse datetime string and ensure it's timezone-aware
+                # The `now` parameter passed to update() is timezone-aware from HA
+                # We need to ensure the parsed timestamp matches
+                parsed = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                # If parsed is naive, make it aware in the same timezone as `now`
+                # (This shouldn't happen with input_datetime but handle it anyway)
+                if parsed.tzinfo is None:
+                    # Assume it's in the same timezone as the system (UTC for HA)
+                    from datetime import timezone
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
         except Exception as e:
             log.debug(f"BoilerManager: failed to read timestamp from {entity}: {e}")
         return None
