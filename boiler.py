@@ -559,6 +559,9 @@ class BoilerManager:
                 # Start off-delay timer
                 self._start_timer(self.off_delay_timer, self.off_delay_s)
                 reason = f"Pending OFF: off-delay ({self.off_delay_s}s) started"
+                # CRITICAL: Valves must stay open immediately upon entering PENDING_OFF
+                valves_must_stay_open = True
+                overridden_valves = self.last_valve_positions.copy()
             elif not interlock_ok:
                 # Interlock failed while running - turn off immediately
                 log.warning("BoilerManager: interlock failed while ON, turning off immediately")
