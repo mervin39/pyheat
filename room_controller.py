@@ -102,8 +102,8 @@ class Room:
                     finishes_at_clean = finishes_at_str.replace("+00:00", "").replace("Z", "")
                     self.override_expires = datetime.fromisoformat(finishes_at_clean).replace(tzinfo=timezone.utc)
                 
-                # Only restore override if target > 5 (values ≤5 indicate cleared override that was clamped to min)
-                if target > 5.0:
+                # Only restore override if target >= 10 (values <10 indicate cleared override that was clamped to min)
+                if target >= 10.0:
                     # We have a persisted target, this is an override
                     self.override_kind = "override"
                     self.override_target = target

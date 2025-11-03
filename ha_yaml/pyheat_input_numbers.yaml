@@ -7,6 +7,7 @@
 
 # Override persistence (for restoring state after pyscript reload)
 # Stores the active override/boost target temperature
+# Min 5°C (lower than service minimum of 10°C) to detect edge cases where value gets clamped
 pyheat_pete_override_target:
   name: "Pete's Room Override Target"
   min: 5

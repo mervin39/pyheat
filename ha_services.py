@@ -91,10 +91,10 @@ async def override(room: str = None, target: float = None, minutes: int = None):
         log.error("pyheat.override: 'minutes' must be positive")
         return {"success": False, "error": "minutes must be positive"}
     
-    # Validate temperature range (reasonable limits)
-    if target < 5.0 or target > 35.0:
-        log.error(f"pyheat.override: target {target}°C out of range (5-35°C)")
-        return {"success": False, "error": f"target {target}°C out of range (5-35°C)"}
+    # Validate temperature range (10-35°C, consistent with pyheat-web UI)
+    if target < 10.0 or target > 35.0:
+        log.error(f"pyheat.override: target {target}°C out of range (10-35°C)")
+        return {"success": False, "error": f"target {target}°C out of range (10-35°C)"}
     
     # Call orchestrator
     if not _orchestrator:
