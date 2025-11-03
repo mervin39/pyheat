@@ -428,13 +428,19 @@ async def on_sanity_check_cron():
                 if room.call_for_heat:
                     rooms_calling += 1
         
-        # Boiler ON but no demand (allow some grace time for state transitions)
+        # Boiler ON but no demand - AUTO-FIX by triggering recompute
+        # Safety room valve override will protect hardware while state machine corrects
+        # Allow 120s grace period for normal state transitions (PENDING_OFF → PUMP_OVERRUN → OFF)
         if is_on and rooms_calling == 0 and time_in_state > 120:
-            log.warning(f"⚠️ Sanity check: Boiler is ON but no rooms calling for heat (state={state_name}, time_in_state={time_in_state:.0f}s)")
+            log.warning(f"🔴 Sanity check: Boiler is ON but no rooms calling for heat (state={state_name}, time_in_state={time_in_state:.0f}s) - triggering recompute to fix")
+            # Trigger immediate recompute to correct the state
+            _request_recompute()
         
-        # Stuck in PENDING_ON or INTERLOCK_BLOCKED for >5 minutes
+        # Stuck in PENDING_ON or INTERLOCK_BLOCKED for >5 minutes - AUTO-FIX
         if state_name in [boiler.STATE_PENDING_ON, boiler.STATE_INTERLOCK_BLOCKED] and time_in_state > 300:
-            log.warning(f"⚠️ Sanity check: Boiler stuck in {state_name} for {time_in_state:.0f}s")
+            log.warning(f"🔴 Sanity check: Boiler stuck in {state_name} for {time_in_state:.0f}s - triggering recompute to fix")
+            # Trigger immediate recompute to attempt state recovery
+            _request_recompute()
         
         # 2. Check TRV feedback consistency (with tolerance for in-progress commands)
         if _orchestrator.trv:
