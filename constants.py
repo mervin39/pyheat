@@ -114,6 +114,18 @@ SAFETY_DEFAULT: Dict[str, float] = {
 }
 
 # ============================================================================
+# Boiler Configuration
+# ============================================================================
+
+# Default boiler entity ID (dummy input_boolean until hardware connected)
+BOILER_ENTITY_DEFAULT = "input_boolean.pyheat_boiler_actor"
+
+# Default minimum total valve opening percentage for boiler safety interlock
+# Sum of all TRV open percentages must be >= this value before boiler can turn on
+# This ensures water always has somewhere to go
+BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT = 100
+
+# ============================================================================
 # TRV Entity Patterns (Zigbee2MQTT via Home Assistant)
 # ============================================================================
 

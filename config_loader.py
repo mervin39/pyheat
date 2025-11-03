@@ -610,6 +610,56 @@ def _cross_validate(rooms_cfg: Dict, schedules_cfg: Dict) -> List[str]:
 
 
 # ============================================================================
+# Boiler config validation
+# ============================================================================
+
+# Last good boiler config
+_last_boiler_cfg = {}
+
+
+def _validate_boiler(data: Dict) -> Tuple[bool, Optional[str]]:
+    """Validate boiler.yaml structure and content.
+    
+    Rules:
+    - Must have 'boiler' top-level key
+    - entity_id must be a valid string
+    - min_valve_open_percent must be 0-100
+    
+    Args:
+        data: Parsed boiler.yaml dict
+    
+    Returns:
+        (ok: bool, error: str|None)
+    """
+    if not isinstance(data, dict):
+        return False, "boiler.yaml must be a dict"
+    
+    boiler_cfg = data.get("boiler")
+    if not isinstance(boiler_cfg, dict):
+        return False, "boiler.yaml: missing 'boiler' dict"
+    
+    # Validate entity_id
+    entity_id = boiler_cfg.get("entity_id")
+    if not entity_id or not isinstance(entity_id, str):
+        return False, "boiler.yaml: 'entity_id' must be a non-empty string"
+    
+    # Validate interlock config
+    interlock = boiler_cfg.get("interlock")
+    if interlock is not None:
+        if not isinstance(interlock, dict):
+            return False, "boiler.yaml: 'interlock' must be a dict"
+        
+        min_valve = interlock.get("min_valve_open_percent")
+        if min_valve is not None:
+            if not isinstance(min_valve, (int, float)):
+                return False, "boiler.yaml: 'min_valve_open_percent' must be numeric"
+            if not (0 <= min_valve <= 100):
+                return False, "boiler.yaml: 'min_valve_open_percent' must be 0-100"
+    
+    return True, None
+
+
+# ============================================================================
 # Public API
 # ============================================================================
 
@@ -668,8 +718,33 @@ async def load_schedules() -> Tuple[Dict, bool, Optional[str]]:
     return data, True, None
 
 
+async def load_boiler() -> Tuple[Dict, bool, Optional[str]]:
+    """Load and validate boiler.yaml.
+    
+    Returns:
+        (boiler_dict, ok: bool, err: str|None)
+    """
+    global _last_boiler_cfg
+    
+    path = _get_config_path("boiler.yaml")
+    data, err = await _read_yaml_file(path)
+    
+    if err:
+        log.error(f"Failed to load boiler.yaml: {err}")
+        return _last_boiler_cfg, False, err
+    
+    ok, err = _validate_boiler(data)
+    if not ok:
+        log.error(f"Validation failed for boiler.yaml: {err}")
+        return _last_boiler_cfg, False, err
+    
+    # Success: update last good config
+    _last_boiler_cfg = data
+    return data, True, None
+
+
 async def load_all() -> Tuple[bool, Optional[str]]:
-    """Load and validate both rooms.yaml and schedules.yaml.
+    """Load and validate all config files (rooms, schedules, boiler).
     
     Performs cross-validation and logs warnings for mismatches.
     
@@ -678,12 +753,16 @@ async def load_all() -> Tuple[bool, Optional[str]]:
     """
     rooms_cfg, rooms_ok, rooms_err = await load_rooms()
     schedules_cfg, scheds_ok, scheds_err = await load_schedules()
+    boiler_cfg, boiler_ok, boiler_err = await load_boiler()
     
     if not rooms_ok:
         return False, f"rooms.yaml: {rooms_err}"
     
     if not scheds_ok:
         return False, f"schedules.yaml: {scheds_err}"
+    
+    if not boiler_ok:
+        return False, f"boiler.yaml: {boiler_err}"
     
     # Cross-validate
     warnings = _cross_validate(rooms_cfg, schedules_cfg)

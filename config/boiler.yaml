@@ -1,0 +1,21 @@
+# Boiler Configuration
+# This file configures the central boiler control and safety interlocks
+
+boiler:
+  # Boiler control entity (currently a dummy input_boolean)
+  # TODO: Replace with real boiler control when hardware is connected
+  entity_id: input_boolean.pyheat_boiler_actor
+  
+  # TRV-open interlock safety configuration
+  # Ensures the boiler never runs without sufficient flow path available
+  interlock:
+    # Minimum total valve opening percentage required before boiler can turn on
+    # Sum of all TRV open percentages must be >= this value
+    # Default: 100 (ensures water always has somewhere to go)
+    min_valve_open_percent: 100
+  
+  # Anti-short-cycling configuration (future implementation)
+  # cycling:
+  #   min_on_time_s: 300      # Minimum time boiler must stay on once started
+  #   min_off_time_s: 180     # Minimum time boiler must stay off once stopped
+  #   max_cycles_per_hour: 6  # Maximum number of on/off cycles per hour

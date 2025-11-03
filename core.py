@@ -30,12 +30,24 @@ class PyHeatOrchestrator:
         # Room registry (will be populated by config_loader)
         self.rooms = {}
         
+        # Load boiler configuration synchronously (needed for initialization)
+        # We use task.executor to make this non-blocking
+        boiler_config = {}
+        try:
+            from . import config_loader
+            # Async config loading is handled at startup trigger
+            # For now, use empty config with defaults
+            boiler_config = {"boiler": {}}  # Will be loaded in first reload
+        except Exception as e:
+            log.warning(f"Failed to load boiler config during init: {e}, using defaults")
+            boiler_config = {"boiler": {}}
+        
         # Initialize module singletons
         self.sensors = sensors.init()
         self.scheduler = scheduler.init()
         self.room_controller = room_controller.init()
         self.trv = trv.init()
-        self.boiler = boiler.init()
+        self.boiler = boiler.init(boiler_config)
         
         # State tracking
         self.last_recompute = None
@@ -121,21 +133,44 @@ class PyHeatOrchestrator:
             # Publish per-room entities
             await self._publish_room_entities(room_id, room_status)
         
-        # Aggregate rooms calling for heat
-        rooms_calling_for_heat = [
-            room_status["room_id"] for room_status in room_statuses 
-            if room_status.get("call_for_heat", False)
-        ]
+        # Aggregate rooms calling for heat and their valve percentages
+        rooms_calling_for_heat = []
+        room_valve_percents = {}
         
-        # Update boiler based on room demand
+        for room_status in room_statuses:
+            room_id = room_status["room_id"]
+            if room_status.get("call_for_heat", False):
+                rooms_calling_for_heat.append(room_id)
+                # Store the valve percent calculated from bands (before interlock override)
+                room_valve_percents[room_id] = room_status.get("valve_percent", 0)
+        
+        # Update boiler with interlock safety (may override valve percents)
         boiler_status = None
+        valve_overrides = {}
         if self.boiler:
-            boiler_result = self.boiler.update(rooms_calling_for_heat)
+            boiler_result = self.boiler.update(rooms_calling_for_heat, room_valve_percents)
             boiler_status = {
                 "on": boiler_result["boiler_on"],
                 "rooms_calling": len(boiler_result["rooms_calling"]),
-                "reason": boiler_result["reason"]
+                "reason": boiler_result["reason"],
+                "interlock_ok": boiler_result.get("interlock_ok", True),
+                "total_valve_percent": boiler_result.get("total_valve_percent", 0)
             }
+            
+            # Get overridden valve percents (if interlock kicked in)
+            valve_overrides = boiler_result.get("overridden_valve_percents", {})
+        
+        # Apply valve overrides to TRVs
+        if self.trv:
+            for room_id, room_status in zip(
+                [rs["room_id"] for rs in room_statuses],
+                room_statuses
+            ):
+                # Use overridden valve percent if interlock applied, otherwise use room's calculated percent
+                final_valve_percent = valve_overrides.get(room_id, room_status.get("valve_percent", 0))
+                
+                # Command TRV to the final valve position
+                await self.trv.set_valve(room_id, final_valve_percent)
         
                 # Read global flags
         try:
@@ -465,6 +500,7 @@ class PyHeatOrchestrator:
         # Get reloaded configs
         rooms_cfg, _, _ = await config_loader.load_rooms()
         schedules_cfg, _, _ = await config_loader.load_schedules()
+        boiler_cfg, _, _ = await config_loader.load_boiler()
         
         # Reload modules
         if self.sensors:
@@ -484,7 +520,7 @@ class PyHeatOrchestrator:
             log.info("TRV controllers reloaded")
         
         if self.boiler:
-            self.boiler.reload_rooms(rooms_cfg)
+            self.boiler.reload_config(boiler_cfg)
             log.info("Boiler controller reloaded")
         
         log.info("Configuration reloaded successfully")
