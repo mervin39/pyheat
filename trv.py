@@ -57,6 +57,11 @@ class TRVController:
         # Clamp to valid range
         percent = max(0, min(100, percent))
         
+        # Skip if already at this position (anti-thrashing)
+        if self.last_commanded_percent == percent:
+            log.debug(f"TRVController {self.room_id}: valve already at {percent}%, skipping command")
+            return
+        
         # Calculate opening and closing degrees
         opening = percent
         closing = 100 - percent

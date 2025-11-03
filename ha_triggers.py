@@ -316,8 +316,38 @@ async def on_trv_feedback_change(var_name=None, value=None, old_value=None):
     Critical for boiler safety: When in PENDING_ON state, boiler waits for TRV
     feedback to confirm valves are at commanded positions before turning on.
     These triggers ensure the system recomputes when feedback updates.
+    
+    Anti-thrashing: Only trigger recompute if feedback appears stable (consistent).
+    During valve movement, feedback is often inconsistent (open% + close% != 100%),
+    which would cause rapid recomputes and command thrashing.
     """
     log.debug(f"TRV feedback changed [{var_name}]: {old_value} -> {value}")
+    
+    # Extract room name from sensor entity_id (e.g., sensor.trv_pete_valve_opening_degree_z2m -> pete)
+    if var_name and "trv_" in var_name:
+        parts = var_name.split("_")
+        if len(parts) >= 3:
+            room_name = parts[1]
+            
+            # Check if feedback is consistent before triggering recompute
+            # This prevents thrashing during valve movement
+            # Get both feedback sensors directly
+            open_entity = f"sensor.trv_{room_name}_valve_opening_degree_z2m"
+            close_entity = f"sensor.trv_{room_name}_valve_closing_degree_z2m"
+            
+            try:
+                open_val = float(state.get(open_entity) or 0)
+                close_val = float(state.get(close_entity) or 0)
+                total = open_val + close_val
+                
+                # Check if feedback is consistent (total should be 100% within tolerance)
+                if abs(total - 100.0) > 5.0:
+                    log.debug(f"TRV feedback for {room_name} is inconsistent ({open_val}% + {close_val}% = {total}%), skipping recompute")
+                    return
+            except (ValueError, TypeError):
+                # If we can't parse the values, skip the check and allow recompute
+                pass
+    
     _request_recompute()
 
 
