@@ -4,7 +4,43 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2024)
 
-### Double-Commanding TRV Fix (commit 7fe5878) ⚠️ CRITICAL
+### ⚠️ CRITICAL - Pump Overrun Valve Override Bug (commit 1fcf85c) - Nov 3, 2024
+- **Issue**: Valves stuck open at 100% after pump overrun completed, refused to close even though room calculated 0%
+- **Symptom**: After switching pete from Manual→Auto (no demand), valve stayed at 100% indefinitely
+- **Root Cause**: When boiler transitioned PUMP_OVERRUN→OFF, the `overridden_valves` dict still contained saved positions from pump overrun (pete: 100). These stale overrides were returned to orchestrator, preventing room-calculated values from being applied.
+- **Code Path**: 
+  1. STATE_PUMP_OVERRUN sets `overridden_valves = last_valve_positions.copy()` (line 572)
+  2. Pump overrun completes, transitions to OFF, sets `valves_must_stay_open = False` (line 587)
+  3. **BUG**: `overridden_valves` not cleared, still contains {pete: 100}
+  4. Returns `overridden_valve_percents: overridden_valves` with stale values (line 634)
+  5. Orchestrator applies overrides, valve stuck at 100%
+- **Solution**: Explicitly clear `overridden_valves = {}` when pump overrun completes (line 588)
+- **Verification**: Tested pete Manual→Auto transition, valve correctly closed to 0% after 3min pump overrun
+- **Found During**: Comprehensive specification sanity check of all valve control scenarios
+
+### Rate Limiting Stale Value Bug (commit fd0bd67) - Nov 3, 2024
+- **Issue**: After pump overrun ended, room calculated valve should be 0% but orchestrator received stale 100% value
+- **Root Cause**: Rate limiting in `_compute_valve_percent()` returned `self.valve_percent` (old value) when throttled, instead of updating to newly calculated value
+- **Impact**: Orchestrator made decisions based on wrong valve values, compounding pump overrun bug
+- **Solution**: Always update `self.valve_percent = int(valve_percent)` even when rate limited. Rate limiting now only affects command timing via `should_send_command` flag.
+- **Code Change**: Separated value updates (always) from command timing (throttled)
+
+### Sequential TRV Command Implementation (commit f5e8d57) - Nov 3, 2024
+- **Feature**: TRV commands now sent sequentially (opening degree → confirm → closing degree) instead of simultaneously
+- **Rationale**: Prevents valve thrashing, allows feedback confirmation before next command
+- **Implementation**:
+  - `command_in_progress` lock prevents concurrent commands
+  - Opening degree sent first, waits for feedback confirmation (10s retry intervals, 6 max retries)
+  - Then closing degree sent with same retry logic
+  - Configurable: `TRV_COMMAND_SEQUENCE_ENABLED`, `TRV_COMMAND_RETRY_INTERVAL_S`, `TRV_COMMAND_MAX_RETRIES`
+- **Anti-thrashing Layers**:
+  1. Check `command_in_progress` (prevent concurrent)
+  2. Check `last_commanded_percent` (skip if same as last)
+  3. Check entity values (skip if already at target)
+  4. Sequential execution with feedback confirmation
+- **Trade-off**: Commands take 10-20s to complete vs instant, but eliminates thrashing
+
+### Double-Commanding TRV Fix (commit 7fe5878) - Nov 3, 2024 ⚠️ CRITICAL
 - **Issue**: Severe valve thrashing with valves oscillating 0% → 100% → 0% → 100% continuously
 - **Root Cause**: TRVs were commanded TWICE per recompute:
   1. In `_publish_room_entities()` with calculated valve percent (e.g., 0% for room above target)
@@ -39,6 +75,114 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 ### Notification System (commit 0d9097a)
 - **Feature**: Persistent notifications for serious errors (boiler timeouts, interlock failures)
 - **Implementation**: New `notifications.py` module with severity levels, spam prevention, auto-dismiss
+
+---
+
+## Valve Control Specification - Complete Verification (Nov 3, 2024)
+
+**Comprehensive sanity check performed on all TRV valve control scenarios to ensure correct behavior.**
+
+### Specification: What Should Happen With TRV Valves
+
+#### Situation 1: Normal Operation (Boiler OFF, No Demand)
+**Expected**: Room calculates valve_percent based on temperature bands, TRV commanded to calculated value, no overrides.
+
+**Verified**: ✅
+- `room_controller._compute_valve_percent()` calculates bands based on error (target - temp)
+- Orchestrator gets valve_percent from room.compute()
+- No overrides applied when boiler STATE_OFF and no demand
+- TRV commanded directly to calculated value
+
+#### Situation 2: Boiler OFF → PENDING_ON (Interlock Enforcement)
+**Expected**: If total valve opening < min_valve_open_percent (100%), override calling rooms to meet minimum.
+
+**Verified**: ✅
+- `boiler.calculate_valve_overrides()` checks if sum of calling room valves >= 100%
+- If insufficient, calculates override_percent = ceil(100 / n_rooms)
+- Returns overridden dict to orchestrator
+- Orchestrator applies overrides before commanding TRVs
+- Boiler waits in PENDING_ON until TRV feedback confirms positions
+
+#### Situation 3: Boiler ON (Interlock Safety)
+**Expected**: Continuously check interlock. If violated while running, immediately shut down with CRITICAL notification.
+
+**Verified**: ✅
+- Every recompute checks `interlock_ok` even during STATE_ON (line 517)
+- If interlock fails: immediate transition to PUMP_OVERRUN, boiler commanded off
+- CRITICAL notification sent (interlock_failure_while_running)
+- Valves kept open during pump overrun for safety
+
+#### Situation 4: Boiler ON → PENDING_OFF (Preserve Valve Positions)
+**Expected**: Save all valve positions during STATE_ON. When demand stops, enter PENDING_OFF and keep valves at saved positions.
+
+**Verified**: ✅
+- Line 419-421: `all_valve_positions` includes ALL rooms (not just calling)
+- Line 506: Continuously saves positions during STATE_ON
+- Line 510: When demand stops → PENDING_OFF
+- Line 543: PENDING_OFF uses `last_valve_positions` as overrides
+- Valves stay open during off_delay (30s) to prevent water hammer
+
+#### Situation 5: PUMP_OVERRUN (Keep Valves Open, Then Clear)
+**Expected**: Valves must stay open at saved positions during pump overrun. When complete → transition to OFF and CLEAR OVERRIDES.
+
+**Verified**: ✅ **CRITICAL BUG FOUND AND FIXED**
+- PUMP_OVERRUN uses saved positions as overrides (line 572)
+- When timer completes (line 583-588): transition to OFF, `valves_must_stay_open = False`
+- **BUG FIXED**: Now explicitly clears `overridden_valves = {}` (line 588 - commit 1fcf85c)
+- Next recompute: orchestrator gets room-calculated values, valves can close
+
+#### Situation 6: Room Mode Changes
+**Expected**: Mode change triggers immediate recalculation. If band changes, bypass rate limiting and command immediately.
+
+**Verified**: ✅
+- Mode change triggers fire immediately (ha_triggers.py line 237-247)
+- Debounce is only 100ms, applies to all triggers equally
+- Rate limiting checks band change (room_controller.py line 342)
+- If `current_band != self._prev_valve_band`, rate limit bypassed
+- Mode changes typically change target significantly → band changes → immediate command
+
+#### Situation 7: Rate Limiting
+**Expected**: Always update calculated valve_percent. Rate limiting only throttles TRV command timing, not the value itself.
+
+**Verified**: ✅ **BUG FOUND AND FIXED**
+- **BUG FIXED**: Line 334 now always updates `self.valve_percent = int(valve_percent)` (commit fd0bd67)
+- Rate limiting only affects `should_send_command` flag (line 336-344)
+- Orchestrator always receives current calculated value
+- TRV commands throttled to max once per 30s (unless band changes)
+
+#### Situation 8: Sequential TRV Commands
+**Expected**: Send opening degree first, wait for feedback confirmation, then closing degree. Retry if needed.
+
+**Verified**: ✅ **IMPLEMENTED**
+- `TRV_COMMAND_SEQUENCE_ENABLED = True` enables sequential mode (commit f5e8d57)
+- `_set_valve_sequential()` sends opening degree first (line 122-187)
+- Waits for feedback confirmation with 10s retry intervals
+- After confirmation, sends closing degree with same retry logic
+- `command_in_progress` lock prevents concurrent commands
+- Falls back to simultaneous mode if sequential disabled
+
+### Code Verification Results
+
+**All 8 situations verified against code implementation:**
+- ✅ Situation 1: Normal operation - correct
+- ✅ Situation 2: Interlock enforcement - correct
+- ✅ Situation 3: Interlock safety while running - correct
+- ✅ Situation 4: PENDING_OFF valve preservation - correct
+- ✅ Situation 5: PUMP_OVERRUN override clearing - **FIXED** (critical bug)
+- ✅ Situation 6: Mode change band updates - correct
+- ✅ Situation 7: Rate limiting value updates - **FIXED** (bug)
+- ✅ Situation 8: Sequential commands - **IMPLEMENTED**
+
+**Bugs Found During Verification:**
+1. **CRITICAL**: Pump overrun overrides not cleared → valves stuck open (FIXED)
+2. Rate limiting returned stale values to orchestrator (FIXED)
+
+**Production Test Results:**
+- Pete Manual→Auto transition: ✅ Valve correctly closed from 100%→0% after pump overrun
+- No thrashing observed with all anti-thrashing layers active
+- Sequential commands executing cleanly (10-20s per valve change)
+
+---
 
 ## ✅ Completed
 
