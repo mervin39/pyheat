@@ -160,7 +160,7 @@ class PyHeatOrchestrator:
             # Get overridden valve percents (if interlock kicked in)
             valve_overrides = boiler_result.get("overridden_valve_percents", {})
         
-        # Apply valve overrides to TRVs
+        # Apply valve overrides to TRVs and update published entities
         if self.trv:
             for room_id, room_status in zip(
                 [rs["room_id"] for rs in room_statuses],
@@ -171,6 +171,23 @@ class PyHeatOrchestrator:
                 
                 # Command TRV to the final valve position
                 await self.trv.set_valve_percent(room_id, final_valve_percent)
+                
+                # Update the published valve percent entity if it was overridden
+                if room_id in valve_overrides:
+                    valve_entity = "number.pyheat_" + room_id + "_valve_percent"
+                    room_name = room_status.get("room_name", room_id.replace("_", " ").title())
+                    state.set(
+                        valve_entity,
+                        value=final_valve_percent,
+                        new_attributes={
+                            "unit_of_measurement": "%",
+                            "min": 0,
+                            "max": 100,
+                            "friendly_name": room_name + " Valve",
+                            "overridden": True,
+                            "reason": "Interlock safety override"
+                        }
+                    )
         
                 # Read global flags
         try:
