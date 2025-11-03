@@ -271,7 +271,10 @@ class Room:
         - t_mid ≤ e < t_max → mid_percent  
         - e ≥ t_max → max_percent
         
-        Step hysteresis: requires crossing threshold by step_hysteresis_c before changing bands.
+        Step hysteresis: Applied only for adjacent band transitions to prevent oscillation
+        at band boundaries. Multi-band jumps (e.g., 0→3) skip hysteresis as the change
+        is clearly significant.
+        
         Rate limiting: only update if min_interval_s has passed.
         
         Args:
@@ -300,11 +303,16 @@ class Room:
         else:
             target_band = 3
         
-        # Apply step hysteresis
+        # Apply step hysteresis (only for adjacent band transitions)
+        # Multi-band jumps indicate significant changes and should happen immediately
         current_band = self._prev_valve_band if self._prev_valve_band is not None else target_band
+        band_delta = abs(target_band - current_band)
         
-        if target_band > current_band:
-            # Trying to increase power - check we've crossed threshold + hysteresis
+        if band_delta > 1:
+            # Multi-band jump (e.g., 0→2, 0→3, 2→0) - skip hysteresis, change is significant
+            current_band = target_band
+        elif target_band > current_band:
+            # Adjacent band increase - apply hysteresis to prevent oscillation at boundary
             if current_band == 0 and e >= self.t_low + self.step_hysteresis_c:
                 current_band = 1
             elif current_band == 1 and e >= self.t_mid + self.step_hysteresis_c:
@@ -312,7 +320,7 @@ class Room:
             elif current_band == 2 and e >= self.t_max + self.step_hysteresis_c:
                 current_band = 3
         elif target_band < current_band:
-            # Trying to decrease power - check we've crossed threshold - hysteresis
+            # Adjacent band decrease - apply hysteresis to prevent oscillation at boundary
             if current_band == 3 and e < self.t_max - self.step_hysteresis_c:
                 current_band = 2
             elif current_band == 2 and e < self.t_mid - self.step_hysteresis_c:
