@@ -40,3 +40,28 @@ pyheat_bathroom_override:
   restore: true
   duration: "00:00:00"
   icon: mdi:timer
+
+# Boiler safety timers for anti-cycling and pump overrun
+pyheat_boiler_min_on_timer:
+  name: "Boiler Minimum On Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:timer-check
+
+pyheat_boiler_min_off_timer:
+  name: "Boiler Minimum Off Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:timer-check
+
+pyheat_boiler_off_delay_timer:
+  name: "Boiler Off Delay Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:timer-sand
+
+pyheat_boiler_pump_overrun_timer:
+  name: "Boiler Pump Overrun Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:pump

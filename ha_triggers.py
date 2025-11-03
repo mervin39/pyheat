@@ -303,19 +303,19 @@ async def on_sensor_change(var_name=None, value=None, old_value=None):
 
 
 # ============================================================================
-# Time trigger (1-minute cron for schedule boundaries and stale checks)
+# Boiler safety timer triggers (event-driven anti-cycling and pump overrun)
 # ============================================================================
 
-@time_trigger("cron(* * * * *)")
-async def on_minute_tick():
-    """1-minute cron tick for schedule evaluation and stale sensor checks."""
-    log.debug("Minute tick")
-    
-    if _orchestrator:
-        now = datetime.now(tz=timezone.utc)
-        await _orchestrator.handle_event("cron_tick", {"timestamp": now})
-    
-    _request_recompute()
+@state_trigger("timer.pyheat_boiler_min_on_timer == 'idle'")
+@state_trigger("timer.pyheat_boiler_min_off_timer == 'idle'")
+@state_trigger("timer.pyheat_boiler_off_delay_timer == 'idle'")
+@state_trigger("timer.pyheat_boiler_pump_overrun_timer == 'idle'")
+async def on_boiler_timer_finished(var_name=None, value=None, old_value=None):
+    """React to boiler safety timer completion (min_on, min_off, off_delay, pump_overrun)."""
+    # Only trigger when timer transitions from 'active' to 'idle' (finished)
+    if old_value == "active" and value == "idle":
+        log.info(f"Boiler timer finished [{var_name}]: {old_value} -> {value}")
+        _request_recompute()
 
 
 # ============================================================================

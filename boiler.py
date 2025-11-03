@@ -5,7 +5,7 @@ Responsibilities:
 - Control boiler on/off with anti-cycling protection
 - Enforce TRV-open interlock safety
 - Manage state transitions with proper delays and confirmations
-- Track timestamps for anti-cycling logic
+- Use timer helpers for event-driven anti-cycling logic
 - Handle pump overrun to protect boiler and ensure proper heat dissipation
 
 State Machine:
@@ -22,14 +22,16 @@ Control Modes:
 
 Safety Features:
 - TRV feedback confirmation before turning on boiler
-- Minimum on/off times to prevent short-cycling
-- Off-delay to handle brief demand interruptions
-- Pump overrun support to dissipate residual heat
+- Minimum on/off times to prevent short-cycling (using timer helpers)
+- Off-delay to handle brief demand interruptions (using timer helpers)
+- Pump overrun support to dissipate residual heat (using timer helpers)
 - Interlock: sum(valve_open_percent) >= min_valve_open_percent
 
-Timestamp Tracking:
-- Uses input_datetime.pyheat_boiler_last_on
-- Uses input_datetime.pyheat_boiler_last_off
+Timer Helpers (Event-Driven):
+- timer.pyheat_boiler_min_on_timer: Ensures boiler stays on for min_on_time_s
+- timer.pyheat_boiler_min_off_timer: Prevents restart before min_off_time_s elapses
+- timer.pyheat_boiler_off_delay_timer: Delays turn-off to prevent rapid cycling
+- timer.pyheat_boiler_pump_overrun_timer: Keeps valves open during pump overrun
 """
 
 from typing import Dict, List, Any, Optional, Tuple
@@ -94,15 +96,15 @@ class BoilerManager:
         # State tracking
         self.current_state = self.STATE_OFF
         self.state_entry_time: Optional[datetime] = None
-        self.pending_off_start: Optional[datetime] = None
-        self.pump_overrun_start: Optional[datetime] = None
         
         # Track last valve positions when boiler was ON (for pending_off and pump_overrun)
         self.last_valve_positions: Dict[str, int] = {}
         
-        # Timestamp entities for anti-cycling
-        self.last_on_entity = "input_datetime.pyheat_boiler_last_on"
-        self.last_off_entity = "input_datetime.pyheat_boiler_last_off"
+        # Timer entities for anti-cycling and pump overrun (event-driven)
+        self.min_on_timer = "timer.pyheat_boiler_min_on_timer"
+        self.min_off_timer = "timer.pyheat_boiler_min_off_timer"
+        self.off_delay_timer = "timer.pyheat_boiler_off_delay_timer"
+        self.pump_overrun_timer = "timer.pyheat_boiler_pump_overrun_timer"
         
         # Read current boiler state
         if not self.stub_mode:
@@ -115,8 +117,6 @@ class BoilerManager:
             except (NameError, AttributeError):
                 log.warning(f"BoilerManager: entity {self.boiler_entity} unavailable, assuming OFF")
                 self.current_state = self.STATE_OFF
-        
-        self.state_entry_time: Optional[datetime] = None
         
         log.info(f"BoilerManager: initialized")
         if self.stub_mode:
@@ -182,81 +182,77 @@ class BoilerManager:
         except (NameError, AttributeError):
             return "unknown"
     
-    def _record_timestamp(self, entity: str, timestamp: datetime) -> None:
-        """Record timestamp to input_datetime entity.
+    def _start_timer(self, timer_entity: str, duration_seconds: int) -> None:
+        """Start a timer helper with the specified duration.
         
         Args:
-            entity: Entity ID of input_datetime
-            timestamp: Datetime to record
+            timer_entity: Entity ID of timer
+            duration_seconds: Duration in seconds
         """
         try:
+            # Convert seconds to HH:MM:SS format
+            hours = duration_seconds // 3600
+            minutes = (duration_seconds % 3600) // 60
+            seconds = duration_seconds % 60
+            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
             service.call(
-                "input_datetime",
-                "set_datetime",
-                entity_id=entity,
-                datetime=timestamp.isoformat()
+                "timer",
+                "start",
+                entity_id=timer_entity,
+                duration=duration_str
             )
+            log.debug(f"BoilerManager: started {timer_entity} for {duration_str}")
         except Exception as e:
-            log.warning(f"BoilerManager: failed to record timestamp to {entity}: {e}")
+            log.warning(f"BoilerManager: failed to start timer {timer_entity}: {e}")
     
-    def _get_last_timestamp(self, entity: str) -> Optional[datetime]:
-        """Get last timestamp from input_datetime entity.
+    def _cancel_timer(self, timer_entity: str) -> None:
+        """Cancel a running timer.
         
         Args:
-            entity: Entity ID of input_datetime
-            
-        Returns:
-            Datetime or None if unavailable
+            timer_entity: Entity ID of timer
         """
         try:
-            timestamp_str = state.get(entity)
-            if timestamp_str:
-                # Parse datetime string and ensure it's timezone-aware
-                # The `now` parameter passed to update() is timezone-aware from HA
-                # We need to ensure the parsed timestamp matches
-                parsed = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                # If parsed is naive, make it aware in the same timezone as `now`
-                # (This shouldn't happen with input_datetime but handle it anyway)
-                if parsed.tzinfo is None:
-                    # Assume it's in the same timezone as the system (UTC for HA)
-                    from datetime import timezone
-                    parsed = parsed.replace(tzinfo=timezone.utc)
-                return parsed
+            service.call("timer", "cancel", entity_id=timer_entity)
+            log.debug(f"BoilerManager: cancelled {timer_entity}")
         except Exception as e:
-            log.debug(f"BoilerManager: failed to read timestamp from {entity}: {e}")
-        return None
+            log.debug(f"BoilerManager: failed to cancel timer {timer_entity}: {e}")
     
-    def _check_min_on_time_elapsed(self, now: datetime) -> bool:
-        """Check if minimum on time has elapsed since last turn-on.
+    def _is_timer_active(self, timer_entity: str) -> bool:
+        """Check if a timer is currently active (running).
         
         Args:
-            now: Current datetime
+            timer_entity: Entity ID of timer
             
         Returns:
-            True if min_on_time has elapsed or no constraint applies
+            True if timer is active, False otherwise
         """
-        last_on = self._get_last_timestamp(self.last_on_entity)
-        if not last_on:
-            return True  # No timestamp, allow
-        
-        elapsed = (now - last_on).total_seconds()
-        return elapsed >= self.min_on_time_s
+        try:
+            timer_state = state.get(timer_entity)
+            return timer_state == "active"
+        except Exception as e:
+            log.debug(f"BoilerManager: failed to check timer {timer_entity}: {e}")
+            return False
     
-    def _check_min_off_time_elapsed(self, now: datetime) -> bool:
-        """Check if minimum off time has elapsed since last turn-off.
+    def _check_min_on_time_elapsed(self) -> bool:
+        """Check if minimum on time constraint is satisfied.
         
-        Args:
-            now: Current datetime
-            
         Returns:
-            True if min_off_time has elapsed or no constraint applies
+            True if min_on_time timer is not active (constraint satisfied)
         """
-        last_off = self._get_last_timestamp(self.last_off_entity)
-        if not last_off:
-            return True  # No timestamp, allow
+        # If timer is active, constraint is NOT satisfied
+        # If timer is idle/finished, constraint IS satisfied
+        return not self._is_timer_active(self.min_on_timer)
+    
+    def _check_min_off_time_elapsed(self) -> bool:
+        """Check if minimum off time constraint is satisfied.
         
-        elapsed = (now - last_off).total_seconds()
-        return elapsed >= self.min_off_time_s
+        Returns:
+            True if min_off_time timer is not active (constraint satisfied)
+        """
+        # If timer is active, constraint is NOT satisfied
+        # If timer is idle/finished, constraint IS satisfied
+        return not self._is_timer_active(self.min_off_timer)
     
     def _transition_to(self, new_state: str, now: datetime, reason: str) -> None:
         """Transition to new state with logging.
@@ -437,7 +433,7 @@ class BoilerManager:
         if self.current_state == self.STATE_OFF:
             if has_demand and interlock_ok:
                 # Demand exists, check anti-cycling and TRV feedback
-                if not self._check_min_off_time_elapsed(now):
+                if not self._check_min_off_time_elapsed():
                     self._transition_to(self.STATE_INTERLOCK_BLOCKED, now, "min_off_time not elapsed")
                     reason = f"Blocked: min_off_time ({self.min_off_time_s}s) not elapsed"
                 elif not trv_feedback_ok:
@@ -447,7 +443,8 @@ class BoilerManager:
                     # All conditions met, turn on
                     self._transition_to(self.STATE_ON, now, "demand and conditions met")
                     self._set_boiler_setpoint(self.on_setpoint)
-                    self._record_timestamp(self.last_on_entity, now)
+                    # Start min_on_time timer to enforce minimum on duration
+                    self._start_timer(self.min_on_timer, self.min_on_time_s)
                     reason = f"Turned ON: {len(rooms_calling_for_heat)} room(s) calling"
             elif has_demand and not interlock_ok:
                 self._transition_to(self.STATE_INTERLOCK_BLOCKED, now, "insufficient valve opening")
@@ -466,7 +463,8 @@ class BoilerManager:
                 # TRVs confirmed, turn on
                 self._transition_to(self.STATE_ON, now, "TRV feedback confirmed")
                 self._set_boiler_setpoint(self.on_setpoint)
-                self._record_timestamp(self.last_on_entity, now)
+                # Start min_on_time timer to enforce minimum on duration
+                self._start_timer(self.min_on_timer, self.min_on_time_s)
                 reason = f"Turned ON: TRVs confirmed at {total_valve}%"
             else:
                 reason = f"Pending ON: waiting for TRV confirmation ({time_in_state:.0f}s)"
@@ -481,15 +479,18 @@ class BoilerManager:
                 # Demand stopped, enter off-delay period (last_valve_positions already saved above when demand existed)
                 log.debug(f"BoilerManager: STATE_ON → PENDING_OFF, preserved valve positions: {self.last_valve_positions}")
                 self._transition_to(self.STATE_PENDING_OFF, now, "demand ceased, entering off-delay")
-                self.pending_off_start = now
+                # Start off-delay timer
+                self._start_timer(self.off_delay_timer, self.off_delay_s)
                 reason = f"Pending OFF: off-delay ({self.off_delay_s}s) started"
             elif not interlock_ok:
                 # Interlock failed while running - turn off immediately
                 log.warning("BoilerManager: interlock failed while ON, turning off immediately")
                 self._transition_to(self.STATE_PUMP_OVERRUN, now, "interlock failed")
                 self._set_boiler_setpoint(self.off_setpoint)
-                self._record_timestamp(self.last_off_entity, now)
-                self.pump_overrun_start = now
+                # Cancel min_on_time timer and start min_off_time + pump_overrun timers
+                self._cancel_timer(self.min_on_timer)
+                self._start_timer(self.min_off_timer, self.min_off_time_s)
+                self._start_timer(self.pump_overrun_timer, self.pump_overrun_s)
                 reason = "Turned OFF: interlock failed"
                 valves_must_stay_open = True
             else:
@@ -505,22 +506,26 @@ class BoilerManager:
             if has_demand and interlock_ok:
                 # Demand returned during off-delay, return to ON
                 self._transition_to(self.STATE_ON, now, "demand returned")
+                # Cancel off-delay timer since we're returning to ON
+                self._cancel_timer(self.off_delay_timer)
                 reason = f"Returned to ON: demand resumed ({len(rooms_calling_for_heat)} room(s))"
-            elif self.pending_off_start and (now - self.pending_off_start).total_seconds() >= self.off_delay_s:
-                # Off-delay elapsed, check min_on_time
-                if not self._check_min_on_time_elapsed(now):
+            elif not self._is_timer_active(self.off_delay_timer):
+                # Off-delay timer completed, check min_on_time
+                if not self._check_min_on_time_elapsed():
                     reason = f"Pending OFF: waiting for min_on_time ({self.min_on_time_s}s)"
                 else:
                     # Turn off and enter pump overrun
                     self._transition_to(self.STATE_PUMP_OVERRUN, now, "off-delay elapsed, turning off")
                     self._set_boiler_setpoint(self.off_setpoint)  # Command boiler to turn off
-                    self._record_timestamp(self.last_off_entity, now)
-                    self.pump_overrun_start = now
+                    # Cancel min_on_time timer and start min_off_time + pump_overrun timers
+                    self._cancel_timer(self.min_on_timer)
+                    self._start_timer(self.min_off_timer, self.min_off_time_s)
+                    self._start_timer(self.pump_overrun_timer, self.pump_overrun_s)
                     reason = "Pump overrun: boiler commanded off"
                     valves_must_stay_open = True
             else:
-                elapsed = (now - self.pending_off_start).total_seconds() if self.pending_off_start else 0
-                reason = f"Pending OFF: off-delay {elapsed:.0f}/{self.off_delay_s}s"
+                # Still waiting for off-delay timer
+                reason = f"Pending OFF: off-delay timer active"
         
         elif self.current_state == self.STATE_PUMP_OVERRUN:
             valves_must_stay_open = True
@@ -531,27 +536,30 @@ class BoilerManager:
                 # New demand during pump overrun, can return to ON
                 self._transition_to(self.STATE_ON, now, "demand resumed during pump overrun")
                 self._set_boiler_setpoint(self.on_setpoint)
-                self._record_timestamp(self.last_on_entity, now)
+                # Cancel pump_overrun timer, restart min_on_time timer
+                self._cancel_timer(self.pump_overrun_timer)
+                self._start_timer(self.min_on_timer, self.min_on_time_s)
                 reason = f"Returned to ON: demand during pump overrun"
                 valves_must_stay_open = False
-            elif self.pump_overrun_start and (now - self.pump_overrun_start).total_seconds() >= self.pump_overrun_s:
-                # Pump overrun complete
+            elif not self._is_timer_active(self.pump_overrun_timer):
+                # Pump overrun timer completed
                 self._transition_to(self.STATE_OFF, now, "pump overrun complete")
                 reason = "Pump overrun complete, now OFF"
                 valves_must_stay_open = False
             else:
-                elapsed = (now - self.pump_overrun_start).total_seconds() if self.pump_overrun_start else 0
-                reason = f"Pump overrun: {elapsed:.0f}/{self.pump_overrun_s}s (valves must stay open)"
+                # Still in pump overrun
+                reason = f"Pump overrun: timer active (valves must stay open)"
         
         elif self.current_state == self.STATE_INTERLOCK_BLOCKED:
             if has_demand and interlock_ok and trv_feedback_ok:
                 # Interlock now satisfied
-                if not self._check_min_off_time_elapsed(now):
+                if not self._check_min_off_time_elapsed():
                     reason = f"Interlock OK but min_off_time not elapsed"
                 else:
                     self._transition_to(self.STATE_ON, now, "interlock satisfied")
                     self._set_boiler_setpoint(self.on_setpoint)
-                    self._record_timestamp(self.last_on_entity, now)
+                    # Start min_on_time timer
+                    self._start_timer(self.min_on_timer, self.min_on_time_s)
                     reason = f"Turned ON: interlock now satisfied"
             elif not has_demand:
                 self._transition_to(self.STATE_OFF, now, "demand ceased")
@@ -586,8 +594,10 @@ class BoilerManager:
             "state": self.current_state,
             "opentherm_mode": self.opentherm_mode,
             "min_valve_open_percent": self.min_valve_open_percent,
-            "last_on": self._get_last_timestamp(self.last_on_entity),
-            "last_off": self._get_last_timestamp(self.last_off_entity),
+            "min_on_timer_active": self._is_timer_active(self.min_on_timer),
+            "min_off_timer_active": self._is_timer_active(self.min_off_timer),
+            "off_delay_timer_active": self._is_timer_active(self.off_delay_timer),
+            "pump_overrun_timer_active": self._is_timer_active(self.pump_overrun_timer),
         }
     
     def reload_config(self, boiler_config: Dict) -> None:

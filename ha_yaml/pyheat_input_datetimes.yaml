@@ -2,14 +2,8 @@
 # ha_yaml/pyheat_input_datetime.yaml
 # Included via: input_datetime: !include_dir_merge_named yaml/input_datetime
 # Symlink target: yaml/input_datetime/pyheat_input_datetime.yaml
-# Contents: Pyheat last on/off datetime inputs.
+# Contents: Reserved for future pyheat datetime inputs if needed.
+# Note: Boiler anti-cycling now uses timer helpers (see pyheat_timers.yaml)
 # -----------------------------------------------------------------------------
 
-pyheat_boiler_last_on:
-  name: Boiler Last On
-  has_date: true
-  has_time: true
-pyheat_boiler_last_off:
-  name: Boiler Last Off
-  has_date: true
-  has_time: true
+# No input_datetime entities currently needed
