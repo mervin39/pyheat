@@ -113,7 +113,7 @@ class BoilerManager:
                 log.warning(f"BoilerManager: entity {self.boiler_entity} unavailable, assuming OFF")
                 self.current_state = self.STATE_OFF
         
-        self.state_entry_time = datetime.now()
+        self.state_entry_time: Optional[datetime] = None
         
         log.info(f"BoilerManager: initialized")
         if self.stub_mode:
@@ -365,6 +365,10 @@ class BoilerManager:
                 "valves_must_stay_open": bool (true during pump overrun)
             }
         """
+        # Initialize state_entry_time on first call
+        if self.state_entry_time is None:
+            self.state_entry_time = now
+        
         # Calculate valve overrides if needed
         overridden_valves, interlock_ok, interlock_reason = self.calculate_valve_overrides(
             rooms_calling_for_heat,
