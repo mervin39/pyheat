@@ -37,6 +37,7 @@ Timer Helpers (Event-Driven):
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from . import constants
+from . import notifications
 
 
 class BoilerManager:
@@ -99,6 +100,10 @@ class BoilerManager:
         
         # Track last valve positions when boiler was ON (for pending_off and pump_overrun)
         self.last_valve_positions: Dict[str, int] = {}
+        
+        # Notification tracking for errors
+        self.pending_on_notified = False  # Track if we've notified about long PENDING_ON
+        self.interlock_blocked_notified = False  # Track if we've notified about long blocking
         
         # Timer entities for anti-cycling and pump overrun (event-driven)
         self.min_on_timer = "timer.pyheat_boiler_min_on_timer"
@@ -461,9 +466,17 @@ class BoilerManager:
             if not has_demand:
                 self._transition_to(self.STATE_OFF, now, "demand ceased")
                 reason = "Demand ceased while pending"
+                # Clear notification if we had one
+                if self.pending_on_notified:
+                    notifications.dismiss_notification(notifications.NotificationManager.CATEGORY_BOILER, "pending_on_timeout")
+                    self.pending_on_notified = False
             elif not interlock_ok:
                 self._transition_to(self.STATE_INTERLOCK_BLOCKED, now, "interlock failed")
                 reason = f"Interlock blocked: {interlock_reason}"
+                # Clear PENDING_ON notification, will create new one in INTERLOCK_BLOCKED if needed
+                if self.pending_on_notified:
+                    notifications.dismiss_notification(notifications.NotificationManager.CATEGORY_BOILER, "pending_on_timeout")
+                    self.pending_on_notified = False
             elif trv_feedback_ok:
                 # TRVs confirmed, turn on
                 self._transition_to(self.STATE_ON, now, "TRV feedback confirmed")
@@ -471,8 +484,21 @@ class BoilerManager:
                 # Start min_on_time timer to enforce minimum on duration
                 self._start_timer(self.min_on_timer, self.min_on_time_s)
                 reason = f"Turned ON: TRVs confirmed at {total_valve}%"
+                # Clear notification since issue resolved
+                if self.pending_on_notified:
+                    notifications.dismiss_notification(notifications.NotificationManager.CATEGORY_BOILER, "pending_on_timeout")
+                    self.pending_on_notified = False
             else:
                 reason = f"Pending ON: waiting for TRV confirmation ({time_in_state:.0f}s)"
+                # Notify if stuck in PENDING_ON for >5 minutes
+                if time_in_state > 300 and not self.pending_on_notified:
+                    notifications.notify_warning(
+                        notifications.NotificationManager.CATEGORY_BOILER,
+                        "pending_on_timeout",
+                        f"Boiler has been waiting for TRV feedback for {int(time_in_state/60)} minutes. "
+                        f"Check that TRVs are responding correctly. Rooms: {', '.join(rooms_calling_for_heat)}"
+                    )
+                    self.pending_on_notified = True
         
         elif self.current_state == self.STATE_ON:
             # Save ALL valve positions (not just calling rooms) for pump overrun safety
@@ -498,6 +524,14 @@ class BoilerManager:
                 self._start_timer(self.pump_overrun_timer, self.pump_overrun_s)
                 reason = "Turned OFF: interlock failed"
                 valves_must_stay_open = True
+                # CRITICAL notification - interlock failed while boiler was running!
+                notifications.notify_critical(
+                    notifications.NotificationManager.CATEGORY_BOILER,
+                    "interlock_failure_while_running",
+                    f"🔴 CRITICAL: Boiler interlock failed while running! Boiler has been turned off immediately. "
+                    f"Total valve opening dropped below {self.min_valve_open_percent}% minimum requirement. "
+                    f"Check TRV operation and ensure valves are not stuck closed."
+                )
             else:
                 reason = f"ON: heating {len(rooms_calling_for_heat)} room(s), total valve {total_valve}%"
         
@@ -566,11 +600,29 @@ class BoilerManager:
                     # Start min_on_time timer
                     self._start_timer(self.min_on_timer, self.min_on_time_s)
                     reason = f"Turned ON: interlock now satisfied"
+                    # Clear notification since issue resolved
+                    if self.interlock_blocked_notified:
+                        notifications.dismiss_notification(notifications.NotificationManager.CATEGORY_BOILER, "interlock_blocked_timeout")
+                        self.interlock_blocked_notified = False
             elif not has_demand:
                 self._transition_to(self.STATE_OFF, now, "demand ceased")
                 reason = "Demand ceased"
+                # Clear notification if we had one
+                if self.interlock_blocked_notified:
+                    notifications.dismiss_notification(notifications.NotificationManager.CATEGORY_BOILER, "interlock_blocked_timeout")
+                    self.interlock_blocked_notified = False
             else:
                 reason = f"Blocked: {interlock_reason}"
+                # Notify if blocked for >5 minutes
+                if time_in_state > 300 and not self.interlock_blocked_notified:
+                    notifications.notify_warning(
+                        notifications.NotificationManager.CATEGORY_BOILER,
+                        "interlock_blocked_timeout",
+                        f"Boiler interlock has been blocked for {int(time_in_state/60)} minutes. "
+                        f"Total valve opening is insufficient (minimum {self.min_valve_open_percent}% required). "
+                        f"Check TRV operation. Rooms calling for heat: {', '.join(rooms_calling_for_heat) if rooms_calling_for_heat else 'none'}"
+                    )
+                    self.interlock_blocked_notified = True
         
         # Determine boiler_on flag
         boiler_on = self.current_state in (self.STATE_ON, self.STATE_PENDING_OFF)
