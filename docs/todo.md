@@ -4,6 +4,24 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2025)
 
+### Valve Closing During OFF-Delay Bug (commit bed4ecb) - Nov 3, 2025 🔴 CRITICAL
+- **Issue**: Valves closing before pump overrun started when boiler entered PENDING_OFF
+- **Symptom**: User set office override to 19°C (temp was 23.4°C), valve closed during off-delay, reopened only after pump overrun started
+- **Root Cause**:
+  1. When boiler transitioned from `STATE_ON` → `STATE_PENDING_OFF`, `valves_must_stay_open` was NOT set to True
+  2. Only set it when ALREADY IN `PENDING_OFF` state (next recompute)
+  3. Result: First recompute during transition commanded valves to 0%
+  4. Valves closed 10-20 seconds before pump overrun started
+- **Danger**: Hot water from boiler has nowhere to flow if valves close before pump overrun
+- **Timeline of bug**:
+  - 23:00:27: Boiler enters PENDING_OFF, valves NOT overridden (bug)
+  - 23:00:47: Office valve commanded to 0% (sequential valve process)
+  - 23:00:57: Pump overrun starts, tries to override valves but office already closing
+  - 23:01:07: Office valve fully closed
+  - 23:01:16: System reopens office valve to 100%
+- **Fix**: Set `valves_must_stay_open=True` and `overridden_valves` when transitioning TO `PENDING_OFF`, not just when already IN it
+- **Impact**: Valves now stay open immediately upon entering off-delay period, protecting boiler during entire PENDING_OFF → PUMP_OVERRUN sequence
+
 ### Pyheat-Web Schedule Caching (commit 6868aae) - Nov 3, 2025
 - **Issue**: Excessive calls to `pyheat.get_schedules` service from pyheat-web
 - **Symptom**: 5-8 rapid calls to `pyheat.get_schedules` within milliseconds when multiple browser tabs open
