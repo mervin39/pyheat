@@ -113,15 +113,32 @@ class BoilerManager:
         
         # Read current boiler state
         if not self.stub_mode:
-            try:
-                hvac_action = state.getattr(self.boiler_entity).get("hvac_action", "off")
-                if hvac_action in ("heating", "idle"):
-                    self.current_state = self.STATE_ON
-                else:
+            # First check if we're in the middle of pump overrun (timer still active)
+            # This handles pyscript reload during pump overrun
+            if self._is_timer_active(self.pump_overrun_timer):
+                self.current_state = self.STATE_PUMP_OVERRUN
+                self.state_entry_time = None  # Unknown when it started
+                log.info(f"BoilerManager: restored STATE_PUMP_OVERRUN from active timer")
+                # Try to restore last_valve_positions from input_text helper if it exists
+                try:
+                    saved_positions = state.get("input_text.pyheat_pump_overrun_valves")
+                    if saved_positions and saved_positions != "unknown":
+                        import json
+                        self.last_valve_positions = json.loads(saved_positions)
+                        log.info(f"BoilerManager: restored valve positions: {self.last_valve_positions}")
+                except Exception as e:
+                    log.warning(f"BoilerManager: could not restore valve positions: {e}")
+                    self.last_valve_positions = {}
+            else:
+                try:
+                    hvac_action = state.getattr(self.boiler_entity).get("hvac_action", "off")
+                    if hvac_action in ("heating", "idle"):
+                        self.current_state = self.STATE_ON
+                    else:
+                        self.current_state = self.STATE_OFF
+                except (NameError, AttributeError):
+                    log.warning(f"BoilerManager: entity {self.boiler_entity} unavailable, assuming OFF")
                     self.current_state = self.STATE_OFF
-            except (NameError, AttributeError):
-                log.warning(f"BoilerManager: entity {self.boiler_entity} unavailable, assuming OFF")
-                self.current_state = self.STATE_OFF
         
         log.info(f"BoilerManager: initialized")
         if self.stub_mode:
@@ -238,6 +255,28 @@ class BoilerManager:
         except Exception as e:
             log.debug(f"BoilerManager: failed to check timer {timer_entity}: {e}")
             return False
+    
+    def _save_pump_overrun_valves(self) -> None:
+        """Persist valve positions to survive pyscript reload during pump overrun.
+        
+        Saves last_valve_positions to an input_text helper so they can be
+        restored if pyscript reloads while pump overrun timer is active.
+        """
+        try:
+            import json
+            positions_json = json.dumps(self.last_valve_positions)
+            state.set("input_text.pyheat_pump_overrun_valves", value=positions_json)
+            log.debug(f"BoilerManager: saved pump overrun valves: {self.last_valve_positions}")
+        except Exception as e:
+            log.warning(f"BoilerManager: failed to save pump overrun valves: {e}")
+    
+    def _clear_pump_overrun_valves(self) -> None:
+        """Clear persisted pump overrun valve positions."""
+        try:
+            state.set("input_text.pyheat_pump_overrun_valves", value="")
+            log.debug("BoilerManager: cleared pump overrun valves")
+        except Exception as e:
+            log.debug(f"BoilerManager: failed to clear pump overrun valves: {e}")
     
     def _check_min_on_time_elapsed(self) -> bool:
         """Check if minimum on time constraint is satisfied.
@@ -560,6 +599,8 @@ class BoilerManager:
                     self._cancel_timer(self.min_on_timer)
                     self._start_timer(self.min_off_timer, self.min_off_time_s)
                     self._start_timer(self.pump_overrun_timer, self.pump_overrun_s)
+                    # Persist valve positions for pump overrun (in case of pyscript reload)
+                    self._save_pump_overrun_valves()
                     reason = "Pump overrun: boiler commanded off"
                     valves_must_stay_open = True
             else:
@@ -583,6 +624,7 @@ class BoilerManager:
             elif not self._is_timer_active(self.pump_overrun_timer):
                 # Pump overrun timer completed
                 self._transition_to(self.STATE_OFF, now, "pump overrun complete")
+                self._clear_pump_overrun_valves()  # Clear persisted valve positions
                 reason = "Pump overrun complete, now OFF"
                 valves_must_stay_open = False
                 overridden_valves = {}  # Clear overrides so valves can close
