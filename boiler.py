@@ -585,6 +585,7 @@ class BoilerManager:
                 self._transition_to(self.STATE_OFF, now, "pump overrun complete")
                 reason = "Pump overrun complete, now OFF"
                 valves_must_stay_open = False
+                overridden_valves = {}  # Clear overrides so valves can close
             else:
                 # Still in pump overrun
                 reason = f"Pump overrun: timer active (valves must stay open)"
