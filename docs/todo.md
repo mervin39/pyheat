@@ -2,6 +2,35 @@
 
 This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
+## Recent Fixes (Nov 2024)
+
+### Valve Thrashing Fix (commit aa88240)
+- **Issue**: Valves rapidly oscillating after mode changes due to TRV feedback triggers
+- **Root Cause**: New TRV feedback triggers fired on every sensor update, including during valve transitions with inconsistent feedback
+- **Solution**: 
+  - Added consistency check in feedback triggers (skip recompute if open% + close% != 100%)
+  - Added command deduplication in TRV controller (skip if already at position)
+  - Two-level protection: prevent unnecessary recomputes AND prevent duplicate commands
+
+### Missing TRV Feedback Triggers (commit e2d04a0)
+- **Issue**: System deadlocked in PENDING_ON state
+- **Root Cause**: No triggers registered for TRV feedback sensors, couldn't detect when valves reached position
+- **Solution**: Added 12 state triggers for all TRV feedback sensors (open/close degree for 6 rooms)
+
+### TRV Feedback Safety Fix (commit 2403e83)
+- **Issue**: Boiler turned on while TRVs mid-transition (feedback showing open=100%, close=35%)
+- **Root Cause**: `get_feedback_percent()` accepted inconsistent feedback as valid
+- **Solution**: Return None when open% + close% deviates from 100% by >5%
+
+### Pump Overrun Bug (commit 446a427)
+- **Issue**: Non-calling rooms closed valves during pump overrun
+- **Root Cause**: Only tracked calling rooms' positions, pump overrun used incomplete data
+- **Solution**: Track ALL room valve positions in STATE_ON, use during PENDING_OFF/PUMP_OVERRUN
+
+### Notification System (commit 0d9097a)
+- **Feature**: Persistent notifications for serious errors (boiler timeouts, interlock failures)
+- **Implementation**: New `notifications.py` module with severity levels, spam prevention, auto-dismiss
+
 ## ✅ Completed
 
 ### Phase 0: Bootstrap & Infrastructure
