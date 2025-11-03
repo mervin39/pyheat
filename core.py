@@ -319,8 +319,8 @@ class PyHeatOrchestrator:
             }
         )
         
-        # Control TRV valve
-        await self.trv.set_valve_percent(room_id, valve_percent)
+        # NOTE: TRV valve is NOT commanded here. It's commanded later in recompute()
+        # after all boiler overrides are applied (see line ~193) to avoid double-commanding.
         
         # Publish room state
         state_entity = "sensor.pyheat_" + room_id + "_state"
