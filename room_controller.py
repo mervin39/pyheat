@@ -86,20 +86,31 @@ class Room:
         if timer_state == "active":
             log.debug(f"Room {self.room_id}: restoring override state from persisted entities")
             
-            # Get persisted target (override_kind determined by presence of target vs delta)
+            # Get persisted target and timer expiry
             try:
                 target_entity = f"input_number.pyheat_{self.room_id}_override_target"
                 target = float(state.get(target_entity) or 0)
+                
+                # Get timer expiry time from finishes_at attribute
+                timer_attrs = state.getattr(override_timer_name)
+                finishes_at_str = timer_attrs.get("finishes_at") if timer_attrs else None
+                
+                if finishes_at_str:
+                    # Parse ISO format datetime string
+                    from datetime import datetime
+                    # Remove timezone info and parse (pyscript handles timezone internally)
+                    finishes_at_clean = finishes_at_str.replace("+00:00", "").replace("Z", "")
+                    self.override_expires = datetime.fromisoformat(finishes_at_clean).replace(tzinfo=timezone.utc)
                 
                 if target > 0:
                     # We have a persisted target, this is an override
                     self.override_kind = "override"
                     self.override_target = target
-                    log.info(f"Room {self.room_id}: restored override from persisted state (target={target}°C)")
+                    log.info(f"Room {self.room_id}: restored override from persisted state (target={target}°C, expires={self.override_expires})")
                 else:
                     # Timer active but no persisted target means boost (delta computed on first compute())
                     self.override_kind = "boost"
-                    log.info(f"Room {self.room_id}: detected boost (target will be computed from schedule)")
+                    log.info(f"Room {self.room_id}: detected boost (target will be computed from schedule, expires={self.override_expires})")
                     
             except Exception as e:
                 log.warning(f"Room {self.room_id}: failed to restore override state: {e}")
