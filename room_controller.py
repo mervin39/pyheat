@@ -79,6 +79,31 @@ class Room:
         self.override_delta: Optional[float] = None  # Delta for boost
         self.override_expires: Optional[datetime] = None
         
+        # Try to restore override state from persisted entities
+        override_timer_name = f"timer.pyheat_{self.room_id}_override"
+        timer_state = state.get(override_timer_name)
+        
+        if timer_state == "active":
+            log.debug(f"Room {self.room_id}: restoring override state from persisted entities")
+            
+            # Get persisted target (override_kind determined by presence of target vs delta)
+            try:
+                target_entity = f"input_number.pyheat_{self.room_id}_override_target"
+                target = float(state.get(target_entity) or 0)
+                
+                if target > 0:
+                    # We have a persisted target, this is an override
+                    self.override_kind = "override"
+                    self.override_target = target
+                    log.info(f"Room {self.room_id}: restored override from persisted state (target={target}°C)")
+                else:
+                    # Timer active but no persisted target means boost (delta computed on first compute())
+                    self.override_kind = "boost"
+                    log.info(f"Room {self.room_id}: detected boost (target will be computed from schedule)")
+                    
+            except Exception as e:
+                log.warning(f"Room {self.room_id}: failed to restore override state: {e}")
+        
         # Computed outputs (updated by compute)
         self.target: Optional[float] = None  # Resolved target
         self.call_for_heat = False
@@ -134,6 +159,12 @@ class Room:
         self.override_delta = None
         self.override_expires = now + timedelta(minutes=minutes)
         
+        # Persist override target for recovery after pyscript reload
+        try:
+            state.set(f"input_number.pyheat_{self.room_id}_override_target", value=target)
+        except Exception as e:
+            log.warning(f"Room {self.room_id}: failed to persist override target: {e}")
+        
         log.info(f"Room {self.room_id}: override to {target}°C for {minutes}m (expires {self.override_expires.strftime('%H:%M:%S')})")
     
     def apply_boost(self, delta: float, minutes: int, now: datetime) -> None:
@@ -149,6 +180,9 @@ class Room:
         self.override_delta = delta
         self.override_expires = now + timedelta(minutes=minutes)
         
+        # Boost will calculate target during compute(), persist it then
+        # For now, just log - target will be persisted on first compute
+        
         log.info(f"Room {self.room_id}: boost {delta:+.1f}°C for {minutes}m (expires {self.override_expires.strftime('%H:%M:%S')})")
     
     def clear_override(self) -> None:
@@ -160,6 +194,12 @@ class Room:
         self.override_target = None
         self.override_delta = None
         self.override_expires = None
+        
+        # Clear persisted override target
+        try:
+            state.set(f"input_number.pyheat_{self.room_id}_override_target", value=0)
+        except Exception as e:
+            log.debug(f"Room {self.room_id}: failed to clear persisted override: {e}")
     
     def set_mode(self, mode: Literal["auto", "manual", "off"]) -> None:
         """Change room mode.
@@ -214,7 +254,17 @@ class Room:
                 return self.override_target
             elif self.override_kind == "boost" and self.schedule_target is not None:
                 # Delta boost on top of schedule
-                return self.schedule_target + self.override_delta
+                computed_target = self.schedule_target + self.override_delta
+                
+                # Persist computed target for reload recovery (only if not already persisted)
+                if self.override_target is None:
+                    self.override_target = computed_target
+                    try:
+                        state.set(f"input_number.pyheat_{self.room_id}_override_target", value=computed_target)
+                    except Exception as e:
+                        log.debug(f"Room {self.room_id}: failed to persist boost target: {e}")
+                
+                return computed_target
         
         # Default to schedule target (which already includes holiday mode)
         return self.schedule_target

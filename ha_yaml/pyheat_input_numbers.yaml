@@ -2,9 +2,60 @@
 # ha_yaml/pyheat_input_numbers.yaml
 # Included via: input_number: !include_dir_merge_named yaml/input_number
 # Symlink target: yaml/input_number/pyheat_input_numbers.yaml
-# Contents: per-room manual setpoint inputs (°C) for Pyheat.
+# Contents: per-room manual setpoint inputs (°C) and override persistence for Pyheat.
 # -----------------------------------------------------------------------------
 
+# Override persistence (for restoring state after pyscript reload)
+# Stores the active override/boost target temperature
+pyheat_pete_override_target:
+  name: "Pete's Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_abby_override_target:
+  name: "Abby's Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_office_override_target:
+  name: "Office Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_lounge_override_target:
+  name: "Living Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_games_override_target:
+  name: "Dining Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_bathroom_override_target:
+  name: "Bathroom Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+# Manual setpoint inputs
 pyheat_pete_manual_setpoint:
   name: "Pete’s Room Manual Setpoint"
   min: 5
