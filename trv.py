@@ -111,6 +111,8 @@ class TRVController:
             total = fb_open + fb_close
             if abs(total - 100) > 5:  # Allow 5% tolerance
                 log.warning(f"TRVController {self.room_id}: feedback inconsistent (open={fb_open}, close={fb_close}, total={total})")
+                # Return None to indicate feedback is unreliable (TRV may be mid-transition)
+                return None
             
             # Return opening percentage
             return int(round(fb_open))
