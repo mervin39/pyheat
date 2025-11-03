@@ -315,11 +315,12 @@ class Room:
             # In deadband → keep previous state
             call = self._prev_call_for_heat
         
-        # Update state
-        self._prev_call_for_heat = call
-        
+        # Log state change before updating
         if call != self._prev_call_for_heat:
             log.debug(f"Room {self.room_id}: call_for_heat changed to {call} (e={e:.2f}°C)")
+        
+        # Update state
+        self._prev_call_for_heat = call
         
         return call
     
