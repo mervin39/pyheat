@@ -6,10 +6,10 @@
 # -----------------------------------------------------------------------------
 
 pyheat_boiler_last_on:
-  name: Pyheat Last On
+  name: Boiler Last On
   has_date: true
   has_time: true
 pyheat_boiler_last_off:
-  name: Pyheat Last Off
+  name: Boiler Last Off
   has_date: true
   has_time: true

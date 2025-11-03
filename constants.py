@@ -117,13 +117,22 @@ SAFETY_DEFAULT: Dict[str, float] = {
 # Boiler Configuration
 # ============================================================================
 
-# Default boiler entity ID (dummy input_boolean until hardware connected)
-BOILER_ENTITY_DEFAULT = "input_boolean.pyheat_boiler_actor"
-
 # Default minimum total valve opening percentage for boiler safety interlock
 # Sum of all TRV open percentages must be >= this value before boiler can turn on
 # This ensures water always has somewhere to go
 BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT = 100
+
+# Default anti-cycling times (seconds)
+BOILER_MIN_ON_TIME_DEFAULT = 180   # 3 minutes minimum on time
+BOILER_MIN_OFF_TIME_DEFAULT = 180  # 3 minutes minimum off time
+BOILER_OFF_DELAY_DEFAULT = 30      # 30 second delay before turning off
+
+# Default pump overrun time (seconds)
+BOILER_PUMP_OVERRUN_DEFAULT = 180  # 3 minutes to dissipate residual heat
+
+# Default binary control setpoints (when not using OpenTherm modulation)
+BOILER_BINARY_ON_SETPOINT_DEFAULT = 30.0   # °C
+BOILER_BINARY_OFF_SETPOINT_DEFAULT = 5.0   # °C
 
 # ============================================================================
 # TRV Entity Patterns (Zigbee2MQTT via Home Assistant)

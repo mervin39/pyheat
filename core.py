@@ -147,18 +147,30 @@ class PyHeatOrchestrator:
         # Update boiler with interlock safety (may override valve percents)
         boiler_status = None
         valve_overrides = {}
+        valves_must_stay_open = False
         if self.boiler:
-            boiler_result = self.boiler.update(rooms_calling_for_heat, room_valve_percents)
+            boiler_result = self.boiler.update(
+                rooms_calling_for_heat,
+                room_valve_percents,
+                self.trv,
+                now
+            )
             boiler_status = {
+                "state": boiler_result["state"],
                 "on": boiler_result["boiler_on"],
+                "hvac_action": boiler_result.get("hvac_action", "unknown"),
                 "rooms_calling": len(boiler_result["rooms_calling"]),
                 "reason": boiler_result["reason"],
                 "interlock_ok": boiler_result.get("interlock_ok", True),
-                "total_valve_percent": boiler_result.get("total_valve_percent", 0)
+                "total_valve_percent": boiler_result.get("total_valve_percent", 0),
+                "time_in_state_s": boiler_result.get("time_in_state_s", 0)
             }
             
             # Get overridden valve percents (if interlock kicked in)
             valve_overrides = boiler_result.get("overridden_valve_percents", {})
+            
+            # Check if valves must stay open (pump overrun)
+            valves_must_stay_open = boiler_result.get("valves_must_stay_open", False)
         
         # Apply valve overrides to TRVs and update published entities
         if self.trv:
@@ -166,16 +178,29 @@ class PyHeatOrchestrator:
                 [rs["room_id"] for rs in room_statuses],
                 room_statuses
             ):
-                # Use overridden valve percent if interlock applied, otherwise use room's calculated percent
-                final_valve_percent = valve_overrides.get(room_id, room_status.get("valve_percent", 0))
+                # Determine final valve percent
+                if valves_must_stay_open:
+                    # During pump overrun, keep valves at their last commanded position
+                    # Use override if it exists, otherwise use last calculated percent
+                    final_valve_percent = valve_overrides.get(room_id, room_status.get("valve_percent", 0))
+                else:
+                    # Normal operation: use overridden valve percent if interlock applied
+                    final_valve_percent = valve_overrides.get(room_id, room_status.get("valve_percent", 0))
                 
                 # Command TRV to the final valve position
                 await self.trv.set_valve_percent(room_id, final_valve_percent)
                 
-                # Update the published valve percent entity if it was overridden
+                # Update the published valve percent entity if it was overridden or during pump overrun
                 if room_id in valve_overrides:
                     valve_entity = "number.pyheat_" + room_id + "_valve_percent"
                     room_name = room_status.get("room_name", room_id.replace("_", " ").title())
+                    
+                    # Determine reason for override
+                    if valves_must_stay_open:
+                        reason = "Pump overrun: valves must stay open"
+                    else:
+                        reason = "Interlock safety override"
+                    
                     state.set(
                         valve_entity,
                         value=final_valve_percent,
@@ -185,7 +210,7 @@ class PyHeatOrchestrator:
                             "max": 100,
                             "friendly_name": room_name + " Valve",
                             "overridden": True,
-                            "reason": "Interlock safety override"
+                            "reason": reason
                         }
                     )
         

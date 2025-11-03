@@ -622,7 +622,10 @@ def _validate_boiler(data: Dict) -> Tuple[bool, Optional[str]]:
     
     Rules:
     - Must have 'boiler' top-level key
-    - entity_id must be a valid string
+    - entity_id must be a valid string (required, no default)
+    - opentherm must be boolean
+    - binary_control settings validated when opentherm: false
+    - pump_overrun_s, anti_cycling times must be positive numbers
     - min_valve_open_percent must be 0-100
     
     Args:
@@ -638,10 +641,57 @@ def _validate_boiler(data: Dict) -> Tuple[bool, Optional[str]]:
     if not isinstance(boiler_cfg, dict):
         return False, "boiler.yaml: missing 'boiler' dict"
     
-    # Validate entity_id
+    # Validate entity_id (required - no default fallback)
     entity_id = boiler_cfg.get("entity_id")
     if not entity_id or not isinstance(entity_id, str):
-        return False, "boiler.yaml: 'entity_id' must be a non-empty string"
+        return False, "boiler.yaml: 'entity_id' is required and must be a non-empty string"
+    
+    # Validate opentherm flag
+    opentherm = boiler_cfg.get("opentherm")
+    if opentherm is not None and not isinstance(opentherm, bool):
+        return False, "boiler.yaml: 'opentherm' must be a boolean (true/false)"
+    
+    # Validate binary_control (when opentherm is false)
+    binary_control = boiler_cfg.get("binary_control")
+    if binary_control is not None:
+        if not isinstance(binary_control, dict):
+            return False, "boiler.yaml: 'binary_control' must be a dict"
+        
+        on_setpoint = binary_control.get("on_setpoint_c")
+        if on_setpoint is not None:
+            if not isinstance(on_setpoint, (int, float)):
+                return False, "boiler.yaml: 'binary_control.on_setpoint_c' must be numeric"
+            if not (5 <= on_setpoint <= 35):
+                return False, "boiler.yaml: 'binary_control.on_setpoint_c' must be 5-35°C"
+        
+        off_setpoint = binary_control.get("off_setpoint_c")
+        if off_setpoint is not None:
+            if not isinstance(off_setpoint, (int, float)):
+                return False, "boiler.yaml: 'binary_control.off_setpoint_c' must be numeric"
+            if not (5 <= off_setpoint <= 35):
+                return False, "boiler.yaml: 'binary_control.off_setpoint_c' must be 5-35°C"
+    
+    # Validate pump_overrun_s
+    pump_overrun = boiler_cfg.get("pump_overrun_s")
+    if pump_overrun is not None:
+        if not isinstance(pump_overrun, (int, float)):
+            return False, "boiler.yaml: 'pump_overrun_s' must be numeric"
+        if pump_overrun < 0:
+            return False, "boiler.yaml: 'pump_overrun_s' must be >= 0"
+    
+    # Validate anti_cycling settings
+    anti_cycling = boiler_cfg.get("anti_cycling")
+    if anti_cycling is not None:
+        if not isinstance(anti_cycling, dict):
+            return False, "boiler.yaml: 'anti_cycling' must be a dict"
+        
+        for key in ["min_on_time_s", "min_off_time_s", "off_delay_s"]:
+            value = anti_cycling.get(key)
+            if value is not None:
+                if not isinstance(value, (int, float)):
+                    return False, f"boiler.yaml: 'anti_cycling.{key}' must be numeric"
+                if value < 0:
+                    return False, f"boiler.yaml: 'anti_cycling.{key}' must be >= 0"
     
     # Validate interlock config
     interlock = boiler_cfg.get("interlock")
