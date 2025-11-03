@@ -4,6 +4,15 @@ This file tracks progress against the specification in `docs/pyheat-spec.md`.
 
 ## Recent Fixes (Nov 2024)
 
+### Double-Commanding TRV Fix (commit 7fe5878) ⚠️ CRITICAL
+- **Issue**: Severe valve thrashing with valves oscillating 0% → 100% → 0% → 100% continuously
+- **Root Cause**: TRVs were commanded TWICE per recompute:
+  1. In `_publish_room_entities()` with calculated valve percent (e.g., 0% for room above target)
+  2. In main recompute loop with final valve percent after boiler overrides (e.g., 100% from STATE_PENDING_OFF saved positions)
+- **Impact**: When boiler applied overrides (pump overrun, interlock), valves received contradictory commands every recompute cycle
+- **Solution**: Removed TRV commanding from `_publish_room_entities()` - TRVs now commanded ONLY ONCE after all overrides applied
+- **Lesson**: Actuator commands must happen at a single point after all state computation is complete
+
 ### Valve Thrashing Fix (commit aa88240)
 - **Issue**: Valves rapidly oscillating after mode changes due to TRV feedback triggers
 - **Root Cause**: New TRV feedback triggers fired on every sensor update, including during valve transitions with inconsistent feedback
