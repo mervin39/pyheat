@@ -1,0 +1,23 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_template_sensors.yaml
+# Included via: template: !include_dir_list yaml/template
+# Symlink target: yaml/template/pyheat_template_sensors.yaml
+# Contents: Template sensors for extracting attributes as triggerable entities
+# -----------------------------------------------------------------------------
+
+# Extract boiler HVAC action attribute as a state
+# This allows pyscript to use @state_trigger on HVAC action changes
+# (attribute changes don't fire state_trigger, only state changes do)
+- sensor:
+    - name: "Boiler HVAC Action"
+      unique_id: pyheat_boiler_hvac_action
+      state: "{{ state_attr('climate.boiler', 'hvac_action') | default('unknown') }}"
+      icon: >
+        {% set action = state_attr('climate.boiler', 'hvac_action') %}
+        {% if action == 'heating' %}
+          mdi:fire
+        {% elif action == 'idle' %}
+          mdi:power-standby
+        {% else %}
+          mdi:power-off
+        {% endif %}

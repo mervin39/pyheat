@@ -360,6 +360,22 @@ async def on_trv_feedback_change(var_name=None, value=None, old_value=None):
 
 
 # ============================================================================
+# Boiler HVAC action trigger
+# ============================================================================
+
+@state_trigger("sensor.boiler_hvac_action")
+async def on_boiler_hvac_action_change(var_name=None, value=None, old_value=None):
+    """React to boiler HVAC action changes (heating/idle/off).
+    
+    This trigger fires when the actual boiler hardware status changes,
+    which may happen independently of our state machine commands.
+    For example, the Nest may go idle→heating when room temp drops.
+    """
+    log.info(f"Boiler HVAC action changed [{var_name}]: {old_value} -> {value}")
+    _request_recompute()
+
+
+# ============================================================================
 # Boiler safety timer triggers (event-driven anti-cycling and pump overrun)
 # ============================================================================
 
