@@ -752,7 +752,17 @@ class PyHeat(hass.Hass):
 
     def compute_valve_percent(self, room_id: str, target: float, temp: float, 
                              calling: bool) -> int:
-        """Compute valve percentage using stepped bands.
+        """Compute valve percentage using stepped bands with hysteresis.
+        
+        Bands (based on error e = target - temp):
+        - Band 0: e < t_low          → 0%
+        - Band 1: t_low ≤ e < t_mid  → low_percent
+        - Band 2: t_mid ≤ e < t_max  → mid_percent
+        - Band 3: e ≥ t_max          → max_percent
+        
+        Hysteresis prevents rapid band switching. To transition from band N to N+1,
+        error must exceed threshold + step_hysteresis. To transition from N to N-1,
+        error must drop below threshold - step_hysteresis.
         
         Args:
             room_id: Room identifier
@@ -764,6 +774,7 @@ class PyHeat(hass.Hass):
             Valve percentage (0-100)
         """
         if not calling:
+            self.room_current_band[room_id] = 0
             return 0
         
         # Get valve band config
@@ -774,19 +785,70 @@ class PyHeat(hass.Hass):
         low_pct = int(bands['low_percent'])
         mid_pct = int(bands['mid_percent'])
         max_pct = int(bands['max_percent'])
+        step_hyst = bands['step_hysteresis_c']
         
-        # Calculate error
+        # Calculate error (positive = below target)
         error = target - temp
         
-        # Determine band (with simple logic for now, step hysteresis later)
+        # Get current band (default to 0 if not set)
+        current_band = self.room_current_band.get(room_id, 0)
+        
+        # Determine new band with hysteresis
+        # When increasing heating (error rising), allow multi-band jumps for fast response
+        # When decreasing heating (error falling), only drop one band at a time to avoid oscillation
+        new_band = current_band
+        
+        # Determine target band based on error (without hysteresis)
         if error < t_low:
-            return 0
+            target_band = 0
         elif error < t_mid:
-            return low_pct
+            target_band = 1
         elif error < t_max:
-            return mid_pct
+            target_band = 2
         else:
-            return max_pct
+            target_band = 3
+        
+        # Apply hysteresis rules
+        if target_band > current_band:
+            # Increasing demand - check if we've crossed threshold + hysteresis
+            if target_band == 1 and error >= t_low + step_hyst:
+                new_band = 1
+            elif target_band == 2 and error >= t_mid + step_hyst:
+                new_band = 2
+            elif target_band == 3 and error >= t_max + step_hyst:
+                new_band = 3
+        elif target_band < current_band:
+            # Decreasing demand - only drop one band at a time, check threshold - hysteresis
+            if current_band == 3 and error < t_max - step_hyst:
+                new_band = 2
+            elif current_band == 2 and error < t_mid - step_hyst:
+                new_band = 1
+            elif current_band == 1 and error < t_low - step_hyst:
+                new_band = 0
+        # else: target_band == current_band, no change
+        
+        # Store new band
+        self.room_current_band[room_id] = new_band
+        
+        # Map band to percentage
+        band_to_percent = {
+            0: 0,
+            1: low_pct,
+            2: mid_pct,
+            3: max_pct
+        }
+        
+        valve_pct = band_to_percent[new_band]
+        
+        # Log band changes
+        if new_band != current_band:
+            self.log(
+                f"Room '{room_id}': valve band {current_band} → {new_band} "
+                f"(error={error:.2f}°C, valve={valve_pct}%)",
+                level="INFO"
+            )
+        
+        return valve_pct
 
     # ========================================================================
     # TRV Control (Simplified)

@@ -1,5 +1,45 @@
 # PyHeat Changelog
 
+## 2025-11-04: Valve Band Control with Hysteresis ✅
+
+### Smart TRV Valve Band System Implemented
+
+Implemented stepped valve percentage control based on temperature error from target, with hysteresis to prevent rapid band switching:
+
+**Valve Bands (based on error e = target - temp):**
+- **Band 0**: e < t_low → 0% (valve closed, not calling for heat)
+- **Band 1**: t_low ≤ e < t_mid → low_percent (gentle heating)
+- **Band 2**: t_mid ≤ e < t_max → mid_percent (moderate heating)
+- **Band 3**: e ≥ t_max → max_percent (maximum heating)
+
+**Hysteresis Logic:**
+- **Increasing demand** (error rising): Allows multi-band jumps for fast response
+  - Must exceed threshold + step_hysteresis_c to transition up
+  - Example: error jumps from 0.2°C to 2.5°C → directly to band 3 (no waiting)
+- **Decreasing demand** (error falling): Only drops one band at a time to avoid oscillation
+  - Must drop below threshold - step_hysteresis_c to transition down
+  - Prevents rapid on/off cycling near thresholds
+
+**Configuration:**
+- Per-room valve bands defined in `rooms.yaml` (with defaults in `constants.py`)
+- Pete's room example: t_low=0.30, t_mid=0.80, t_max=1.50, low=35%, mid=65%, max=100%, hysteresis=0.05°C
+- Band transitions logged at INFO level with error and valve percentage
+
+**Minimum Valve Open Interlock:**
+- Boiler configuration includes `min_valve_open_percent` (default: 100%)
+- System calculates total valve opening from all calling rooms
+- If total < minimum: **INTERLOCK OVERRIDE** distributes min_valve_open_percent evenly across calling rooms
+  - Formula: `override_percent = ceil(min_valve_open_percent / n_rooms)`
+  - Ensures sufficient flow path before boiler activation
+  - Prevents damage from running boiler with closed TRVs
+
+**Example Operation:**
+```
+Room error=2.51°C → Band 3 → 100% valve (total=100% >= min 100% ✓)
+Room error=0.36°C → Band 1 → 35% valve (total=35% < min 100%)
+  → INTERLOCK OVERRIDE: 1 room @ 100% (new total: 100% ✓)
+```
+
 ## 2025-11-04: Full Boiler State Machine & Per-Room Entity Publishing ✅
 
 ### Boiler State Machine Implementation
