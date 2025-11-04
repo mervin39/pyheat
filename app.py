@@ -75,6 +75,9 @@ class PyHeat(hass.Hass):
         # Setup callbacks for helper entities
         self.setup_callbacks()
         
+        # Initialize sensor values from current state
+        self.initialize_sensor_values()
+        
         # Schedule periodic recompute
         self.run_every(self.periodic_recompute, "now+5", C.RECOMPUTE_INTERVAL_S)
         
@@ -242,6 +245,47 @@ class PyHeat(hass.Hass):
             if not self.rooms[room_id].get('disabled'):
                 self.listen_state(self.trv_feedback_changed, 
                                 self.rooms[room_id]['trv']['fb_valve'], room_id=room_id)
+
+    def initialize_sensor_values(self):
+        """Initialize sensor_last_values from current state on startup.
+        
+        This ensures we have sensor data immediately rather than waiting for first update.
+        """
+        self.log("Initializing sensor values from current state...")
+        now = datetime.now()
+        
+        for room_id, room_config in self.rooms.items():
+            for sensor_cfg in room_config['sensors']:
+                entity_id = sensor_cfg['entity_id']
+                
+                try:
+                    # Get current state
+                    state = self.get_state(entity_id, attribute='all')
+                    if state is None:
+                        self.log(f"Sensor {entity_id} not found during initialization", level="WARNING")
+                        continue
+                    
+                    # Get value
+                    value = float(state['state'])
+                    
+                    # Get last_updated timestamp (comes as string like '2025-11-04T19:07:28.811317+00:00')
+                    last_updated_str = state['last_updated']
+                    last_updated = datetime.fromisoformat(last_updated_str.replace('Z', '+00:00'))
+                    
+                    # Convert to naive datetime (remove timezone info) to match datetime.now()
+                    last_updated_naive = last_updated.replace(tzinfo=None)
+                    
+                    # Store in sensor_last_values
+                    self.sensor_last_values[entity_id] = (value, last_updated_naive)
+                    
+                    age_minutes = (now - last_updated_naive).total_seconds() / 60
+                    self.log(f"Initialized {entity_id} for room '{room_id}': {value}°C (age: {age_minutes:.1f}min)", 
+                            level="DEBUG")
+                    
+                except (ValueError, TypeError, KeyError) as e:
+                    self.log(f"Failed to initialize sensor {entity_id}: {e}", level="WARNING")
+        
+        self.log(f"Initialized {len(self.sensor_last_values)} sensors")
 
     # ========================================================================
     # Callback Handlers
@@ -455,7 +499,11 @@ class PyHeat(hass.Hass):
             target = self.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
             
             # 4. Determine call-for-heat
-            if target is not None and temp is not None and not is_stale and room_mode != "off":
+            # Allow heating if: target exists, temp exists, and either not stale OR in manual mode
+            can_heat = (target is not None and temp is not None and room_mode != "off" 
+                       and (not is_stale or room_mode == "manual"))
+            
+            if can_heat:
                 calling = self.compute_call_for_heat(room_id, target, temp)
                 self.room_call_for_heat[room_id] = calling
                 
@@ -473,7 +521,7 @@ class PyHeat(hass.Hass):
                 # Room is off, stale, or has no target
                 self.room_call_for_heat[room_id] = False
                 room_valve_percents[room_id] = 0
-                if room_mode == "off" or is_stale:
+                if room_mode == "off" or (is_stale and room_mode != "manual"):
                     self.set_trv_valve(room_id, 0, now)
                 self.log(f"Room '{room_id}': mode={room_mode}, stale={is_stale}, "
                         f"target={target}, no heating", level="DEBUG")
@@ -577,10 +625,11 @@ class PyHeat(hass.Hass):
         Precedence (highest wins): off → manual → override → schedule/default
         
         Returns:
-            Target temperature in °C, or None if room is off or stale
+            Target temperature in °C, or None if room is off
+            Note: Manual mode returns target even if sensors are stale
         """
-        # Room off or stale → no target
-        if room_mode == "off" or is_stale:
+        # Room off → no target
+        if room_mode == "off":
             return None
         
         # Manual mode → use manual setpoint
@@ -1595,14 +1644,13 @@ class PyHeat(hass.Hass):
             import traceback
             self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
         
-        # 5. Publish calling for heat as binary_sensor
+        # 5. Publish calling for heat as binary_sensor (no device_class to avoid on/off override)
         cfh_entity = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
         try:
             self.set_state(
                 cfh_entity,
                 state="on" if calling else "off",
                 attributes={
-                    "device_class": "heat",
                     "friendly_name": f"{room_name} Calling For Heat"
                 }
             )

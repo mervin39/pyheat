@@ -28,7 +28,7 @@ Each room now publishes monitoring entities via AppDaemon's `set_state()` API in
 1. **`sensor.pyheat_<room>_temperature`** (float °C or "unavailable" if stale)
 2. **`sensor.pyheat_<room>_target`** (float °C or "unknown" if off/no schedule)
 3. **`number.pyheat_<room>_valve_percent`** (0-100%, min/max/step attributes)
-4. **`binary_sensor.pyheat_<room>_calling_for_heat`** (on/off, device_class: heat)
+4. **`binary_sensor.pyheat_<room>_calling_for_heat`** (on/off, no device_class to preserve on/off states)
 
 **All 24 entities (6 rooms × 4 types) created successfully and available for use in automations.**
 
@@ -36,6 +36,10 @@ Each room now publishes monitoring entities via AppDaemon's `set_state()` API in
 - AppDaemon's `set_state()` fails with HTTP 400 when passing integer `0` as state value. Solution: Convert numeric states to strings using `str(int(value))`.
 - Valve percent moved from `sensor` domain to `number` domain (correct per HA conventions).
 - Temperature and target always published even when unavailable/unknown (ensures entities always exist).
+- Removed `device_class: heat` from calling_for_heat binary sensors to preserve on/off states instead of heat/cool.
+- Sensor initialization added to populate sensor_last_values on startup from current HA state, preventing false staleness detection.
+- Manual mode now returns target even when sensors are stale (allows manual operation without sensor feedback).
+
 
 ### Technical Details
    - Respects boiler overrides (pump overrun, interlock)
