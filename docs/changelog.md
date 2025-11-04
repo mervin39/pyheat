@@ -1,5 +1,20 @@
 # PyHeat Changelog
 
+## 2025-11-04: CRITICAL FIX - TRV Setpoint Locking ⚠️
+
+### TRV Setpoint Changed from 5°C to 35°C (Maximum)
+
+**Critical bug fix:** TRVs were locked to 5°C setpoint, which caused the TRV's internal controller to believe the room should be CLOSED (since room temp > 5°C), fighting against our `opening_degree` commands.
+
+**Correct behavior:** Lock TRVs to 35°C (maximum) so the internal controller thinks the room is cold and should be OPEN, allowing our `opening_degree` commands to control the actual valve position.
+
+**Changes:**
+- `TRV_LOCKED_SETPOINT_C`: 5.0°C → 35.0°C
+- Updated all documentation and comments
+- All TRVs verified locked to 35°C on startup
+
+**Impact:** TRVs will now properly respond to valve opening commands instead of being held closed by their internal controllers.
+
 ## 2025-11-04: Valve Band Control with Hysteresis ✅
 
 ### Smart TRV Valve Band System Implemented
