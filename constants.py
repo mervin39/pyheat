@@ -128,25 +128,30 @@ STATE_INTERLOCK_FAILED = "interlock_failed"
 # TRV Entity Derivation Patterns
 # ============================================================================
 
+# TRV Setpoint Lock Strategy:
+# By locking TRV internal setpoint to 5°C, we force the TRV into "always open" mode.
+# This allows us to control valve position directly via opening_degree only.
+# No need to control closing_degree since the TRV will never be in "closing" state.
+
+TRV_LOCKED_SETPOINT_C = 5.0           # Lock TRV internal setpoint to 5°C
+TRV_SETPOINT_CHECK_INTERVAL_S = 300   # Check/correct setpoints every 5 minutes
+
 # Patterns for deriving TRV command/feedback entities from climate.<trv_base>
 # The trv_base is extracted from the climate entity ID (e.g., "trv_pete" from "climate.trv_pete")
 TRV_ENTITY_PATTERNS = {
-    "cmd_open":  "number.{trv_base}_valve_opening_degree",
-    "cmd_close": "number.{trv_base}_valve_closing_degree",
-    "fb_open":   "sensor.{trv_base}_valve_opening_degree_z2m",
-    "fb_close":  "sensor.{trv_base}_valve_closing_degree_z2m",
+    "cmd_valve":  "number.{trv_base}_valve_opening_degree",      # Only control opening degree
+    "fb_valve":   "sensor.{trv_base}_valve_opening_degree_z2m",  # Only monitor opening degree
+    "climate":    "climate.{trv_base}",                          # Climate entity for setpoint control
 }
 
 # Commands are rounded to nearest 0–100 integer
 VALVE_PERCENT_INTEGER = True
 
-# TRV Command Sequencing (Anti-Thrashing)
-# To avoid inconsistent feedback states, commands are sent sequentially:
-# 1. Set opening degree, wait for confirmation
-# 2. Set closing degree, wait for confirmation
-TRV_COMMAND_SEQUENCE_ENABLED = True
-TRV_COMMAND_RETRY_INTERVAL_S = 2   # Wait time between command and feedback check (seconds)
-TRV_COMMAND_MAX_RETRIES = 3        # Max retries per command (6s total per valve)
+# TRV Command Control (Simplified - Non-blocking)
+# With locked setpoint, we only send opening_degree commands
+# Use scheduler-based delays instead of blocking sleep()
+TRV_COMMAND_RETRY_INTERVAL_S = 2    # Wait time between command and feedback check (seconds)
+TRV_COMMAND_MAX_RETRIES = 3         # Max retries per command
 TRV_COMMAND_FEEDBACK_TOLERANCE = 5  # Percent tolerance for feedback match
 
 # ============================================================================

@@ -54,6 +54,9 @@ class PyHeat(hass.Hass):
         self.room_current_band = {}  # {room_id: band_index}
         self.first_boot = True  # Flag for startup behavior
         
+        # Valve command state tracking (for non-blocking commands)
+        self._valve_command_state: Dict[str, Dict] = {}
+        
         # Timing
         self.last_recompute = None
         self.recompute_count = 0
@@ -71,6 +74,12 @@ class PyHeat(hass.Hass):
         
         # Schedule periodic recompute
         self.run_every(self.periodic_recompute, "now+5", C.RECOMPUTE_INTERVAL_S)
+        
+        # Schedule TRV setpoint monitoring (check every 5 minutes)
+        self.run_every(self.check_trv_setpoints, "now+10", C.TRV_SETPOINT_CHECK_INTERVAL_S)
+        
+        # Lock all TRV setpoints immediately (before initial recompute)
+        self.run_in(self.lock_all_trv_setpoints, 3)
         
         # Perform initial recomputes (with delays for sensor restoration)
         self.run_in(self.initial_recompute, C.STARTUP_INITIAL_DELAY_S)
@@ -110,10 +119,9 @@ class PyHeat(hass.Hass):
             # Derive TRV entity IDs from climate entity
             trv_base = room['trv']['entity_id'].replace('climate.', '')
             trv_entities = {
-                'cmd_open': C.TRV_ENTITY_PATTERNS['cmd_open'].format(trv_base=trv_base),
-                'cmd_close': C.TRV_ENTITY_PATTERNS['cmd_close'].format(trv_base=trv_base),
-                'fb_open': C.TRV_ENTITY_PATTERNS['fb_open'].format(trv_base=trv_base),
-                'fb_close': C.TRV_ENTITY_PATTERNS['fb_close'].format(trv_base=trv_base),
+                'cmd_valve': C.TRV_ENTITY_PATTERNS['cmd_valve'].format(trv_base=trv_base),
+                'fb_valve': C.TRV_ENTITY_PATTERNS['fb_valve'].format(trv_base=trv_base),
+                'climate': C.TRV_ENTITY_PATTERNS['climate'].format(trv_base=trv_base),
             }
             
             # Merge room config with defaults
@@ -195,9 +203,7 @@ class PyHeat(hass.Hass):
             # TRV feedback sensors
             if not self.rooms[room_id].get('disabled'):
                 self.listen_state(self.trv_feedback_changed, 
-                                self.rooms[room_id]['trv']['fb_open'], room_id=room_id)
-                self.listen_state(self.trv_feedback_changed,
-                                self.rooms[room_id]['trv']['fb_close'], room_id=room_id)
+                                self.rooms[room_id]['trv']['fb_valve'], room_id=room_id)
 
     # ========================================================================
     # Callback Handlers
@@ -258,6 +264,76 @@ class PyHeat(hass.Hass):
         self.log(f"TRV feedback for room '{room_id}' updated: {entity} = {new}", level="DEBUG")
         # Trigger recompute to check interlock status
         self.trigger_recompute(f"trv_feedback_{room_id}_changed")
+
+    # ========================================================================
+    # TRV Setpoint Locking
+    # ========================================================================
+
+    def lock_all_trv_setpoints(self, kwargs=None):
+        """Lock all TRV setpoints to 5°C to force them into 'open' mode.
+        
+        This allows us to control valve position directly via opening_degree only.
+        Called on startup and periodically to handle accidental user changes.
+        """
+        self.log("Locking all TRV setpoints to 5°C...")
+        for room_id, room in self.rooms.items():
+            if room.get('disabled'):
+                continue
+            self.lock_trv_setpoint(room_id)
+
+    def lock_trv_setpoint(self, room_id: str):
+        """Lock a single TRV setpoint to 5°C.
+        
+        Args:
+            room_id: Room identifier
+        """
+        room = self.rooms.get(room_id)
+        if not room or room.get('disabled'):
+            return
+        
+        climate_entity = room['trv']['climate']
+        
+        # Get current setpoint
+        try:
+            current_temp = self.get_state(climate_entity, attribute='temperature')
+            if current_temp is not None:
+                current_temp = float(current_temp)
+            else:
+                current_temp = None
+        except (ValueError, TypeError):
+            current_temp = None
+        
+        # Set to locked value if different
+        if current_temp is None or abs(current_temp - C.TRV_LOCKED_SETPOINT_C) > 0.1:
+            self.log(f"Locking TRV setpoint for room '{room_id}': {current_temp}°C -> {C.TRV_LOCKED_SETPOINT_C}°C")
+            self.call_service("climate/set_temperature",
+                            entity_id=climate_entity,
+                            temperature=C.TRV_LOCKED_SETPOINT_C)
+        else:
+            self.log(f"TRV setpoint for room '{room_id}' already locked at {C.TRV_LOCKED_SETPOINT_C}°C", level="DEBUG")
+
+    def check_trv_setpoints(self, kwargs):
+        """Periodic callback to check and correct TRV setpoints.
+        
+        Handles cases where users accidentally change TRV setpoints via the UI.
+        """
+        self.log("Checking TRV setpoints...", level="DEBUG")
+        for room_id, room in self.rooms.items():
+            if room.get('disabled'):
+                continue
+            
+            climate_entity = room['trv']['climate']
+            try:
+                current_temp = self.get_state(climate_entity, attribute='temperature')
+                if current_temp is not None:
+                    current_temp = float(current_temp)
+                    
+                    # Check if setpoint has drifted
+                    if abs(current_temp - C.TRV_LOCKED_SETPOINT_C) > 0.1:
+                        self.log(f"TRV setpoint drift detected for room '{room_id}': {current_temp}°C (expected {C.TRV_LOCKED_SETPOINT_C}°C)", level="WARNING")
+                        self.lock_trv_setpoint(room_id)
+            except (ValueError, TypeError) as e:
+                self.log(f"Failed to check TRV setpoint for room '{room_id}': {e}", level="WARNING")
 
     # ========================================================================
     # Periodic Recompute
@@ -603,10 +679,13 @@ class PyHeat(hass.Hass):
     # ========================================================================
 
     def set_trv_valve(self, room_id: str, percent: int, now: datetime):
-        """Set TRV valve position with sequential commands and feedback confirmation.
+        """Set TRV valve position with non-blocking feedback confirmation.
         
-        Sends opening and closing degree commands sequentially, waiting for
-        feedback confirmation between each to avoid inconsistent states.
+        With TRV setpoint locked at 5°C, the TRV is always in "open" mode,
+        so we only need to control opening_degree (not closing_degree).
+        
+        Uses scheduler-based delays instead of blocking sleep() to avoid
+        tying up AppDaemon threads.
         
         Args:
             room_id: Room identifier
@@ -633,149 +712,161 @@ class PyHeat(hass.Hass):
             # No change needed
             return
         
-        # Calculate target values
-        trv = room_config['trv']
-        target_open = percent
-        target_close = 100 - percent
+        self.log(f"Setting TRV for room '{room_id}': {percent}% open")
         
-        self.log(f"Setting TRV for room '{room_id}': {percent}% open (opening={target_open}, closing={target_close})")
-        
-        if C.TRV_COMMAND_SEQUENCE_ENABLED:
-            # Sequential mode: set opening, wait for feedback, set closing, wait for feedback
-            success = self._set_valve_sequential(room_id, trv, target_open, target_close)
-        else:
-            # Legacy simultaneous mode (not recommended)
-            success = self._set_valve_simultaneous(room_id, trv, target_open, target_close)
-        
-        if success:
-            # Update tracking
-            self.trv_last_commanded[room_id] = percent
-            self.trv_last_update[room_id] = now
+        # Start non-blocking valve command sequence
+        self._start_valve_command(room_id, percent, now)
     
-    def _set_valve_sequential(self, room_id: str, trv: Dict, target_open: int, target_close: int) -> bool:
-        """Send valve commands sequentially with feedback confirmation.
+    def _start_valve_command(self, room_id: str, percent: int, now: datetime):
+        """Initiate a non-blocking valve command with feedback confirmation.
         
         Args:
             room_id: Room identifier
-            trv: TRV configuration dict with entity IDs
-            target_open: Target opening degree (0-100)
-            target_close: Target closing degree (0-100)
-            
-        Returns:
-            True if both commands confirmed, False otherwise
+            percent: Desired valve percentage (0-100)
+            now: Current datetime for rate limiting
         """
-        retry_interval = C.TRV_COMMAND_RETRY_INTERVAL_S
+        room_config = self.rooms.get(room_id)
+        if not room_config or room_config.get('disabled'):
+            return
+        
+        trv = room_config['trv']
+        state_key = f"valve_cmd_{room_id}"
+        
+        # Cancel any existing command for this room
+        if state_key in self._valve_command_state:
+            old_state = self._valve_command_state[state_key]
+            if 'handle' in old_state and old_state['handle']:
+                self.cancel_timer(old_state['handle'])
+        
+        # Initialize command state
+        self._valve_command_state[state_key] = {
+            'room_id': room_id,
+            'target_percent': percent,
+            'attempt': 0,
+            'start_time': now,
+            'handle': None,
+        }
+        
+        # Send the command immediately
+        self._execute_valve_command(state_key)
+    
+    def _execute_valve_command(self, state_key: str):
+        """Execute a valve command and schedule feedback check.
+        
+        Args:
+            state_key: State dictionary key for this command
+        """
+        if state_key not in self._valve_command_state:
+            return
+        
+        state = self._valve_command_state[state_key]
+        room_id = state['room_id']
+        target_percent = state['target_percent']
+        attempt = state['attempt']
+        
+        room_config = self.rooms.get(room_id)
+        if not room_config or room_config.get('disabled'):
+            del self._valve_command_state[state_key]
+            return
+        
+        trv = room_config['trv']
+        max_retries = C.TRV_COMMAND_MAX_RETRIES
+        
+        self.log(f"TRV {room_id}: Setting valve to {target_percent}%, attempt {attempt+1}/{max_retries}", level="DEBUG")
+        
+        try:
+            # Send command (only opening_degree, since TRV is locked in "open" mode)
+            self.call_service("number/set_value",
+                            entity_id=trv['cmd_valve'],
+                            value=target_percent)
+            
+            # Schedule feedback check
+            handle = self.run_in(self._check_valve_feedback, 
+                               C.TRV_COMMAND_RETRY_INTERVAL_S, 
+                               state_key=state_key)
+            state['handle'] = handle
+            
+        except Exception as e:
+            self.log(f"TRV {room_id}: Failed to send valve command: {e}", level="ERROR")
+            del self._valve_command_state[state_key]
+    
+    def _check_valve_feedback(self, kwargs):
+        """Callback to check valve feedback after a command.
+        
+        Args:
+            kwargs: Callback kwargs containing state_key
+        """
+        state_key = kwargs.get('state_key')
+        if not state_key or state_key not in self._valve_command_state:
+            return
+        
+        state = self._valve_command_state[state_key]
+        room_id = state['room_id']
+        target_percent = state['target_percent']
+        attempt = state['attempt']
+        
+        room_config = self.rooms.get(room_id)
+        if not room_config or room_config.get('disabled'):
+            del self._valve_command_state[state_key]
+            return
+        
+        trv = room_config['trv']
         max_retries = C.TRV_COMMAND_MAX_RETRIES
         tolerance = C.TRV_COMMAND_FEEDBACK_TOLERANCE
         
-        # Step 1: Set opening degree and wait for confirmation
-        self.log(f"TRV {room_id}: Setting opening degree to {target_open}%", level="DEBUG")
-        open_confirmed = False
+        # Check feedback
+        fb_valve_str = self.get_state(trv['fb_valve'])
         
-        for attempt in range(max_retries):
-            try:
-                # Send command
-                self.call_service("number/set_value",
-                                entity_id=trv['cmd_open'],
-                                value=target_open)
-                
-                # Wait for feedback
-                import time
-                time.sleep(retry_interval)
-                
-                # Check feedback
-                fb_open = self.get_state(trv['fb_open'])
-                if fb_open is not None:
-                    try:
-                        fb_open_val = int(float(fb_open))
-                        if abs(fb_open_val - target_open) <= tolerance:
-                            self.log(f"TRV {room_id}: Opening degree confirmed at {fb_open_val}%", level="DEBUG")
-                            open_confirmed = True
-                            break
-                        else:
-                            self.log(f"TRV {room_id}: Opening mismatch (target={target_open}%, fb={fb_open_val}%), retry {attempt+1}/{max_retries}", level="DEBUG")
-                    except (ValueError, TypeError) as e:
-                        self.log(f"TRV {room_id}: Invalid opening feedback '{fb_open}': {e}", level="WARNING")
-                else:
-                    self.log(f"TRV {room_id}: No opening feedback available, retry {attempt+1}/{max_retries}", level="WARNING")
-                    
-            except Exception as e:
-                self.log(f"TRV {room_id}: Failed to set opening degree: {e}", level="ERROR")
-        
-        if not open_confirmed:
-            self.log(f"TRV {room_id}: Opening degree NOT confirmed after {max_retries} retries", level="WARNING")
-            return False
-        
-        # Step 2: Set closing degree and wait for confirmation
-        self.log(f"TRV {room_id}: Setting closing degree to {target_close}%", level="DEBUG")
-        close_confirmed = False
-        
-        for attempt in range(max_retries):
-            try:
-                # Send command
-                self.call_service("number/set_value",
-                                entity_id=trv['cmd_close'],
-                                value=target_close)
-                
-                # Wait for feedback
-                import time
-                time.sleep(retry_interval)
-                
-                # Check feedback
-                fb_close = self.get_state(trv['fb_close'])
-                if fb_close is not None:
-                    try:
-                        fb_close_val = int(float(fb_close))
-                        if abs(fb_close_val - target_close) <= tolerance:
-                            self.log(f"TRV {room_id}: Closing degree confirmed at {fb_close_val}%", level="DEBUG")
-                            close_confirmed = True
-                            break
-                        else:
-                            self.log(f"TRV {room_id}: Closing mismatch (target={target_close}%, fb={fb_close_val}%), retry {attempt+1}/{max_retries}", level="DEBUG")
-                    except (ValueError, TypeError) as e:
-                        self.log(f"TRV {room_id}: Invalid closing feedback '{fb_close}': {e}", level="WARNING")
-                else:
-                    self.log(f"TRV {room_id}: No closing feedback available, retry {attempt+1}/{max_retries}", level="WARNING")
-                    
-            except Exception as e:
-                self.log(f"TRV {room_id}: Failed to set closing degree: {e}", level="ERROR")
-        
-        if not close_confirmed:
-            self.log(f"TRV {room_id}: Closing degree NOT confirmed after {max_retries} retries", level="WARNING")
-            return False
-        
-        self.log(f"TRV {room_id}: Sequential valve command complete and confirmed", level="DEBUG")
-        return True
-    
-    def _set_valve_simultaneous(self, room_id: str, trv: Dict, target_open: int, target_close: int) -> bool:
-        """Send both valve commands simultaneously (legacy mode, not recommended).
-        
-        Args:
-            room_id: Room identifier
-            trv: TRV configuration dict with entity IDs
-            target_open: Target opening degree (0-100)
-            target_close: Target closing degree (0-100)
+        if fb_valve_str in [None, "unknown", "unavailable"]:
+            self.log(f"TRV {room_id}: No valid feedback available, attempt {attempt+1}/{max_retries}", level="WARNING")
             
-        Returns:
-            True if commands sent successfully
-        """
+            if attempt < max_retries - 1:
+                # Retry
+                state['attempt'] += 1
+                self._execute_valve_command(state_key)
+            else:
+                # Max retries reached
+                self.log(f"TRV {room_id}: Failed to confirm valve position after {max_retries} attempts", level="WARNING")
+                del self._valve_command_state[state_key]
+            return
+        
         try:
-            # Send opening degree command
-            self.call_service("number/set_value",
-                            entity_id=trv['cmd_open'],
-                            value=target_open)
+            fb_valve_val = int(float(fb_valve_str))
+        except (ValueError, TypeError):
+            self.log(f"TRV {room_id}: Invalid feedback value '{fb_valve_str}'", level="WARNING")
             
-            # Send closing degree command
-            self.call_service("number/set_value",
-                            entity_id=trv['cmd_close'],
-                            value=target_close)
+            if attempt < max_retries - 1:
+                # Retry
+                state['attempt'] += 1
+                self._execute_valve_command(state_key)
+            else:
+                self.log(f"TRV {room_id}: Failed to confirm valve position after {max_retries} attempts", level="WARNING")
+                del self._valve_command_state[state_key]
+            return
+        
+        # Check if within tolerance
+        if abs(fb_valve_val - target_percent) <= tolerance:
+            # Success!
+            self.log(f"TRV {room_id}: Valve position confirmed at {fb_valve_val}%", level="DEBUG")
             
-            self.log(f"TRV {room_id}: Simultaneous commands sent", level="DEBUG")
-            return True
+            # Update tracking
+            self.trv_last_commanded[room_id] = target_percent
+            self.trv_last_update[room_id] = state['start_time']
             
-        except Exception as e:
-            self.log(f"TRV {room_id}: Failed to set valve: {e}", level="ERROR")
-            return False
+            # Clean up state
+            del self._valve_command_state[state_key]
+        else:
+            # Feedback doesn't match
+            self.log(f"TRV {room_id}: Valve mismatch (target={target_percent}%, fb={fb_valve_val}%), attempt {attempt+1}/{max_retries}", level="DEBUG")
+            
+            if attempt < max_retries - 1:
+                # Retry
+                state['attempt'] += 1
+                self._execute_valve_command(state_key)
+            else:
+                # Max retries reached
+                self.log(f"TRV {room_id}: Failed to confirm valve position after {max_retries} attempts", level="WARNING")
+                del self._valve_command_state[state_key]
 
     # ========================================================================
     # Boiler Control (Simplified)
