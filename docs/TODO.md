@@ -88,8 +88,13 @@
   - [x] Create/update `sensor.pyheat_status`
   - [x] Set state string ("heating (N rooms)", "idle")
   - [x] Basic attributes (any_call_for_heat, active_rooms, etc.)
-  - [ ] Per-room detailed status (deferred)
-  - [ ] Error tracking and reporting (deferred)
+  - [x] Boiler state machine attributes
+  - [x] **Per-room entities** (Restored from pyscript)
+    - [x] `sensor.pyheat_<room>_temperature` - Fused room temperature
+    - [x] `sensor.pyheat_<room>_target` - Resolved target
+    - [x] `sensor.pyheat_<room>_state` - Room state (off/manual/auto/stale)
+    - [x] `number.pyheat_<room>_valve_percent` - Valve opening percentage
+    - [x] `binary_sensor.pyheat_<room>_calling_for_heat` - Heat demand
 
 ### Phase 3: Testing & Verification
 - [x] **Initial Testing**
@@ -182,13 +187,6 @@
   - [ ] Multi-band jump logic (e.g., 0% → 100% direct jump)
   - [ ] Track previous band per room
 
-- [ ] **Enhanced Status Publishing** (~1-2 hours)
-  - [ ] Per-room detailed status in attributes
-  - [ ] Valve position tracking
-  - [ ] Error states and warnings
-  - [ ] Last action timestamps
-  - [ ] Sensor staleness indicators
-
 - [ ] **Advanced Error Handling** (~2-3 hours)
   - [ ] Graceful degradation when entities missing
   - [ ] Invalid state value handling
@@ -253,12 +251,6 @@
    - Cannot reload config without restart
    - Workaround: Use helper entities directly
    - Priority: Medium
-
-4. **Limited Error Reporting**
-   - Status entity has basic state machine detail
-   - No per-room error tracking in status
-   - Errors only in logs
-   - Priority: Low
 
 ---
 

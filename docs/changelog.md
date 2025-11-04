@@ -1,5 +1,66 @@
 # PyHeat Changelog
 
+## 2025-11-04: Per-Room Entity Publishing (Parity with Pyscript) ✅
+
+### Overview
+Restored per-room entity publishing to match the pyscript implementation. Each room now publishes detailed status entities for use in dashboards and automations.
+
+### Per-Room Entities
+
+Each room (e.g., `pete`, `living`, etc.) now publishes:
+
+1. **`sensor.pyheat_<room>_temperature`** (float, °C)
+   - Fused temperature from primary sensors (or fallback)
+   - Device class: temperature
+   - State class: measurement
+
+2. **`sensor.pyheat_<room>_target`** (float, °C)
+   - Resolved target temperature after applying:
+     - Mode precedence (off → manual → override → schedule)
+     - Holiday mode substitution
+     - Schedule block resolution
+   - Device class: temperature
+   - State class: measurement
+
+3. **`sensor.pyheat_<room>_state`** (string)
+   - Current room state: `off`, `manual`, `auto`, or `stale`
+   - Reflects room mode and sensor availability
+
+4. **`number.pyheat_<room>_valve_percent`** (0-100)
+   - Commanded TRV valve opening percentage
+   - Respects boiler overrides (pump overrun, interlock)
+   - Read-only (display only, not for control)
+
+5. **`binary_sensor.pyheat_<room>_calling_for_heat`** (on/off)
+   - Heat demand state after hysteresis
+   - Device class: heat
+   - `on` = room calling for heat, `off` = satisfied
+
+### Implementation Details
+
+**Integration:**
+- Added `publish_room_entities()` method
+- Called from `recompute_all()` for each room
+- Publishes after boiler state update (so valve overrides apply)
+
+**Valve Override Handling:**
+- Checks `boiler_status['overridden_valve_percents']`
+- Uses overridden value if boiler requires it (pump overrun, interlock)
+- Ensures displayed valve percent matches actual commanded position
+
+**Compatibility:**
+- Matches pyscript entity structure for easy migration
+- Same entity IDs and attributes
+- Dashboard compatibility maintained
+
+### Benefits
+- **Detailed monitoring** - Per-room status visible in dashboards
+- **Automation support** - Can trigger on individual room states
+- **Troubleshooting** - See exact values for each room
+- **Parity with pyscript** - Smooth migration path
+
+---
+
 ## 2025-11-04: Full Boiler State Machine Implementation ✅
 
 ### Overview
