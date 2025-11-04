@@ -15,6 +15,12 @@
 
 **Impact:** TRVs will now properly respond to valve opening commands instead of being held closed by their internal controllers.
 
+**TRV Setpoint Monitoring:**
+- Immediate detection via state listener on `climate.trv_*` temperature attribute
+- Corrects user changes within seconds (previously up to 5 minutes)
+- Periodic backup check still runs every 5 minutes
+- Logs WARNING when drift detected and corrected
+
 ## 2025-11-04: Valve Band Control with Hysteresis ✅
 
 ### Smart TRV Valve Band System Implemented
