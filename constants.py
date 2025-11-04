@@ -138,11 +138,12 @@ STATE_INTERLOCK_FAILED = "interlock_failed"
 # ============================================================================
 
 # TRV Setpoint Lock Strategy:
-# By locking TRV internal setpoint to 5°C, we force the TRV into "always open" mode.
-# This allows us to control valve position directly via opening_degree only.
+# By locking TRV internal setpoint to maximum (35°C), we force the TRV into "always open" mode.
+# The TRV's internal controller will think "room is cold, I should be open", allowing us
+# to control the actual valve position via opening_degree only.
 # No need to control closing_degree since the TRV will never be in "closing" state.
 
-TRV_LOCKED_SETPOINT_C = 5.0           # Lock TRV internal setpoint to 5°C
+TRV_LOCKED_SETPOINT_C = 35.0          # Lock TRV internal setpoint to maximum (35°C)
 TRV_SETPOINT_CHECK_INTERVAL_S = 300   # Check/correct setpoints every 5 minutes
 
 # Patterns for deriving TRV command/feedback entities from climate.<trv_base>

@@ -352,19 +352,21 @@ class PyHeat(hass.Hass):
     # ========================================================================
 
     def lock_all_trv_setpoints(self, kwargs=None):
-        """Lock all TRV setpoints to 5°C to force them into 'open' mode.
+        """Lock all TRV setpoints to 35°C to force them into 'open' mode.
         
         This allows us to control valve position directly via opening_degree only.
+        The TRV's internal controller will think the room is cold and should be open,
+        letting us control the actual position via opening_degree.
         Called on startup and periodically to handle accidental user changes.
         """
-        self.log("Locking all TRV setpoints to 5°C...")
+        self.log("Locking all TRV setpoints to 35°C...")
         for room_id, room in self.rooms.items():
             if room.get('disabled'):
                 continue
             self.lock_trv_setpoint(room_id)
 
     def lock_trv_setpoint(self, room_id: str):
-        """Lock a single TRV setpoint to 5°C.
+        """Lock a single TRV setpoint to 35°C (maximum).
         
         Args:
             room_id: Room identifier
@@ -857,7 +859,7 @@ class PyHeat(hass.Hass):
     def set_trv_valve(self, room_id: str, percent: int, now: datetime):
         """Set TRV valve position with non-blocking feedback confirmation.
         
-        With TRV setpoint locked at 5°C, the TRV is always in "open" mode,
+        With TRV setpoint locked at 35°C (maximum), the TRV is always in "open" mode,
         so we only need to control opening_degree (not closing_degree).
         
         Uses scheduler-based delays instead of blocking sleep() to avoid
