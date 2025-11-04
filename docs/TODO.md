@@ -177,24 +177,21 @@ Implementing Home Assistant service handlers to match PyScript version functiona
 
 ## Deferred / Future Enhancements 📋
 
-### Service Handlers (~5-8 hours) - IN PROGRESS 🚧
-- [ ] **Room Override/Boost Services**
-  - [ ] `pyheat.override(room, target, minutes)` - Set temporary target
-  - [ ] `pyheat.boost(room, delta, minutes)` - Boost by delta from current
-  - [ ] `pyheat.cancel_override(room)` - Cancel active override
-  - [ ] Timer management and cleanup
-  - [ ] Persistence across restarts
+### Service Handlers (~5-8 hours) - IMPLEMENTED BUT NOT INTEGRATED ⚠️
+**Status:** All service handlers implemented and registered with AppDaemon, but not yet callable from Home Assistant. Services are registered internally via `register_service()` but don't appear as HA services. Need to investigate proper AppDaemon->HA service registration method.
 
-- [ ] **Configuration Services**
-  - [ ] `pyheat.set_mode(room, mode)` - Change room mode programmatically
-  - [ ] `pyheat.set_default_target(room, target)` - Update default target
-  - [ ] `pyheat.reload_config()` - Reload YAML without restart
-  - [ ] `pyheat.replace_schedules(schedule_dict)` - Dynamic schedule updates
+**Implemented Services:**
+- [x] `pyheat.override(room, target, minutes)` - Set temporary target ✅
+- [x] `pyheat.boost(room, delta, minutes)` - Boost by delta from current ✅
+- [x] `pyheat.cancel_override(room)` - Cancel active override ✅
+- [x] `pyheat.set_mode(room, mode)` - Change room mode programmatically ✅
+- [x] `pyheat.set_default_target(room, target)` - Update default target ✅
+- [x] `pyheat.reload_config()` - Reload YAML without restart ✅
+- [x] `pyheat.get_schedules()` - Get current schedules (returns dict) ✅
+- [x] `pyheat.get_rooms()` - Get current rooms (returns dict) ✅
+- [x] `pyheat.replace_schedules(schedule_dict)` - Atomically replace schedules ✅
 
-- [ ] **Diagnostic Services**
-  - [ ] `pyheat.force_valve(room, percent)` - Manual valve control for testing
-  - [ ] `pyheat.get_diagnostics()` - Return full system state
-  - [ ] `pyheat.force_recompute()` - Immediate recompute trigger
+**TODO:** Make services callable from Home Assistant (currently only registered within AppDaemon)
 
 ### Enhanced Features
 - [ ] **Advanced Error Handling** (~2-3 hours)
