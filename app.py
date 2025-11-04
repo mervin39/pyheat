@@ -1531,33 +1531,33 @@ class PyHeat(hass.Hass):
         if room_id in overridden_valves:
             valve_percent = overridden_valves[room_id]
         
-        # 1. Publish temperature (fused)
-        if temp is not None:
-            temp_entity = f"sensor.pyheat_{room_id}_temperature"
-            self.set_state(
-                temp_entity,
-                state=round(temp, 1),
-                attributes={
-                    "unit_of_measurement": "°C",
-                    "device_class": "temperature",
-                    "state_class": "measurement",
-                    "friendly_name": f"{room_name} Temperature"
-                }
-            )
+        # 1. Publish temperature (fused) - always, even if None/stale
+        temp_entity = f"sensor.pyheat_{room_id}_temperature"
+        temp_state = round(temp, 1) if temp is not None else "unavailable"
+        self.set_state(
+            temp_entity,
+            state=temp_state,
+            attributes={
+                "unit_of_measurement": "°C",
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "friendly_name": f"{room_name} Temperature"
+            }
+        )
         
-        # 2. Publish target temperature
-        if target is not None:
-            target_entity = f"sensor.pyheat_{room_id}_target"
-            self.set_state(
-                target_entity,
-                state=round(target, 1),
-                attributes={
-                    "unit_of_measurement": "°C",
-                    "device_class": "temperature",
-                    "state_class": "measurement",
-                    "friendly_name": f"{room_name} Target"
-                }
-            )
+        # 2. Publish target temperature (always, even if None)
+        target_entity = f"sensor.pyheat_{room_id}_target"
+        target_state = round(target, 1) if target is not None else "unknown"
+        self.set_state(
+            target_entity,
+            state=target_state,
+            attributes={
+                "unit_of_measurement": "°C",
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "friendly_name": f"{room_name} Target"
+            }
+        )
         
         # 3. Publish room state
         if is_stale:
@@ -1574,14 +1574,17 @@ class PyHeat(hass.Hass):
             }
         )
         
-        # 4. Publish valve percentage as sensor (number domain not supported)
-        valve_entity = f"sensor.pyheat_{room_id}_valve_percent"
+        # 4. Publish valve percentage as number entity
+        valve_entity = f"number.pyheat_{room_id}_valve_percent"
         try:
             valve_state = str(int(valve_percent))  # Convert to string to avoid AppDaemon issues with 0
             self.set_state(
                 valve_entity,
                 state=valve_state,
                 attributes={
+                    "min": 0,
+                    "max": 100,
+                    "step": 1,
                     "unit_of_measurement": "%",
                     "friendly_name": f"{room_name} Valve"
                 }

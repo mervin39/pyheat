@@ -23,18 +23,19 @@ Implemented complete 7-state boiler FSM from pyscript version with full anti-cyc
 
 ### Per-Room Entity Publishing ✅
 
-Each room now publishes monitoring entities via AppDaemon's `set_state()` API:
+Each room now publishes monitoring entities via AppDaemon's `set_state()` API in the correct domains:
 
-1. **`sensor.pyheat_<room>_temperature`** (float, °C)
-2. **`sensor.pyheat_<room>_target`** (float, °C)
-3. **`sensor.pyheat_<room>_state`** (string: off/heating/idle/etc)
-4. **`sensor.pyheat_<room>_valve_percent`** (string numeric, %) - Fixed: AppDaemon requires string "0" not int 0
-5. **`binary_sensor.pyheat_<room>_calling_for_heat`** (on/off, device_class: heat)
+1. **`sensor.pyheat_<room>_temperature`** (float °C or "unavailable" if stale)
+2. **`sensor.pyheat_<room>_target`** (float °C or "unknown" if off/no schedule)
+3. **`number.pyheat_<room>_valve_percent`** (0-100%, min/max/step attributes)
+4. **`binary_sensor.pyheat_<room>_calling_for_heat`** (on/off, device_class: heat)
 
-**Critical Fix:** AppDaemon's `set_state()` fails with HTTP 400 when passing integer `0` as state value. Solution: Convert all numeric states to strings using `str(int(value))` before calling `set_state()`.
+**All 24 entities (6 rooms × 4 types) created successfully and available for use in automations.**
 
-**All entities created successfully and available for use in automations.**
-
+**Critical Fixes:**
+- AppDaemon's `set_state()` fails with HTTP 400 when passing integer `0` as state value. Solution: Convert numeric states to strings using `str(int(value))`.
+- Valve percent moved from `sensor` domain to `number` domain (correct per HA conventions).
+- Temperature and target always published even when unavailable/unknown (ensures entities always exist).
 
 ### Technical Details
    - Respects boiler overrides (pump overrun, interlock)
