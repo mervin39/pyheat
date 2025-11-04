@@ -24,8 +24,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 import json
 
-# Import helper modules (located in same directory)
-from . import constants as C
+# Import constants module from same package
+import pyheat.constants as C
 
 class PyHeat(hass.Hass):
     """Main PyHeat heating controller app for AppDaemon."""
@@ -332,6 +332,8 @@ class PyHeat(hass.Hass):
             # 2. Get room mode
             mode_entity = C.HELPER_ROOM_MODE.format(room=room_id)
             room_mode = self.get_state(mode_entity) if self.entity_exists(mode_entity) else "auto"
+            # Normalize to lowercase for comparison
+            room_mode = room_mode.lower() if room_mode else "auto"
             
             # 3. Resolve target temperature
             target = self.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
