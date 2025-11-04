@@ -127,18 +127,18 @@
     - [ ] `STATE_INTERLOCK_BLOCKED` - Demand present but TRVs not open
     - [ ] `STATE_INTERLOCK_FAILED` - Critical failure, TRVs won't open
   - [ ] Anti-cycling protection
-    - [ ] Minimum on time (180s)
-    - [ ] Minimum off time (180s)
+    - [ ] Minimum on time (min_on_time_s)
+    - [ ] Minimum off time (min_off_time_s)
   - [ ] TRV-open interlock
-    - [ ] Verify at least one TRV ≥ 10% open before starting
-    - [ ] Monitor feedback sensors with timeout (30s)
+    - [ ] Verify Sum of all TRV open percentages is >= min_valve_open_percent (from boiler.yaml)
+    - [ ] Monitor feedback sensors with timeout (30s)(constants.py) 
     - [ ] Fail to INTERLOCK_FAILED if TRVs don't open
   - [ ] Pump overrun
-    - [ ] Keep pump running for 180s after boiler off
+    - [ ] Keep pump running for pump_overrun_s after boiler off
     - [ ] Maintain valve positions during overrun
     - [ ] Persist valve positions to helper entity
   - [ ] Off-delay
-    - [ ] 30s delay before turning off for brief demand changes
+    - [ ] 30s (constants.py) delay before turning off for brief demand changes
 
 ---
 
