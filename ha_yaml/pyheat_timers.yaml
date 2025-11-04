@@ -1,0 +1,67 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_timers.yaml
+# Included via: timer: !include_dir_merge_named yaml/timer
+# Symlink target: yaml/timer/pyheat_timers.yaml
+# Contents: per-room override/boost timers (restore enabled).
+# -----------------------------------------------------------------------------
+
+pyheat_pete_override:
+  name: "Pete’s Room Override Timer"
+  restore: true
+  duration: "00:00:00"
+  icon: mdi:timer
+
+pyheat_abby_override:
+  name: "Abby’s Room Override Timer"
+  restore: true
+  duration: "00:00:00"
+  icon: mdi:timer
+
+pyheat_office_override:
+  name: "Office Override Timer"
+  restore: true
+  duration: "00:00:00"
+  icon: mdi:timer
+
+pyheat_lounge_override:
+  name: "Living Room Override Timer"
+  restore: true
+  duration: "00:00:00"
+  icon: mdi:timer
+
+pyheat_games_override:
+  name: "Dining Room Override Timer"
+  restore: true
+  duration: "00:00:00"
+  icon: mdi:timer
+
+pyheat_bathroom_override:
+  name: "Bathroom Override Timer"
+  restore: true
+  duration: "00:00:00"
+  icon: mdi:timer
+
+# Boiler safety timers for anti-cycling and pump overrun
+pyheat_boiler_min_on_timer:
+  name: "Boiler Minimum On Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:timer-check
+
+pyheat_boiler_min_off_timer:
+  name: "Boiler Minimum Off Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:timer-check
+
+pyheat_boiler_off_delay_timer:
+  name: "Boiler Off Delay Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:timer-sand
+
+pyheat_boiler_pump_overrun_timer:
+  name: "Boiler Pump Overrun Timer"
+  restore: false
+  duration: "00:00:00"
+  icon: mdi:pump

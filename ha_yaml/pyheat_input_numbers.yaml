@@ -1,0 +1,112 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_input_numbers.yaml
+# Included via: input_number: !include_dir_merge_named yaml/input_number
+# Symlink target: yaml/input_number/pyheat_input_numbers.yaml
+# Contents: per-room manual setpoint inputs (°C) and override persistence for Pyheat.
+# -----------------------------------------------------------------------------
+
+# Override persistence (for restoring state after pyscript reload)
+# Stores the active override/boost target temperature
+# Min 5°C (lower than service minimum of 10°C) to detect edge cases where value gets clamped
+pyheat_pete_override_target:
+  name: "Pete's Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_abby_override_target:
+  name: "Abby's Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_office_override_target:
+  name: "Office Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_lounge_override_target:
+  name: "Living Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_games_override_target:
+  name: "Dining Room Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+pyheat_bathroom_override_target:
+  name: "Bathroom Override Target"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+
+# Manual setpoint inputs
+pyheat_pete_manual_setpoint:
+  name: "Pete’s Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_abby_manual_setpoint:
+  name: "Abby’s Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_office_manual_setpoint:
+  name: "Office Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_lounge_manual_setpoint:
+  name: "Living Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_games_manual_setpoint:
+  name: "Dining Room Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator
+
+pyheat_bathroom_manual_setpoint:
+  name: "Bathroom Manual Setpoint"
+  min: 5
+  max: 35
+  step: 0.1
+  unit_of_measurement: "°C"
+  mode: box
+  icon: mdi:radiator

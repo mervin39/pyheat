@@ -1,0 +1,139 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_mqtt_sensors.yaml
+# Included via: sensor: !include_dir_merge_named yaml/sensor
+# Symlink target: yaml/mqtt/sensor/pyheat_mqtt_sensor.yaml
+# Contents: MQTT TRV feedback sensors (opening/closing degrees).
+# -----------------------------------------------------------------------------
+
+
+- name: "TRV Pete Valve Closing Degree (Z2M)"
+  unique_id: trv_pete_valve_closing_degree_z2m
+  state_topic: "zigbee2mqtt/trv_pete"
+  value_template: "{{ value_json.valve_closing_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_pete/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Pete Valve Opening Degree (Z2M)"
+  unique_id: trv_pete_valve_opening_degree_z2m
+  state_topic: "zigbee2mqtt/trv_pete"
+  value_template: "{{ value_json.valve_opening_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_pete/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Lounge Valve Closing Degree (Z2M)"
+  unique_id: trv_lounge_valve_closing_degree_z2m
+  state_topic: "zigbee2mqtt/trv_lounge"
+  value_template: "{{ value_json.valve_closing_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_lounge/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Lounge Valve Opening Degree (Z2M)"
+  unique_id: trv_lounge_valve_opening_degree_z2m
+  state_topic: "zigbee2mqtt/trv_lounge"
+  value_template: "{{ value_json.valve_opening_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_lounge/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Games Valve Closing Degree (Z2M)"
+  unique_id: trv_games_valve_closing_degree_z2m
+  state_topic: "zigbee2mqtt/trv_games"
+  value_template: "{{ value_json.valve_closing_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_games/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Games Valve Opening Degree (Z2M)"
+  unique_id: trv_games_valve_opening_degree_z2m
+  state_topic: "zigbee2mqtt/trv_games"
+  value_template: "{{ value_json.valve_opening_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_games/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Abby Valve Closing Degree (Z2M)"
+  unique_id: trv_abby_valve_closing_degree_z2m
+  state_topic: "zigbee2mqtt/trv_abby"
+  value_template: "{{ value_json.valve_closing_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_abby/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Abby Valve Opening Degree (Z2M)"
+  unique_id: trv_abby_valve_opening_degree_z2m
+  state_topic: "zigbee2mqtt/trv_abby"
+  value_template: "{{ value_json.valve_opening_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_abby/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Office Valve Closing Degree (Z2M)"
+  unique_id: trv_office_valve_closing_degree_z2m
+  state_topic: "zigbee2mqtt/trv_office"
+  value_template: "{{ value_json.valve_closing_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_office/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Office Valve Opening Degree (Z2M)"
+  unique_id: trv_office_valve_opening_degree_z2m
+  state_topic: "zigbee2mqtt/trv_office"
+  value_template: "{{ value_json.valve_opening_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_office/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Bathroom Valve Closing Degree (Z2M)"
+  unique_id: trv_bathroom_valve_closing_degree_z2m
+  state_topic: "zigbee2mqtt/trv_bathroom"
+  value_template: "{{ value_json.valve_closing_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_bathroom/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"
+
+- name: "TRV Bathroom Valve Opening Degree (Z2M)"
+  unique_id: trv_bathroom_valve_opening_degree_z2m
+  state_topic: "zigbee2mqtt/trv_bathroom"
+  value_template: "{{ value_json.valve_opening_degree | int }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  availability_topic: "zigbee2mqtt/trv_bathroom/availability"
+  availability_template: "{{ value_json.state }}"
+  payload_available: "online"
+  payload_not_available: "offline"

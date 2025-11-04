@@ -1,0 +1,54 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_input_selects.yaml
+# Included via: input_select: !include_dir_merge_named yaml/input_select
+# Symlink target: yaml/input_select/pyheat_input_selects.yaml
+# Contents: per-room Heating Mode selectors (auto/manual/off).
+# -----------------------------------------------------------------------------
+
+pyheat_abby_mode:
+  name: Abby's Room Heating Mode
+  options:
+    - Auto
+    - Manual
+    - 'Off'
+  icon: mdi:cogs
+
+pyheat_bathroom_mode:
+  name: Bathroom Heating Mode
+  options:
+    - Auto
+    - Manual
+    - 'Off'
+  icon: mdi:cogs
+
+pyheat_games_mode:
+  name: Dining Room Heating Mode
+  options:
+    - Auto
+    - Manual
+    - 'Off'
+  icon: mdi:cogs
+
+pyheat_lounge_mode:
+  name: Living Room Heating Mode
+  options:
+    - Auto
+    - Manual
+    - 'Off'
+  icon: mdi:cogs
+
+pyheat_office_mode:
+  name: Office Heating Mode
+  options:
+    - Auto
+    - Manual
+    - 'Off'
+  icon: mdi:cogs
+
+pyheat_pete_mode:
+  name: Pete's Room Heating Mode
+  options:
+    - Auto
+    - Manual
+    - 'Off'
+  icon: mdi:cogs

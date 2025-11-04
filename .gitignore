@@ -1,2 +1,23 @@
-.github
-logs
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# AppDaemon logs (symlinked)
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# GitHub config (if it exists)
+.github/

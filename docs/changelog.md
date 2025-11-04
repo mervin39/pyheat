@@ -68,7 +68,21 @@
 
 - ✅ **App Registration**
   - Added pyheat to apps.yaml
-  - Configuration: module: pyheat.pyheat, class: PyHeat, log: main_log
+  - Configuration: module: pyheat.app, class: PyHeat, log: main_log
+  - Fixed module loading (renamed to app.py, added __init__.py)
+  - Fixed room mode case sensitivity
+
+### Testing & Validation
+
+- ✅ **Initial Testing** (Task 4 - In Progress)
+  - System successfully loads and initializes
+  - Detects 6 rooms with configuration
+  - TRV commands are sent successfully
+  - Boiler control responds to room demand
+  - Status entity publishes correctly
+  - Mode changes detected (case-insensitive now)
+  - Manual setpoint changes detected
+  - Verified Pete's room: temp sensor read, manual mode works, TRV opens to 100%, boiler turns on
 
 ### Pending Implementation
 

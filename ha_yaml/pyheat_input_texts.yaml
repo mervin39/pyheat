@@ -1,0 +1,12 @@
+# -----------------------------------------------------------------------------
+# ha_yaml/pyheat_input_texts.yaml
+# Included via: input_select: !include_dir_merge_named yaml/input_text
+# Symlink target: yaml/input_text/pyheat_input_texts.yaml
+# Contents: Input text for storing pump overrun valve positions.
+# -----------------------------------------------------------------------------
+
+
+pyheat_pump_overrun_valves:
+  name: "PyHeat Pump Overrun Valve Positions"
+  initial: ""
+  max: 255
