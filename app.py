@@ -352,6 +352,14 @@ class PyHeat(hass.Hass):
         """Handle TRV feedback sensor update."""
         room_id = kwargs.get('room_id')
         self.log(f"TRV feedback for room '{room_id}' updated: {entity} = {new}", level="DEBUG")
+        
+        # CRITICAL: During PENDING_OFF and PUMP_OVERRUN states, valve overrides are active
+        # and feedback changes are expected as valves are forcibly held open. Don't trigger
+        # recompute during these states to avoid fighting with the override logic.
+        if self.boiler_state in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN):
+            self.log(f"TRV feedback ignored during {self.boiler_state} (valve override active)", level="DEBUG")
+            return
+        
         # Trigger recompute to check interlock status
         self.trigger_recompute(f"trv_feedback_{room_id}_changed")
 
@@ -576,14 +584,22 @@ class PyHeat(hass.Hass):
         # 7. Update boiler state machine (includes valve override calculation)
         boiler_status = self.update_boiler_state(active_rooms, room_valve_percents, now)
         
-        # 8. Apply valve overrides if boiler requires it (e.g., pump overrun or interlock override)
-        if boiler_status.get('valves_must_stay_open') or boiler_status.get('overridden_valve_percents'):
-            overridden = boiler_status['overridden_valve_percents']
+        # 8. Apply valve commands with override priority
+        # If there are overrides (pump overrun or interlock), use them for affected rooms
+        # and use normal calculations for non-overridden rooms
+        overridden = boiler_status.get('overridden_valve_percents', {})
+        
+        if overridden:
+            # Send override commands first (critical for pump overrun safety)
             for room_id, valve_percent in overridden.items():
-                # Always send valve command when there's an override (boiler needs confirmation)
                 self.set_trv_valve(room_id, valve_percent, now)
+            
+            # Send normal commands for rooms NOT in override dict
+            for room_id, valve_percent in room_valve_percents.items():
+                if room_id not in overridden:
+                    self.set_trv_valve(room_id, valve_percent, now)
         else:
-            # No overrides - send normal valve commands
+            # No overrides - send all normal valve commands
             for room_id, valve_percent in room_valve_percents.items():
                 self.set_trv_valve(room_id, valve_percent, now)
         
