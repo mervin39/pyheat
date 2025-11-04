@@ -1574,14 +1574,38 @@ class PyHeat(hass.Hass):
             }
         )
         
-        # 4. Publish valve percentage (as sensor, not number)
-        # NOTE: Disabled - AppDaemon set_state() has issues creating these entities
-        # TODO: Investigate alternative method (MQTT, template sensor, etc.)
-        # valve_entity = f"sensor.pyheat_{room_id}_valve_percent"
-        # self.set_state(valve_entity, state=int(valve_percent), ...)
+        # 4. Publish valve percentage as sensor (number domain not supported)
+        valve_entity = f"sensor.pyheat_{room_id}_valve_percent"
+        try:
+            valve_state = str(int(valve_percent))  # Convert to string to avoid AppDaemon issues with 0
+            self.set_state(
+                valve_entity,
+                state=valve_state,
+                attributes={
+                    "unit_of_measurement": "%",
+                    "friendly_name": f"{room_name} Valve"
+                }
+            )
+            self.log(f"DEBUG: Successfully set {valve_entity} to {valve_state}", level="DEBUG")
+        except Exception as e:
+            self.log(f"ERROR: Failed to set {valve_entity}: {type(e).__name__}: {e}", level="ERROR")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
         
-        # 5. Publish calling for heat (as sensor, not binary_sensor)  
-        # NOTE: Disabled - AppDaemon set_state() has issues creating these entities  
-        # TODO: Investigate alternative method (MQTT, MQTT, etc.)
-        # cfh_entity = f"sensor.pyheat_{room_id}_calling_for_heat"
-        # self.set_state(cfh_entity, state="on" if calling else "off", ...)
+        # 5. Publish calling for heat as binary_sensor
+        cfh_entity = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
+        try:
+            self.set_state(
+                cfh_entity,
+                state="on" if calling else "off",
+                attributes={
+                    "device_class": "heat",
+                    "friendly_name": f"{room_name} Calling For Heat"
+                }
+            )
+            self.log(f"DEBUG: Successfully set {cfh_entity} to {'on' if calling else 'off'}", level="DEBUG")
+        except Exception as e:
+            self.log(f"ERROR: Failed to set {cfh_entity}: {type(e).__name__}: {e}", level="ERROR")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+

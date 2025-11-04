@@ -1,8 +1,6 @@
 # PyHeat Changelog
 
-# PyHeat Changelog
-
-## 2025-11-04: Full Boiler State Machine & Per-Room Entities ✅
+## 2025-11-04: Full Boiler State Machine & Per-Room Entity Publishing ✅
 
 ### Boiler State Machine Implementation
 Implemented complete 7-state boiler FSM from pyscript version with full anti-cycling protection:
@@ -23,26 +21,20 @@ Implemented complete 7-state boiler FSM from pyscript version with full anti-cyc
 - Pump overrun with valve position persistence
 - OpenTherm vs binary boiler control support
 
-### Per-Room Entity Publishing (Partial)
+### Per-Room Entity Publishing ✅
 
-Each room now publishes status entities via AppDaemon's `set_state()`:
+Each room now publishes monitoring entities via AppDaemon's `set_state()` API:
 
 1. **`sensor.pyheat_<room>_temperature`** (float, °C)
-   - Fused temperature from primary sensors
-   - Includes device_class and state_class attributes
-
 2. **`sensor.pyheat_<room>_target`** (float, °C)
-   - Resolved target temperature after mode/schedule/holiday logic
+3. **`sensor.pyheat_<room>_state`** (string: off/heating/idle/etc)
+4. **`sensor.pyheat_<room>_valve_percent`** (string numeric, %) - Fixed: AppDaemon requires string "0" not int 0
+5. **`binary_sensor.pyheat_<room>_calling_for_heat`** (on/off, device_class: heat)
 
-3. **`sensor.pyheat_<room>_state`** (string)
-   - Current room state: `off`, `manual`, `auto`, or `stale`
+**Critical Fix:** AppDaemon's `set_state()` fails with HTTP 400 when passing integer `0` as state value. Solution: Convert all numeric states to strings using `str(int(value))` before calling `set_state()`.
 
-**Known Issues:**
-- ❌ `sensor.pyheat_<room>_valve_percent` creation fails with HTTP 400 errors
-- ❌ `sensor.pyheat_<room>_calling_for_heat` creation fails with HTTP 400 errors
-- AppDaemon's `set_state()` throws `ClientResponseError` for these entities
-- Manually testing via HA REST API works fine, issue appears AppDaemon-specific
-- **Workaround:** Disabled these entities temporarily, core heating functionality intact
+**All entities created successfully and available for use in automations.**
+
 
 ### Technical Details
    - Respects boiler overrides (pump overrun, interlock)
