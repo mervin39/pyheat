@@ -1,0 +1,74 @@
+rooms:
+  - id: pete
+    name: "Pete's Room"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_pete
+        role: primary
+        timeout_m: 180
+      - entity_id: sensor.pete_snzb02_temperature
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_pete
+    hysteresis:
+      on_delta_c: 0.40
+      off_delta_c: 0.10
+    valve_bands:
+      t_low: 0.30
+      t_mid: 0.80
+      t_max: 1.50
+      low_percent: 35.0
+      mid_percent: 65.0
+      max_percent: 100.0
+      step_hysteresis_c: 0.05
+    valve_update:
+      min_interval_s: 30
+  - id: games
+    name: "Dining Room"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_games
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_games
+  - id: lounge
+    name: "Living Room"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_lounge
+        role: primary
+        timeout_m: 180
+      - entity_id: sensor.awair_omni_270_temperature
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_lounge
+  - id: abby
+    name: "Abby's Room"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_abby
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_abby
+  - id: office
+    name: "Office"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_office
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_office
+  - id: bathroom
+    name: "Bathroom"
+    precision: 1
+    sensors:
+      - entity_id: sensor.roomtemp_bathroom
+        role: primary
+        timeout_m: 180
+    trv:
+      entity_id: climate.trv_bathroom
