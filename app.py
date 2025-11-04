@@ -245,6 +245,11 @@ class PyHeat(hass.Hass):
             if not self.rooms[room_id].get('disabled'):
                 self.listen_state(self.trv_feedback_changed, 
                                 self.rooms[room_id]['trv']['fb_valve'], room_id=room_id)
+                
+                # TRV setpoint monitoring (immediate detection of user changes)
+                climate_entity = self.rooms[room_id]['trv']['climate']
+                self.listen_state(self.trv_setpoint_changed, climate_entity, 
+                                attribute='temperature', room_id=room_id)
 
     def initialize_sensor_values(self):
         """Initialize sensor_last_values from current state on startup.
@@ -346,6 +351,32 @@ class PyHeat(hass.Hass):
         self.log(f"TRV feedback for room '{room_id}' updated: {entity} = {new}", level="DEBUG")
         # Trigger recompute to check interlock status
         self.trigger_recompute(f"trv_feedback_{room_id}_changed")
+
+    def trv_setpoint_changed(self, entity, attribute, old, new, kwargs):
+        """Handle TRV setpoint change (immediate detection of user changes).
+        
+        This provides immediate correction if a user manually changes a TRV setpoint,
+        rather than waiting up to 5 minutes for the periodic check.
+        """
+        room_id = kwargs.get('room_id')
+        
+        if new is None or new in ["unknown", "unavailable"]:
+            return
+        
+        try:
+            new_temp = float(new)
+            
+            # Check if setpoint has drifted from locked value
+            if abs(new_temp - C.TRV_LOCKED_SETPOINT_C) > 0.1:
+                self.log(
+                    f"TRV setpoint change detected for room '{room_id}': "
+                    f"{old}°C -> {new_temp}°C (expected {C.TRV_LOCKED_SETPOINT_C}°C), "
+                    f"correcting immediately",
+                    level="WARNING"
+                )
+                self.lock_trv_setpoint(room_id)
+        except (ValueError, TypeError) as e:
+            self.log(f"Invalid TRV setpoint for room '{room_id}': {new} ({e})", level="WARNING")
 
     # ========================================================================
     # TRV Setpoint Locking
