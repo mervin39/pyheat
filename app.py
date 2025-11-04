@@ -43,9 +43,12 @@ class PyHeat(hass.Hass):
         # Application state
         self.rooms = {}  # Room registry: {room_id: room_data}
         self.schedules = {}  # Schedules: {room_id: schedule_data}
+        self.boiler_config = {}  # Boiler configuration
         self.boiler_state = C.STATE_OFF
+        self.boiler_state_entry_time = None
         self.boiler_last_on = None
         self.boiler_last_off = None
+        self.boiler_last_valve_positions = {}  # For pump overrun: {room_id: percent}
         self.sensor_last_values = {}  # {entity_id: (value, timestamp)}
         self.trv_last_commanded = {}  # {room_id: percent}
         self.trv_last_update = {}  # {room_id: timestamp}
@@ -96,13 +99,14 @@ class PyHeat(hass.Hass):
         self.log("=" * 60)
 
     def load_configuration(self):
-        """Load rooms.yaml and schedules.yaml from the config directory."""
+        """Load rooms.yaml, schedules.yaml, and boiler.yaml from the config directory."""
         # Get the path to the config directory (same directory as this file)
         app_dir = os.path.dirname(os.path.abspath(__file__))
         config_dir = os.path.join(app_dir, "config")
         
         rooms_file = os.path.join(config_dir, "rooms.yaml")
         schedules_file = os.path.join(config_dir, "schedules.yaml")
+        boiler_file = os.path.join(config_dir, "boiler.yaml")
         
         # Load rooms
         with open(rooms_file, 'r') as f:
@@ -111,6 +115,10 @@ class PyHeat(hass.Hass):
         # Load schedules  
         with open(schedules_file, 'r') as f:
             schedules_data = yaml.safe_load(f) or {}
+        
+        # Load boiler
+        with open(boiler_file, 'r') as f:
+            self.boiler_config = yaml.safe_load(f) or {}
         
         # Process rooms
         for room in rooms_data.get('rooms', []):
@@ -168,7 +176,37 @@ class PyHeat(hass.Hass):
             if room_id not in self.schedules:
                 self.log(f"Warning: Room '{room_id}' has no schedule", level="WARNING")
         
+        # Extract boiler configuration
+        boiler_cfg = self.boiler_config.get('boiler', {})
+        self.boiler_entity = boiler_cfg.get('entity_id', 'climate.boiler')
+        self.boiler_opentherm = boiler_cfg.get('opentherm', False)
+        
+        # Binary control settings
+        binary_cfg = boiler_cfg.get('binary_control', {})
+        self.boiler_on_setpoint = binary_cfg.get('on_setpoint_c', C.BOILER_BINARY_ON_SETPOINT_DEFAULT)
+        self.boiler_off_setpoint = binary_cfg.get('off_setpoint_c', C.BOILER_BINARY_OFF_SETPOINT_DEFAULT)
+        
+        # Pump overrun
+        self.boiler_pump_overrun_s = boiler_cfg.get('pump_overrun_s', C.BOILER_PUMP_OVERRUN_DEFAULT)
+        
+        # Anti-cycling settings
+        anti_cycling = boiler_cfg.get('anti_cycling', {})
+        self.boiler_min_on_time_s = anti_cycling.get('min_on_time_s', C.BOILER_MIN_ON_TIME_DEFAULT)
+        self.boiler_min_off_time_s = anti_cycling.get('min_off_time_s', C.BOILER_MIN_OFF_TIME_DEFAULT)
+        self.boiler_off_delay_s = anti_cycling.get('off_delay_s', C.BOILER_OFF_DELAY_DEFAULT)
+        
+        # Interlock configuration
+        interlock_cfg = boiler_cfg.get('interlock', {})
+        self.boiler_min_valve_open_percent = interlock_cfg.get(
+            'min_valve_open_percent',
+            C.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT
+        )
+        
+        # Safety room configuration (emergency hot water flow path)
+        self.boiler_safety_room = boiler_cfg.get('safety_room')
+        
         self.log(f"Configuration loaded: {len(self.rooms)} rooms, {len(self.schedules)} schedules")
+        self.log(f"Boiler: {self.boiler_entity}, OpenTherm={self.boiler_opentherm}, min_valve={self.boiler_min_valve_open_percent}%")
 
     def setup_callbacks(self):
         """Register state change callbacks for all relevant entities."""
@@ -397,6 +435,7 @@ class PyHeat(hass.Hass):
         # Process each room
         any_calling = False
         active_rooms = []
+        room_valve_percents = {}  # Track valve percentages for boiler interlock
         
         for room_id, room_config in self.rooms.items():
             if room_config.get('disabled'):
@@ -425,25 +464,38 @@ class PyHeat(hass.Hass):
                 
                 # 5. Compute valve percentage
                 valve_percent = self.compute_valve_percent(room_id, target, temp, calling)
-                
-                # 6. Send valve command if needed
-                self.set_trv_valve(room_id, valve_percent, now)
+                room_valve_percents[room_id] = valve_percent
                 
                 self.log(f"Room '{room_id}': temp={temp:.1f}°C, target={target:.1f}°C, "
                         f"calling={calling}, valve={valve_percent}%", level="DEBUG")
             else:
                 # Room is off, stale, or has no target
                 self.room_call_for_heat[room_id] = False
+                room_valve_percents[room_id] = 0
                 if room_mode == "off" or is_stale:
                     self.set_trv_valve(room_id, 0, now)
                 self.log(f"Room '{room_id}': mode={room_mode}, stale={is_stale}, "
                         f"target={target}, no heating", level="DEBUG")
         
-        # 7. Control boiler based on aggregated demand
-        self.control_boiler(any_calling, active_rooms, now)
+        # 7. Update boiler state machine (includes valve override calculation)
+        boiler_status = self.update_boiler_state(active_rooms, room_valve_percents, now)
         
-        # 8. Publish status (simplified for now)
-        self.publish_status(any_calling, active_rooms)
+        # 8. Apply valve overrides if boiler requires it (e.g., pump overrun or interlock override)
+        if boiler_status.get('valves_must_stay_open') or boiler_status.get('overridden_valve_percents'):
+            overridden = boiler_status['overridden_valve_percents']
+            for room_id, valve_percent in overridden.items():
+                # Only send valve command if it's different from what we calculated
+                if valve_percent != room_valve_percents.get(room_id):
+                    self.log(f"Boiler override: setting room '{room_id}' valve to {valve_percent}% "
+                            f"(was {room_valve_percents.get(room_id, 0)}%)")
+                    self.set_trv_valve(room_id, valve_percent, now)
+        else:
+            # No overrides - send normal valve commands
+            for room_id, valve_percent in room_valve_percents.items():
+                self.set_trv_valve(room_id, valve_percent, now)
+        
+        # 9. Publish status
+        self.publish_status_with_boiler(any_calling, active_rooms, boiler_status)
 
     # ========================================================================
     # Sensor Fusion & Staleness Detection
@@ -869,47 +921,546 @@ class PyHeat(hass.Hass):
                 del self._valve_command_state[state_key]
 
     # ========================================================================
-    # Boiler Control (Simplified)
+    # Boiler Helper Methods
     # ========================================================================
 
-    def control_boiler(self, any_calling: bool, active_rooms: List[str], now: datetime):
-        """Control boiler based on room demand (simplified version).
+    def _set_boiler_setpoint(self, setpoint: float) -> None:
+        """Set boiler setpoint (binary control mode).
         
         Args:
-            any_calling: True if any room is calling for heat
-            active_rooms: List of room IDs calling for heat
-            now: Current datetime
+            setpoint: Target temperature in °C
         """
-        current_state = self.get_state(C.HELPER_BOILER_ACTOR)
-        is_on = current_state == "on"
-        
-        # Simple logic: turn on if any room calling, off if none calling
-        # (Full state machine with anti-cycling will be added later)
-        
-        if any_calling and not is_on:
-            self.log(f"Boiler ON - {len(active_rooms)} room(s) calling for heat: {', '.join(active_rooms)}")
-            self.call_service("input_boolean/turn_on", entity_id=C.HELPER_BOILER_ACTOR)
-            self.boiler_last_on = now
+        try:
+            # Determine if we want boiler ON or OFF based on setpoint
+            want_on = (setpoint >= self.boiler_on_setpoint)
             
-        elif not any_calling and is_on:
-            self.log(f"Boiler OFF - no rooms calling for heat")
-            self.call_service("input_boolean/turn_off", entity_id=C.HELPER_BOILER_ACTOR)
-            self.boiler_last_off = now
+            if want_on:
+                # Turn ON: set mode to heat and high setpoint
+                self.call_service("climate/set_hvac_mode",
+                                entity_id=self.boiler_entity,
+                                hvac_mode="heat")
+                self.call_service("climate/set_temperature",
+                                entity_id=self.boiler_entity,
+                                temperature=setpoint)
+                self.log(f"Boiler: set hvac_mode=heat, temperature={setpoint}°C", level="DEBUG")
+            else:
+                # Turn OFF: set mode to off (setpoint doesn't matter when off)
+                self.call_service("climate/set_hvac_mode",
+                                entity_id=self.boiler_entity,
+                                hvac_mode="off")
+                self.log(f"Boiler: set hvac_mode=off", level="DEBUG")
+        except Exception as e:
+            self.log(f"Boiler: failed to set boiler state: {e}", level="ERROR")
+    
+    def _get_hvac_action(self) -> str:
+        """Get current HVAC action from boiler.
+        
+        Returns:
+            'heating', 'idle', 'off', or 'unknown'
+        """
+        try:
+            attrs = self.get_state(self.boiler_entity, attribute="all")
+            if attrs and 'attributes' in attrs:
+                action = attrs['attributes'].get("hvac_action", "unknown")
+                return action
+            return "unknown"
+        except Exception:
+            return "unknown"
+    
+    def _start_timer(self, timer_entity: str, duration_seconds: int) -> None:
+        """Start a timer helper with the specified duration.
+        
+        Args:
+            timer_entity: Entity ID of timer
+            duration_seconds: Duration in seconds
+        """
+        try:
+            # Convert seconds to HH:MM:SS format
+            hours = duration_seconds // 3600
+            minutes = (duration_seconds % 3600) // 60
+            seconds = duration_seconds % 60
+            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
+            self.call_service("timer/start",
+                            entity_id=timer_entity,
+                            duration=duration_str)
+            self.log(f"Boiler: started {timer_entity} for {duration_str}", level="DEBUG")
+        except Exception as e:
+            self.log(f"Boiler: failed to start timer {timer_entity}: {e}", level="WARNING")
+    
+    def _cancel_timer(self, timer_entity: str) -> None:
+        """Cancel a running timer.
+        
+        Args:
+            timer_entity: Entity ID of timer
+        """
+        try:
+            self.call_service("timer/cancel", entity_id=timer_entity)
+            self.log(f"Boiler: cancelled {timer_entity}", level="DEBUG")
+        except Exception as e:
+            self.log(f"Boiler: failed to cancel timer {timer_entity}: {e}", level="DEBUG")
+    
+    def _is_timer_active(self, timer_entity: str) -> bool:
+        """Check if a timer is currently active (running).
+        
+        Args:
+            timer_entity: Entity ID of timer
+            
+        Returns:
+            True if timer is active, False otherwise
+        """
+        try:
+            timer_state = self.get_state(timer_entity)
+            return timer_state == "active"
+        except Exception as e:
+            self.log(f"Boiler: failed to check timer {timer_entity}: {e}", level="DEBUG")
+            return False
+    
+    def _save_pump_overrun_valves(self) -> None:
+        """Persist valve positions to survive AppDaemon reload during pump overrun.
+        
+        Saves boiler_last_valve_positions to an input_text helper so they can be
+        restored if AppDaemon reloads while pump overrun timer is active.
+        """
+        try:
+            positions_json = json.dumps(self.boiler_last_valve_positions)
+            self.call_service("input_text/set_value",
+                            entity_id=C.HELPER_PUMP_OVERRUN_VALVES,
+                            value=positions_json)
+            self.log(f"Boiler: saved pump overrun valves: {self.boiler_last_valve_positions}", level="DEBUG")
+        except Exception as e:
+            self.log(f"Boiler: failed to save pump overrun valves: {e}", level="WARNING")
+    
+    def _clear_pump_overrun_valves(self) -> None:
+        """Clear persisted pump overrun valve positions."""
+        try:
+            self.call_service("input_text/set_value",
+                            entity_id=C.HELPER_PUMP_OVERRUN_VALVES,
+                            value="")
+            self.log("Boiler: cleared pump overrun valves", level="DEBUG")
+        except Exception as e:
+            self.log(f"Boiler: failed to clear pump overrun valves: {e}", level="DEBUG")
+    
+    def _check_min_on_time_elapsed(self) -> bool:
+        """Check if minimum on time constraint is satisfied.
+        
+        Returns:
+            True if min_on_time timer is not active (constraint satisfied)
+        """
+        # If timer is active, constraint is NOT satisfied
+        # If timer is idle/finished, constraint IS satisfied
+        return not self._is_timer_active(C.HELPER_BOILER_MIN_ON_TIMER)
+    
+    def _check_min_off_time_elapsed(self) -> bool:
+        """Check if minimum off time constraint is satisfied.
+        
+        Returns:
+            True if min_off_time timer is not active (constraint satisfied)
+        """
+        # If timer is active, constraint is NOT satisfied
+        # If timer is idle/finished, constraint IS satisfied
+        return not self._is_timer_active(C.HELPER_BOILER_MIN_OFF_TIMER)
+    
+    def _transition_to(self, new_state: str, now: datetime, reason: str) -> None:
+        """Transition to new boiler state with logging.
+        
+        Args:
+            new_state: Target state
+            now: Current datetime
+            reason: Reason for transition
+        """
+        if new_state != self.boiler_state:
+            self.log(f"Boiler: {self.boiler_state} → {new_state} ({reason})")
+            self.boiler_state = new_state
+            self.boiler_state_entry_time = now
+
+    def calculate_valve_overrides(
+        self,
+        rooms_calling: List[str],
+        room_valve_percents: Dict[str, int]
+    ) -> Tuple[Dict[str, int], bool, str]:
+        """Calculate valve overrides if needed to meet minimum total opening.
+        
+        Args:
+            rooms_calling: List of room IDs calling for heat
+            room_valve_percents: Dict mapping room_id -> calculated valve percent from bands
+            
+        Returns:
+            Tuple of:
+            - overridden_valve_percents: Dict[room_id, valve_percent] with overrides applied
+            - interlock_ok: True if total >= min_valve_open_percent
+            - reason: Explanation string
+        """
+        if not rooms_calling:
+            return {}, False, "No rooms calling for heat"
+        
+        # Calculate total from band-calculated percentages
+        total_from_bands = sum(room_valve_percents.get(room_id, 0) for room_id in rooms_calling)
+        
+        # Check if we need to override
+        if total_from_bands >= self.boiler_min_valve_open_percent:
+            # Valve bands are sufficient
+            self.log(
+                f"Boiler: total valve opening {total_from_bands}% >= "
+                f"min {self.boiler_min_valve_open_percent}%, using valve bands",
+                level="DEBUG"
+            )
+            return room_valve_percents.copy(), True, f"Total {total_from_bands}% >= min {self.boiler_min_valve_open_percent}%"
+        
+        # Need to override - distribute evenly across calling rooms
+        n_rooms = len(rooms_calling)
+        override_percent = int((self.boiler_min_valve_open_percent + n_rooms - 1) / n_rooms)  # Round up
+        
+        # Safety clamp: never command valve >100% even if config is misconfigured
+        override_percent = min(100, override_percent)
+        
+        overridden = {
+            room_id: override_percent
+            for room_id in rooms_calling
+        }
+        
+        new_total = override_percent * n_rooms
+        
+        self.log(
+            f"Boiler: INTERLOCK OVERRIDE: total from bands {total_from_bands}% < "
+            f"min {self.boiler_min_valve_open_percent}% -> setting {n_rooms} room(s) to {override_percent}% "
+            f"each (new total: {new_total}%)",
+            level="INFO"
+        )
+        
+        return overridden, True, f"Override: {n_rooms} rooms @ {override_percent}% = {new_total}%"
+    
+    def _check_trv_feedback_confirmed(
+        self,
+        rooms_calling: List[str],
+        valve_overrides: Dict[str, int]
+    ) -> bool:
+        """Check if TRV feedback confirms valves are at commanded positions.
+        
+        Args:
+            rooms_calling: List of room IDs calling for heat
+            valve_overrides: Dict of commanded valve percentages
+            
+        Returns:
+            True if all calling rooms have TRV feedback matching commanded position
+        """
+        if not rooms_calling:
+            return True  # No rooms calling, trivially satisfied
+        
+        for room_id in rooms_calling:
+            room_config = self.rooms.get(room_id)
+            if not room_config or room_config.get('disabled'):
+                self.log(f"Boiler: room {room_id} disabled, skipping feedback check", level="WARNING")
+                return False
+            
+            commanded = valve_overrides.get(room_id, 0)
+            trv = room_config['trv']
+            
+            # Get TRV feedback
+            fb_valve_str = self.get_state(trv['fb_valve'])
+            if fb_valve_str in [None, "unknown", "unavailable"]:
+                self.log(f"Boiler: room {room_id} TRV feedback unavailable", level="DEBUG")
+                return False
+            
+            try:
+                feedback = int(float(fb_valve_str))
+            except (ValueError, TypeError):
+                self.log(f"Boiler: room {room_id} TRV feedback invalid: {fb_valve_str}", level="DEBUG")
+                return False
+            
+            # Check if feedback matches commanded (with tolerance)
+            tolerance = C.TRV_COMMAND_FEEDBACK_TOLERANCE
+            if abs(feedback - commanded) > tolerance:
+                self.log(f"Boiler: room {room_id} TRV feedback {feedback}% != commanded {commanded}%", level="DEBUG")
+                return False
+        
+        return True
 
     # ========================================================================
-    # Status Publishing (Simplified)
+    # Boiler State Machine
     # ========================================================================
 
-    def publish_status(self, any_calling: bool, active_rooms: List[str]):
-        """Publish status entity (simplified version).
+    def update_boiler_state(
+        self,
+        rooms_calling_for_heat: List[str],
+        room_valve_percents: Dict[str, int],
+        now: datetime
+    ) -> Dict[str, Any]:
+        """Update boiler state machine based on demand and conditions.
+        
+        Args:
+            rooms_calling_for_heat: List of room IDs calling for heat
+            room_valve_percents: Dict of room_id -> valve percent (from bands, before override)
+            now: Current datetime
+            
+        Returns:
+            Dict with boiler status:
+            {
+                "state": str (current state machine state),
+                "boiler_on": bool (is boiler commanded on),
+                "hvac_action": str (actual boiler status),
+                "rooms_calling": List[str],
+                "reason": str,
+                "interlock_ok": bool,
+                "overridden_valve_percents": Dict[str, int],
+                "total_valve_percent": int,
+                "valves_must_stay_open": bool (true during pump overrun)
+            }
+        """
+        # Initialize state_entry_time on first call
+        if self.boiler_state_entry_time is None:
+            self.boiler_state_entry_time = now
+        
+        # Calculate valve overrides if needed
+        overridden_valves, interlock_ok, interlock_reason = self.calculate_valve_overrides(
+            rooms_calling_for_heat,
+            room_valve_percents
+        )
+        
+        # Calculate total valve opening
+        total_valve = sum(overridden_valves.get(room_id, 0) for room_id in rooms_calling_for_heat)
+        
+        # Merge overridden valves with all room valve percents for pump overrun tracking
+        # This ensures we save ALL room valve positions, not just calling rooms
+        all_valve_positions = room_valve_percents.copy()
+        all_valve_positions.update(overridden_valves)
+        
+        # Check TRV feedback confirmation
+        trv_feedback_ok = self._check_trv_feedback_confirmed(
+            rooms_calling_for_heat,
+            overridden_valves
+        )
+        
+        # Read current HVAC action
+        hvac_action = self._get_hvac_action()
+        
+        # Determine if we have demand
+        has_demand = len(rooms_calling_for_heat) > 0
+        
+        # Time in current state
+        time_in_state = (now - self.boiler_state_entry_time).total_seconds() if self.boiler_state_entry_time else 0
+        
+        # State machine logic
+        reason = ""
+        valves_must_stay_open = False
+        
+        if self.boiler_state == C.STATE_OFF:
+            if has_demand and interlock_ok:
+                # Demand exists, check anti-cycling and TRV feedback
+                if not self._check_min_off_time_elapsed():
+                    self._transition_to(C.STATE_INTERLOCK_BLOCKED, now, "min_off_time not elapsed")
+                    reason = f"Blocked: min_off_time ({self.boiler_min_off_time_s}s) not elapsed"
+                elif not trv_feedback_ok:
+                    self._transition_to(C.STATE_PENDING_ON, now, "waiting for TRV confirmation")
+                    reason = "Waiting for TRV feedback confirmation"
+                else:
+                    # All conditions met, turn on
+                    self._transition_to(C.STATE_ON, now, "demand and conditions met")
+                    self._set_boiler_setpoint(self.boiler_on_setpoint)
+                    # Start min_on_time timer to enforce minimum on duration
+                    self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self.boiler_min_on_time_s)
+                    reason = f"Turned ON: {len(rooms_calling_for_heat)} room(s) calling"
+            elif has_demand and not interlock_ok:
+                self._transition_to(C.STATE_INTERLOCK_BLOCKED, now, "insufficient valve opening")
+                reason = f"Interlock blocked: {interlock_reason}"
+            else:
+                reason = "Off: no demand"
+        
+        elif self.boiler_state == C.STATE_PENDING_ON:
+            if not has_demand:
+                self._transition_to(C.STATE_OFF, now, "demand ceased")
+                reason = "Demand ceased while pending"
+            elif not interlock_ok:
+                self._transition_to(C.STATE_INTERLOCK_BLOCKED, now, "interlock failed")
+                reason = f"Interlock blocked: {interlock_reason}"
+            elif trv_feedback_ok:
+                # TRVs confirmed, turn on
+                self._transition_to(C.STATE_ON, now, "TRV feedback confirmed")
+                self._set_boiler_setpoint(self.boiler_on_setpoint)
+                # Start min_on_time timer to enforce minimum on duration
+                self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self.boiler_min_on_time_s)
+                reason = f"Turned ON: TRVs confirmed at {total_valve}%"
+            else:
+                reason = f"Pending ON: waiting for TRV confirmation ({time_in_state:.0f}s)"
+                # Log warning if stuck for >5 minutes
+                if time_in_state > 300:
+                    self.log(
+                        f"Boiler has been waiting for TRV feedback for {int(time_in_state/60)} minutes. "
+                        f"Rooms: {', '.join(rooms_calling_for_heat)}",
+                        level="WARNING"
+                    )
+        
+        elif self.boiler_state == C.STATE_ON:
+            # Save ALL valve positions (not just calling rooms) for pump overrun safety
+            if has_demand and all_valve_positions:
+                self.boiler_last_valve_positions = all_valve_positions.copy()
+                self.log(f"Boiler: STATE_ON saved valve positions: {self.boiler_last_valve_positions}", level="DEBUG")
+            
+            if not has_demand:
+                # Demand stopped, enter off-delay period
+                self.log(f"Boiler: STATE_ON → PENDING_OFF, preserved valve positions: {self.boiler_last_valve_positions}", level="DEBUG")
+                self._transition_to(C.STATE_PENDING_OFF, now, "demand ceased, entering off-delay")
+                # Start off-delay timer
+                self._start_timer(C.HELPER_BOILER_OFF_DELAY_TIMER, self.boiler_off_delay_s)
+                reason = f"Pending OFF: off-delay ({self.boiler_off_delay_s}s) started"
+                # CRITICAL: Valves must stay open immediately upon entering PENDING_OFF
+                valves_must_stay_open = True
+                overridden_valves = self.boiler_last_valve_positions.copy()
+            elif not interlock_ok:
+                # Interlock failed while running - turn off immediately
+                self.log("Boiler: interlock failed while ON, turning off immediately", level="WARNING")
+                self._transition_to(C.STATE_PUMP_OVERRUN, now, "interlock failed")
+                self._set_boiler_setpoint(self.boiler_off_setpoint)
+                # Cancel min_on_time timer and start min_off_time + pump_overrun timers
+                self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
+                self._start_timer(C.HELPER_BOILER_MIN_OFF_TIMER, self.boiler_min_off_time_s)
+                self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self.boiler_pump_overrun_s)
+                reason = "Turned OFF: interlock failed"
+                valves_must_stay_open = True
+                self.log(
+                    f"🔴 CRITICAL: Boiler interlock failed while running! Boiler turned off. "
+                    f"Total valve opening dropped below {self.boiler_min_valve_open_percent}%.",
+                    level="ERROR"
+                )
+            else:
+                reason = f"ON: heating {len(rooms_calling_for_heat)} room(s), total valve {total_valve}%"
+        
+        elif self.boiler_state == C.STATE_PENDING_OFF:
+            # CRITICAL: Valves must stay open during pending_off because boiler is still ON
+            valves_must_stay_open = True
+            # Use last known valve positions instead of current (which would be 0%)
+            overridden_valves = self.boiler_last_valve_positions.copy()
+            self.log(f"Boiler: STATE_PENDING_OFF using saved positions: {overridden_valves}", level="DEBUG")
+            
+            if has_demand and interlock_ok:
+                # Demand returned during off-delay, return to ON
+                self._transition_to(C.STATE_ON, now, "demand returned")
+                # Cancel off-delay timer since we're returning to ON
+                self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
+                reason = f"Returned to ON: demand resumed ({len(rooms_calling_for_heat)} room(s))"
+            elif not self._is_timer_active(C.HELPER_BOILER_OFF_DELAY_TIMER):
+                # Off-delay timer completed, check min_on_time
+                if not self._check_min_on_time_elapsed():
+                    reason = f"Pending OFF: waiting for min_on_time ({self.boiler_min_on_time_s}s)"
+                else:
+                    # Turn off and enter pump overrun
+                    self._transition_to(C.STATE_PUMP_OVERRUN, now, "off-delay elapsed, turning off")
+                    self._set_boiler_setpoint(self.boiler_off_setpoint)
+                    # Cancel min_on_time timer and start min_off_time + pump_overrun timers
+                    self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
+                    self._start_timer(C.HELPER_BOILER_MIN_OFF_TIMER, self.boiler_min_off_time_s)
+                    self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self.boiler_pump_overrun_s)
+                    # Persist valve positions for pump overrun
+                    self._save_pump_overrun_valves()
+                    reason = "Pump overrun: boiler commanded off"
+                    valves_must_stay_open = True
+            else:
+                # Still waiting for off-delay timer
+                reason = f"Pending OFF: off-delay timer active"
+        
+        elif self.boiler_state == C.STATE_PUMP_OVERRUN:
+            valves_must_stay_open = True
+            # Use last known valve positions to keep valves open during pump overrun
+            overridden_valves = self.boiler_last_valve_positions.copy()
+            
+            if has_demand and interlock_ok and trv_feedback_ok:
+                # New demand during pump overrun, can return to ON
+                self._transition_to(C.STATE_ON, now, "demand resumed during pump overrun")
+                self._set_boiler_setpoint(self.boiler_on_setpoint)
+                # Cancel pump_overrun timer, restart min_on_time timer
+                self._cancel_timer(C.HELPER_PUMP_OVERRUN_TIMER)
+                self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self.boiler_min_on_time_s)
+                reason = f"Returned to ON: demand during pump overrun"
+                valves_must_stay_open = False
+            elif not self._is_timer_active(C.HELPER_PUMP_OVERRUN_TIMER):
+                # Pump overrun timer completed
+                self._transition_to(C.STATE_OFF, now, "pump overrun complete")
+                self._clear_pump_overrun_valves()
+                reason = "Pump overrun complete, now OFF"
+                valves_must_stay_open = False
+                overridden_valves = {}  # Clear overrides so valves can close
+            else:
+                # Still in pump overrun
+                reason = f"Pump overrun: timer active (valves must stay open)"
+        
+        elif self.boiler_state == C.STATE_INTERLOCK_BLOCKED:
+            if has_demand and interlock_ok and trv_feedback_ok:
+                # Interlock now satisfied
+                if not self._check_min_off_time_elapsed():
+                    reason = f"Interlock OK but min_off_time not elapsed"
+                else:
+                    self._transition_to(C.STATE_ON, now, "interlock satisfied")
+                    self._set_boiler_setpoint(self.boiler_on_setpoint)
+                    # Start min_on_time timer
+                    self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self.boiler_min_on_time_s)
+                    reason = f"Turned ON: interlock now satisfied"
+            elif not has_demand:
+                self._transition_to(C.STATE_OFF, now, "demand ceased")
+                reason = "Demand ceased"
+            else:
+                reason = f"Blocked: {interlock_reason}"
+                # Log warning if blocked for >5 minutes
+                if time_in_state > 300:
+                    self.log(
+                        f"Boiler interlock has been blocked for {int(time_in_state/60)} minutes. "
+                        f"Total valve opening insufficient (minimum {self.boiler_min_valve_open_percent}% required). "
+                        f"Rooms calling: {', '.join(rooms_calling_for_heat) if rooms_calling_for_heat else 'none'}",
+                        level="WARNING"
+                    )
+        
+        # CRITICAL SAFETY: Emergency valve override
+        # If boiler is physically ON (heating) but no rooms calling for heat,
+        # force safety room valve open to ensure there's a path for hot water
+        if self.boiler_safety_room and hvac_action in ("heating", "idle"):
+            if len(rooms_calling_for_heat) == 0:
+                # Boiler is ON but no demand - EMERGENCY!
+                overridden_valves[self.boiler_safety_room] = 100
+                self.log(
+                    f"🔴 EMERGENCY: Boiler ON with no demand! Forcing {self.boiler_safety_room} valve to 100% for safety",
+                    level="ERROR"
+                )
+        
+        # Determine boiler_on flag
+        boiler_on = self.boiler_state in (C.STATE_ON, C.STATE_PENDING_OFF)
+        
+        return {
+            "state": self.boiler_state,
+            "boiler_on": boiler_on,
+            "hvac_action": hvac_action,
+            "rooms_calling": rooms_calling_for_heat,
+            "reason": reason,
+            "interlock_ok": interlock_ok,
+            "overridden_valve_percents": overridden_valves,
+            "total_valve_percent": total_valve,
+            "valves_must_stay_open": valves_must_stay_open,
+            "time_in_state_s": time_in_state,
+        }
+
+    # ========================================================================
+    # Status Publishing
+    # ========================================================================
+
+    def publish_status_with_boiler(self, any_calling: bool, active_rooms: List[str], 
+                                   boiler_status: Dict[str, Any]):
+        """Publish status entity with detailed boiler state information.
         
         Args:
             any_calling: True if any room is calling for heat
             active_rooms: List of room IDs calling for heat
+            boiler_status: Dict from update_boiler_state containing state machine info
         """
-        # Build status string
-        if any_calling:
+        # Build status string based on boiler state
+        boiler_state = boiler_status.get('state', C.STATE_OFF)
+        if boiler_state == C.STATE_ON:
             status_str = f"heating ({len(active_rooms)} rooms)"
+        elif boiler_state == C.STATE_PUMP_OVERRUN:
+            status_str = "pump overrun"
+        elif boiler_state == C.STATE_PENDING_ON:
+            status_str = "pending on (waiting for TRVs)"
+        elif boiler_state == C.STATE_PENDING_OFF:
+            status_str = "pending off (delay)"
+        elif boiler_state == C.STATE_INTERLOCK_BLOCKED:
+            status_str = "blocked (interlock)"
         else:
             status_str = "idle"
         
@@ -921,6 +1472,15 @@ class PyHeat(hass.Hass):
             "total_rooms": len(self.rooms),
             "last_recompute": self.last_recompute.isoformat() if self.last_recompute else None,
             "recompute_count": self.recompute_count,
+            # Boiler state machine info
+            "boiler_state": boiler_state,
+            "boiler_on": boiler_status.get('boiler_on', False),
+            "boiler_hvac_action": boiler_status.get('hvac_action', 'unknown'),
+            "boiler_reason": boiler_status.get('reason', ''),
+            "boiler_interlock_ok": boiler_status.get('interlock_ok', False),
+            "boiler_total_valve_percent": boiler_status.get('total_valve_percent', 0),
+            "boiler_time_in_state_s": boiler_status.get('time_in_state_s', 0),
+            "valves_must_stay_open": boiler_status.get('valves_must_stay_open', False),
         }
         
         # Set state

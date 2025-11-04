@@ -115,6 +115,15 @@ SAFETY_DEFAULT: Dict[str, float] = {
     "off_delay_s": 30,           # Brief delay before turning boiler off
 }
 
+# Boiler Configuration Defaults
+BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT = 100  # Minimum total valve opening required
+BOILER_MIN_ON_TIME_DEFAULT = 180             # 3 minutes minimum on time
+BOILER_MIN_OFF_TIME_DEFAULT = 180            # 3 minutes minimum off time
+BOILER_OFF_DELAY_DEFAULT = 30                # 30 second delay before turning off
+BOILER_PUMP_OVERRUN_DEFAULT = 180            # 3 minutes to dissipate residual heat
+BOILER_BINARY_ON_SETPOINT_DEFAULT = 30.0     # °C - setpoint to command when we want heat
+BOILER_BINARY_OFF_SETPOINT_DEFAULT = 5.0     # °C - setpoint to command when we want boiler off
+
 # Boiler State Machine States
 STATE_OFF = "off"
 STATE_PENDING_ON = "pending_on"
@@ -174,6 +183,11 @@ HELPER_ROOM_OVERRIDE_TARGET = "input_number.pyheat_{room}_override_target"
 # Pump overrun persistence
 HELPER_PUMP_OVERRUN_TIMER = "timer.pyheat_boiler_pump_overrun_timer"
 HELPER_PUMP_OVERRUN_VALVES = "input_text.pyheat_pump_overrun_valves"
+
+# Boiler anti-cycling timers (event-driven using timer helpers)
+HELPER_BOILER_MIN_ON_TIMER = "timer.pyheat_boiler_min_on_timer"
+HELPER_BOILER_MIN_OFF_TIMER = "timer.pyheat_boiler_min_off_timer"
+HELPER_BOILER_OFF_DELAY_TIMER = "timer.pyheat_boiler_off_delay_timer"
 
 # Status entity
 STATUS_ENTITY = "sensor.pyheat_status"
