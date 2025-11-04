@@ -436,6 +436,7 @@ class PyHeat(hass.Hass):
         any_calling = False
         active_rooms = []
         room_valve_percents = {}  # Track valve percentages for boiler interlock
+        room_data = {}  # Collect room data for per-room entity publishing
         
         for room_id, room_config in self.rooms.items():
             if room_config.get('disabled'):
@@ -476,6 +477,17 @@ class PyHeat(hass.Hass):
                     self.set_trv_valve(room_id, 0, now)
                 self.log(f"Room '{room_id}': mode={room_mode}, stale={is_stale}, "
                         f"target={target}, no heating", level="DEBUG")
+            
+            # Store room data for per-room entity publishing
+            room_data[room_id] = {
+                'temp': temp,
+                'target': target,
+                'mode': room_mode,
+                'is_stale': is_stale,
+                'calling': self.room_call_for_heat.get(room_id, False),
+                'valve_percent': room_valve_percents.get(room_id, 0),
+                'name': room_config.get('name', room_id)
+            }
         
         # 7. Update boiler state machine (includes valve override calculation)
         boiler_status = self.update_boiler_state(active_rooms, room_valve_percents, now)
@@ -494,8 +506,12 @@ class PyHeat(hass.Hass):
             for room_id, valve_percent in room_valve_percents.items():
                 self.set_trv_valve(room_id, valve_percent, now)
         
-        # 9. Publish status
+        # 9. Publish global status
         self.publish_status_with_boiler(any_calling, active_rooms, boiler_status)
+        
+        # 10. Publish per-room entities
+        for room_id, data in room_data.items():
+            self.publish_room_entities(room_id, data, boiler_status)
 
     # ========================================================================
     # Sensor Fusion & Staleness Detection
@@ -1485,3 +1501,101 @@ class PyHeat(hass.Hass):
         
         # Set state
         self.set_state(C.STATUS_ENTITY, state=status_str, attributes=attributes)
+    
+    def publish_room_entities(self, room_id: str, data: Dict[str, Any], 
+                             boiler_status: Dict[str, Any]):
+        """Publish per-room entities for detailed room status.
+        
+        Publishes the following entities for each room:
+        - sensor.pyheat_<room>_temperature (°C)
+        - sensor.pyheat_<room>_target (°C)
+        - sensor.pyheat_<room>_state (off/manual/auto/stale)
+        - number.pyheat_<room>_valve_percent (0-100)
+        - binary_sensor.pyheat_<room>_calling_for_heat (on/off)
+        
+        Args:
+            room_id: Room identifier
+            data: Room data dict with temp, target, mode, etc.
+            boiler_status: Boiler status dict (for potential overrides)
+        """
+        room_name = data.get('name', room_id.replace('_', ' ').title())
+        temp = data.get('temp')
+        target = data.get('target')
+        mode = data.get('mode', 'auto')
+        is_stale = data.get('is_stale', False)
+        calling = data.get('calling', False)
+        valve_percent = data.get('valve_percent', 0)
+        
+        # Check if valve was overridden by boiler (e.g., pump overrun)
+        overridden_valves = boiler_status.get('overridden_valve_percents', {})
+        if room_id in overridden_valves:
+            valve_percent = overridden_valves[room_id]
+        
+        # 1. Publish temperature (fused)
+        if temp is not None:
+            temp_entity = f"sensor.pyheat_{room_id}_temperature"
+            self.set_state(
+                temp_entity,
+                state=round(temp, 1),
+                attributes={
+                    "unit_of_measurement": "°C",
+                    "device_class": "temperature",
+                    "state_class": "measurement",
+                    "friendly_name": f"{room_name} Temperature"
+                }
+            )
+        
+        # 2. Publish target temperature
+        if target is not None:
+            target_entity = f"sensor.pyheat_{room_id}_target"
+            self.set_state(
+                target_entity,
+                state=round(target, 1),
+                attributes={
+                    "unit_of_measurement": "°C",
+                    "device_class": "temperature",
+                    "state_class": "measurement",
+                    "friendly_name": f"{room_name} Target"
+                }
+            )
+        
+        # 3. Publish room state
+        if is_stale:
+            state_str = "stale"
+        else:
+            state_str = mode
+        
+        state_entity = f"sensor.pyheat_{room_id}_state"
+        self.set_state(
+            state_entity,
+            state=state_str,
+            attributes={
+                "friendly_name": f"{room_name} State"
+            }
+        )
+        
+        # 4. Publish valve percentage
+        valve_entity = f"number.pyheat_{room_id}_valve_percent"
+        self.set_state(
+            valve_entity,
+            state=valve_percent,
+            attributes={
+                "unit_of_measurement": "%",
+                "min": 0,
+                "max": 100,
+                "step": 1,
+                "mode": "slider",
+                "friendly_name": f"{room_name} Valve"
+            }
+        )
+        
+        # 5. Publish calling for heat
+        cfh_entity = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
+        self.set_state(
+            cfh_entity,
+            state="on" if calling else "off",
+            attributes={
+                "device_class": "heat",
+                "friendly_name": f"{room_name} Calling For Heat"
+            }
+        )
