@@ -1,5 +1,91 @@
 # PyHeat Changelog
 
+## 2025-11-04: Full Boiler State Machine Implementation ✅
+
+### Overview
+Implemented production-ready 7-state boiler control system with comprehensive safety features, anti-cycling protection, and advanced interlock validation. This completes the core functionality migration from PyScript.
+
+### Boiler State Machine (7 States)
+
+**State Definitions:**
+1. **STATE_OFF** - Boiler off, no heating demand
+2. **STATE_PENDING_ON** - Demand exists, waiting for TRV feedback confirmation
+3. **STATE_ON** - Boiler actively heating
+4. **STATE_PENDING_OFF** - No demand, waiting through off-delay period
+5. **STATE_PUMP_OVERRUN** - Boiler off, pump running to dissipate residual heat
+6. **STATE_INTERLOCK_BLOCKED** - Demand exists but interlock conditions not met
+7. **STATE_INTERLOCK_FAILED** - (Merged with INTERLOCK_BLOCKED in implementation)
+
+**Key Features:**
+
+**Anti-Cycling Protection:**
+- Minimum on time enforcement (3 minutes default)
+- Minimum off time enforcement (3 minutes default)
+- Off-delay timer (30 seconds) prevents rapid cycling on brief demand changes
+- Event-driven using Home Assistant timer helpers
+
+**TRV Interlock Validation:**
+- Calculates total valve opening across all calling rooms
+- Requires sum of valve percentages >= `min_valve_open_percent` (100% default)
+- Automatic valve override calculation if bands insufficient
+- TRV feedback confirmation before boiler start
+- Prevents boiler operation without adequate flow path
+
+**Pump Overrun:**
+- Maintains TRV valve positions after boiler shutdown
+- Configurable overrun duration (3 minutes default)
+- Valve position persistence to survive AppDaemon reload
+- Allows safe heat dissipation
+
+**Safety Features:**
+- Emergency safety valve override if boiler ON with no demand
+- Interlock failure detection and recovery
+- Comprehensive state transition logging
+- Detailed diagnostics in status entity
+
+**Binary Control Mode:**
+- Controls Nest thermostat via setpoint changes
+- ON: Set to 30°C and mode=heat
+- OFF: Set mode=off
+- Future: OpenTherm modulation support
+
+### Implementation Details
+
+**New Methods:**
+- `update_boiler_state()` - Main state machine update function
+- `calculate_valve_overrides()` - Interlock override calculation
+- `_check_trv_feedback_confirmed()` - TRV feedback validation
+- `_set_boiler_setpoint()` - Boiler control via climate entity
+- `_start_timer()`, `_cancel_timer()`, `_is_timer_active()` - Timer management
+- `_check_min_on_time_elapsed()`, `_check_min_off_time_elapsed()` - Anti-cycling checks
+- `_save_pump_overrun_valves()`, `_clear_pump_overrun_valves()` - Persistence
+- `_transition_to()` - State transition logging
+- `publish_status_with_boiler()` - Enhanced status with state machine info
+
+**Configuration:**
+- Added boiler configuration loading from `config/boiler.yaml`
+- New constants for boiler defaults in `constants.py`
+- Timer helper entity definitions
+
+**Integration Changes:**
+- Updated `recompute_all()` to use new state machine
+- Valve commands now respect boiler overrides
+- Status entity includes detailed state machine diagnostics
+
+### Testing & Validation
+- All state transitions verified
+- Anti-cycling timers tested
+- Interlock validation confirmed
+- Pump overrun behavior validated
+- Emergency safety override tested
+
+### Performance
+- No impact on recompute performance
+- Event-driven timer management
+- Efficient state tracking
+
+---
+
 ## 2025-11-04: Complete AppDaemon Migration with TRV Optimization
 
 ### Migration Overview

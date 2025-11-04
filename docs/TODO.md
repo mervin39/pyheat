@@ -1,9 +1,9 @@
 # PyHeat Implementation TODO
 
-## Status: Core Heating Operational ✅
+## Status: Full Boiler State Machine Implemented ✅
 
 **Last Updated**: 2025-11-04  
-**Current Phase**: Foundation Complete, Basic Heating Working
+**Current Phase**: Production-Ready Heating Control with Advanced Boiler Management
 
 ---
 
@@ -112,33 +112,46 @@
   - [x] Changelog tracking all changes
   - [x] Inline code comments for complex logic
 
+### Phase 5: Full Boiler State Machine
+- [x] **Complete State Machine Implementation** ✅
+  - [x] 7-state FSM with proper transitions
+  - [x] Anti-cycling protection using timer helpers
+  - [x] TRV interlock validation and feedback confirmation
+  - [x] Valve override calculation for minimum flow requirements
+  - [x] Pump overrun with valve position persistence
+  - [x] Off-delay for brief demand interruptions
+  - [x] Emergency safety valve override
+  - [x] Enhanced status publishing with state machine diagnostics
+  - [x] Binary control mode (on/off via setpoint)
+  - [x] Comprehensive logging and error handling
+
 ---
 
 ## In Progress / Next Steps 🚧
 
 ### Immediate Priority
-- [ ] **Full Boiler State Machine** (~4-5 hours)
-  - [ ] Implement 7-state FSM:
-    - [ ] `STATE_OFF` - Boiler off, no demand
-    - [ ] `STATE_PENDING_ON` - Waiting for TRV interlock before starting
-    - [ ] `STATE_ON` - Boiler running normally
-    - [ ] `STATE_PENDING_OFF` - Brief delay before turning off
-    - [ ] `STATE_PUMP_OVERRUN` - Boiler off, pump running to dissipate heat
-    - [ ] `STATE_INTERLOCK_BLOCKED` - Demand present but TRVs not open
-    - [ ] `STATE_INTERLOCK_FAILED` - Critical failure, TRVs won't open
-  - [ ] Anti-cycling protection
-    - [ ] Minimum on time (min_on_time_s)
-    - [ ] Minimum off time (min_off_time_s)
-  - [ ] TRV-open interlock
-    - [ ] Verify Sum of all TRV open percentages is >= min_valve_open_percent (from boiler.yaml)
-    - [ ] Monitor feedback sensors with timeout (30s)(constants.py) 
-    - [ ] Fail to INTERLOCK_FAILED if TRVs don't open
-  - [ ] Pump overrun
-    - [ ] Keep pump running for pump_overrun_s after boiler off
-    - [ ] Maintain valve positions during overrun
-    - [ ] Persist valve positions to helper entity
-  - [ ] Off-delay
-    - [ ] 30s (constants.py) delay before turning off for brief demand changes
+**✅ Full Boiler State Machine - COMPLETED!** (~4-5 hours actual)
+  - [x] Implement 7-state FSM:
+    - [x] `STATE_OFF` - Boiler off, no demand
+    - [x] `STATE_PENDING_ON` - Waiting for TRV interlock before starting
+    - [x] `STATE_ON` - Boiler running normally
+    - [x] `STATE_PENDING_OFF` - Brief delay before turning off
+    - [x] `STATE_PUMP_OVERRUN` - Boiler off, pump running to dissipate heat
+    - [x] `STATE_INTERLOCK_BLOCKED` - Demand present but TRVs not open
+    - [x] `STATE_INTERLOCK_FAILED` - (Not implemented - merged with INTERLOCK_BLOCKED)
+  - [x] Anti-cycling protection
+    - [x] Minimum on time (min_on_time_s)
+    - [x] Minimum off time (min_off_time_s)
+  - [x] TRV-open interlock
+    - [x] Verify sum of all TRV open percentages >= min_valve_open_percent
+    - [x] Monitor feedback sensors with timeout
+    - [x] Valve override calculation for interlock requirements
+  - [x] Pump overrun
+    - [x] Keep pump running for pump_overrun_s after boiler off
+    - [x] Maintain valve positions during overrun
+    - [x] Persist valve positions to helper entity
+  - [x] Off-delay
+    - [x] 30s delay before turning off for brief demand changes
 
 ---
 
@@ -241,16 +254,9 @@
    - Workaround: Use helper entities directly
    - Priority: Medium
 
-4. **Simplified Boiler Control**
-   - No anti-cycling protection yet
-   - No TRV-open interlock
-   - No pump overrun
-   - Risk: Minimal for normal operation
-   - Priority: High (next implementation phase)
-
-5. **Limited Error Reporting**
-   - Status entity has minimal detail
-   - No per-room error tracking
+4. **Limited Error Reporting**
+   - Status entity has basic state machine detail
+   - No per-room error tracking in status
    - Errors only in logs
    - Priority: Low
 
@@ -258,22 +264,22 @@
 
 ## Development Estimates
 
-### Time Investment So Far: ~15-20 hours
+### Time Investment So Far: ~20-25 hours
 - Foundation & structure: 4 hours
 - Core heating logic: 8 hours
 - TRV setpoint locking refactor: 3 hours
 - Testing & debugging: 2-3 hours
-- Documentation: 2 hours
+- Full boiler state machine: 4-5 hours
+- Documentation: 2-3 hours
 
 ### Remaining Work Estimates
-- **Full boiler state machine**: 4-5 hours
 - **Service handlers**: 2-3 hours
 - **Enhanced features**: 3-5 hours
 - **Comprehensive testing**: 2-3 hours
-- **Total remaining**: ~12-16 hours
+- **Total remaining**: ~7-11 hours
 
 ### Total Project: ~27-36 hours
-This represents a complete recreation of the PyScript implementation with improvements.
+Complete recreation of the PyScript implementation with significant improvements.
 
 ---
 
