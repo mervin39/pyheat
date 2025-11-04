@@ -1,33 +1,50 @@
 # PyHeat Changelog
 
-## 2025-11-04: Per-Room Entity Publishing (Parity with Pyscript) ✅
+# PyHeat Changelog
 
-### Overview
-Restored per-room entity publishing to match the pyscript implementation. Each room now publishes detailed status entities for use in dashboards and automations.
+## 2025-11-04: Full Boiler State Machine & Per-Room Entities ✅
 
-### Per-Room Entities
+### Boiler State Machine Implementation
+Implemented complete 7-state boiler FSM from pyscript version with full anti-cycling protection:
 
-Each room (e.g., `pete`, `living`, etc.) now publishes:
+**States:**
+- `off`: Boiler off, no rooms calling for heat
+- `pending_on`: Waiting for TRV confirmation before boiler activation
+- `on`: Boiler actively heating
+- `pending_off`: Delayed shutdown (off_delay_s timer)
+- `pump_overrun`: Post-heating circulation with valve persistence
+- `interlock_blocked`: TRV interlock check failed, blocking turn-on
+- `interlock_failed`: TRV interlock failed after boiler was already on
+
+**Features:**
+- Anti-cycling protection using timer helpers (min_on, min_off, off_delay, pump_overrun)
+- TRV feedback validation with configurable confirmation window
+- Valve override calculation for minimum flow safety
+- Pump overrun with valve position persistence
+- OpenTherm vs binary boiler control support
+
+### Per-Room Entity Publishing (Partial)
+
+Each room now publishes status entities via AppDaemon's `set_state()`:
 
 1. **`sensor.pyheat_<room>_temperature`** (float, °C)
-   - Fused temperature from primary sensors (or fallback)
-   - Device class: temperature
-   - State class: measurement
+   - Fused temperature from primary sensors
+   - Includes device_class and state_class attributes
 
 2. **`sensor.pyheat_<room>_target`** (float, °C)
-   - Resolved target temperature after applying:
-     - Mode precedence (off → manual → override → schedule)
-     - Holiday mode substitution
-     - Schedule block resolution
-   - Device class: temperature
-   - State class: measurement
+   - Resolved target temperature after mode/schedule/holiday logic
 
 3. **`sensor.pyheat_<room>_state`** (string)
    - Current room state: `off`, `manual`, `auto`, or `stale`
-   - Reflects room mode and sensor availability
 
-4. **`number.pyheat_<room>_valve_percent`** (0-100)
-   - Commanded TRV valve opening percentage
+**Known Issues:**
+- ❌ `sensor.pyheat_<room>_valve_percent` creation fails with HTTP 400 errors
+- ❌ `sensor.pyheat_<room>_calling_for_heat` creation fails with HTTP 400 errors
+- AppDaemon's `set_state()` throws `ClientResponseError` for these entities
+- Manually testing via HA REST API works fine, issue appears AppDaemon-specific
+- **Workaround:** Disabled these entities temporarily, core heating functionality intact
+
+### Technical Details
    - Respects boiler overrides (pump overrun, interlock)
    - Read-only (display only, not for control)
 

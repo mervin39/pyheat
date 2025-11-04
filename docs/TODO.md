@@ -160,6 +160,26 @@
 
 ---
 
+## Known Issues & Workarounds 🐛
+
+### AppDaemon Entity Creation Limitations
+**Issue:** AppDaemon's `set_state()` method fails to create `sensor.pyheat_*_valve_percent` and `sensor.pyheat_*_calling_for_heat` entities with `ClientResponseError` (HTTP 400).
+
+**Details:**
+- Temperature, target, and state sensors work fine
+- Valve percent and calling-for-heat sensors fail consistently
+- Manual testing via Home Assistant REST API works perfectly
+- Error appears to be AppDaemon-specific, possibly related to attribute handling or rapid state changes
+
+**Workaround:** These entities are disabled for now. Core heating functionality is unaffected.
+
+**Future Solutions:**
+- Investigate MQTT-based entity publishing
+- Use template sensors defined in Home Assistant YAML
+- File issue with AppDaemon project if reproducible
+
+---
+
 ## Deferred / Future Enhancements 📋
 
 ### Service Handlers (~2-3 hours)

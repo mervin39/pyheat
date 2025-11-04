@@ -1574,28 +1574,14 @@ class PyHeat(hass.Hass):
             }
         )
         
-        # 4. Publish valve percentage
-        valve_entity = f"number.pyheat_{room_id}_valve_percent"
-        self.set_state(
-            valve_entity,
-            state=valve_percent,
-            attributes={
-                "unit_of_measurement": "%",
-                "min": 0,
-                "max": 100,
-                "step": 1,
-                "mode": "slider",
-                "friendly_name": f"{room_name} Valve"
-            }
-        )
+        # 4. Publish valve percentage (as sensor, not number)
+        # NOTE: Disabled - AppDaemon set_state() has issues creating these entities
+        # TODO: Investigate alternative method (MQTT, template sensor, etc.)
+        # valve_entity = f"sensor.pyheat_{room_id}_valve_percent"
+        # self.set_state(valve_entity, state=int(valve_percent), ...)
         
-        # 5. Publish calling for heat
-        cfh_entity = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
-        self.set_state(
-            cfh_entity,
-            state="on" if calling else "off",
-            attributes={
-                "device_class": "heat",
-                "friendly_name": f"{room_name} Calling For Heat"
-            }
-        )
+        # 5. Publish calling for heat (as sensor, not binary_sensor)  
+        # NOTE: Disabled - AppDaemon set_state() has issues creating these entities  
+        # TODO: Investigate alternative method (MQTT, MQTT, etc.)
+        # cfh_entity = f"sensor.pyheat_{room_id}_calling_for_heat"
+        # self.set_state(cfh_entity, state="on" if calling else "off", ...)
