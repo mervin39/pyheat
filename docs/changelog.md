@@ -1,5 +1,71 @@
 # PyHeat Changelog
 
+## 2025-11-04: Terminology Cleanup - Valve Persistence Renaming 🏷️
+
+### Resolved Naming Conflict: "Override" vs "Persistence"
+**Issue:** The term "override" was used for two distinct concepts:
+1. **Setpoint Override** (user feature) - `pyheat.override` service for temporary target temperature changes
+2. **Valve Persistence** (internal mechanism) - Holding valves open during PENDING_OFF/PUMP_OVERRUN for residual heat circulation
+
+This created confusion in code maintenance, especially when implementing the setpoint override feature.
+
+**Solution:** Renamed all valve-holding references from "override" to "persistence":
+- Function: `calculate_valve_overrides()` → `calculate_valve_persistence()`
+- Dict key: `overridden_valve_percents` → `persisted_valve_percents`
+- Variables: `overridden_valves` → `persisted_valves`
+- Parameters: `valve_overrides` → `valve_persistence`
+- Comments: "valve override" → "valve persistence"
+
+**Scope:**
+- Changed: ~30-40 instances in `app.py` related to internal valve holding mechanism
+- Kept: All "override" references for setpoint override feature (services, timers, user-facing functionality)
+
+**Impact:** Code is now clearer - "override" always refers to user-initiated setpoint changes, "persistence" always refers to internal valve holding during boiler shutdown states.
+
+---
+
+## 2025-11-04: CRITICAL - Pump Overrun Valve Oscillation Fixed 🔧
+
+### THE REAL FIX: Removed Premature Valve Command (line 569)
+**Discovery:** After implementing TRV feedback suppression (below), valve still oscillated 0-100% during PENDING_OFF/PUMP_OVERRUN. Added extensive debug logging that revealed the true root cause.
+
+**Root Cause:**
+- **Room processing (step 6)** sent `set_trv_valve(room_id, 0, now)` for OFF rooms (line 569)
+- **Boiler state machine (step 8)** sent persisted valve positions (100% from saved state)
+- Two competing commands fighting each other, both rate-limited to 30s minimum interval
+- Result: Oscillating pattern as each command took turns executing
+
+**Timeline from Debug Test (23:17:00 - 23:24:03):**
+```
+23:17:05 - Pete set to Manual 25°C → valve 100%
+23:17:52 - Pete set to OFF → FSM enters PENDING_OFF
+23:17:52 - Valve stays at 100% (saved position)
+[PERFECT - NO OSCILLATION for full 5m 37s]
+23:20:23 - PENDING_OFF complete → FSM enters PUMP_OVERRUN
+23:20:23 - Valve STILL at 100% (persistence working correctly)
+23:23:27 - PUMP_OVERRUN complete → FSM enters OFF
+23:23:27 - Valve closes to 0% (expected)
+```
+
+**Fix:**
+- **Removed line 569** in room processing: `if room_mode == "off": self.set_trv_valve(room_id, 0, now)`
+- Let step 8 (boiler state machine) handle ALL valve commands with proper persistence priority
+- Persistence logic already handles closing valves when states end
+- Added comment explaining the fix prevents pump overrun oscillation
+
+**Result:** Valve stayed at 100% continuously for entire PENDING_OFF (2m 31s) + PUMP_OVERRUN (3m 6s) duration = **5m 37s perfect persistence**.
+
+### Initial Partial Fix: TRV Feedback Suppression (Still Valuable)
+**Note:** This fix was implemented first but only reduced the issue. The real fix was removing the premature valve command.
+
+**Issue:** TRV feedback sensor changes triggered `recompute_all()` during PENDING_OFF/PUMP_OVERRUN, causing unnecessary recalculations that could interfere with persistence logic.
+
+**Fix:** Suppress TRV feedback recompute triggers during PENDING_OFF and PUMP_OVERRUN states. These states require valve persistence regardless of feedback sensor changes.
+
+**Impact:** Reduces unnecessary computation and prevents feedback callbacks from interfering with persistence logic, even though they weren't the root cause of oscillation.
+
+---
+
 ## 2025-11-04: CRITICAL - Pump Overrun Valve Oscillation Fixed 🔧
 
 ### Issue: Physical Valve Oscillation During Shutdown
@@ -8,9 +74,9 @@
 **Root Cause:**
 1. TRV feedback sensor changes trigger `recompute_all()` via callback
 2. During PENDING_OFF/PUMP_OVERRUN, normal valve calculation returns 0% (room is OFF, no demand)
-3. Override logic attempts to hold valve at saved position (100% from when room was calling)
+3. Persistence logic attempts to hold valve at saved position (100% from when room was calling)
 4. Each feedback update triggered new calculation cycle
-5. Result: Continuous oscillation between normal (0%) and override (100%) commands
+5. Result: Continuous oscillation between normal (0%) and persistence (100%) commands
 6. Physical valve motor clicking on/off every feedback update instead of staying open
 
 **Timeline from Test (22:47:00 - 22:53:14):**
@@ -26,8 +92,8 @@
 **Fix:**
 - Suppress TRV feedback recompute triggers during PENDING_OFF and PUMP_OVERRUN states
 - These states require valve persistence regardless of feedback sensor changes  
-- Feedback changes during override states are expected (normal calculation fighting override)
-- Code change in `trv_feedback_changed()`: check `self.boiler_state` and return early if in override state
+- Feedback changes during persistence states are expected (normal calculation fighting persistence)
+- Code change in `trv_feedback_changed()`: check `self.boiler_state` and return early if in persistence state
 
 **Impact:**
 - Pump overrun now correctly holds valves open for full 180 seconds without oscillation
@@ -111,7 +177,7 @@ Implemented full service handler functionality matching PyScript version:
 **Root Cause:** Emergency check compared `hvac_action` (physical boiler state from OpenTherm) against `rooms_calling_for_heat` (FSM logic), creating false positives during the ~30s transition period when FSM knows boiler is turning off but physical state is still "heating".
 
 **Fix:**
-- Emergency valve override now excludes `STATE_PENDING_OFF` and `STATE_PUMP_OVERRUN` from safety check
+- Emergency valve persistence now excludes `STATE_PENDING_OFF` and `STATE_PUMP_OVERRUN` from safety check
 - Emergency trigger only activates for true fault conditions (boiler physically ON in unexpected states)
 - Code change: `if (self.boiler_safety_room and hvac_action in ("heating", "idle") and self.boiler_state not in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN)):`
 

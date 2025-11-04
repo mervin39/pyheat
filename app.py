@@ -353,11 +353,11 @@ class PyHeat(hass.Hass):
         room_id = kwargs.get('room_id')
         self.log(f"TRV feedback for room '{room_id}' updated: {entity} = {new}", level="DEBUG")
         
-        # CRITICAL: During PENDING_OFF and PUMP_OVERRUN states, valve overrides are active
+        # CRITICAL: During PENDING_OFF and PUMP_OVERRUN states, valve persistence is active
         # and feedback changes are expected as valves are forcibly held open. Don't trigger
-        # recompute during these states to avoid fighting with the override logic.
+        # recompute during these states to avoid fighting with the persistence logic.
         if self.boiler_state in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN):
-            self.log(f"TRV feedback ignored during {self.boiler_state} (valve override active)", level="DEBUG")
+            self.log(f"TRV feedback ignored during {self.boiler_state} (valve persistence active)", level="DEBUG")
             return
         
         # Trigger recompute to check interlock status
@@ -565,7 +565,7 @@ class PyHeat(hass.Hass):
                 # Room is off, stale, or has no target
                 self.room_call_for_heat[room_id] = False
                 room_valve_percents[room_id] = 0
-                # Don't send valve command here - let override logic in step 8 handle it
+                # Don't send valve command here - let persistence logic in step 8 handle it
                 # (fixes pump overrun oscillation bug where OFF rooms had valves forced to 0%
                 # even though pump overrun needed them at saved positions)
                 self.log(f"Room '{room_id}': mode={room_mode}, stale={is_stale}, "
@@ -582,22 +582,22 @@ class PyHeat(hass.Hass):
                 'name': room_config.get('name', room_id)
             }
         
-        # 7. Update boiler state machine (includes valve override calculation)
+        # 7. Update boiler state machine (includes valve persistence calculation)
         boiler_status = self.update_boiler_state(active_rooms, room_valve_percents, now)
         
-        # 8. Apply valve commands with override priority
-        # If there are overrides (pump overrun or interlock), use them for affected rooms
-        # and use normal calculations for non-overridden rooms
-        overridden = boiler_status.get('overridden_valve_percents', {})
+        # 8. Apply valve commands with persistence priority
+        # If there are persisted valves (pump overrun or interlock), use them for affected rooms
+        # and use normal calculations for non-persisted rooms
+        persisted = boiler_status.get('persisted_valve_percents', {})
         
-        if overridden:
-            # Send override commands first (critical for pump overrun safety)
-            for room_id, valve_percent in overridden.items():
+        if persisted:
+            # Send persistence commands first (critical for pump overrun safety)
+            for room_id, valve_percent in persisted.items():
                 self.set_trv_valve(room_id, valve_percent, now)
             
-            # Send normal commands for rooms NOT in override dict
+            # Send normal commands for rooms NOT in persistence dict
             for room_id, valve_percent in room_valve_percents.items():
-                if room_id not in overridden:
+                if room_id not in persisted:
                     self.set_trv_valve(room_id, valve_percent, now)
         else:
             # No overrides - send all normal valve commands
@@ -1252,12 +1252,12 @@ class PyHeat(hass.Hass):
             self.boiler_state = new_state
             self.boiler_state_entry_time = now
 
-    def calculate_valve_overrides(
+    def calculate_valve_persistence(
         self,
         rooms_calling: List[str],
         room_valve_percents: Dict[str, int]
     ) -> Tuple[Dict[str, int], bool, str]:
-        """Calculate valve overrides if needed to meet minimum total opening.
+        """Calculate valve persistence if needed to meet minimum total opening.
         
         Args:
             rooms_calling: List of room IDs calling for heat
@@ -1265,7 +1265,7 @@ class PyHeat(hass.Hass):
             
         Returns:
             Tuple of:
-            - overridden_valve_percents: Dict[room_id, valve_percent] with overrides applied
+            - persisted_valve_percents: Dict[room_id, valve_percent] with persistence applied
             - interlock_ok: True if total >= min_valve_open_percent
             - reason: Explanation string
         """
@@ -1275,7 +1275,7 @@ class PyHeat(hass.Hass):
         # Calculate total from band-calculated percentages
         total_from_bands = sum(room_valve_percents.get(room_id, 0) for room_id in rooms_calling)
         
-        # Check if we need to override
+        # Check if we need to apply persistence
         if total_from_bands >= self.boiler_min_valve_open_percent:
             # Valve bands are sufficient
             self.log(
@@ -1285,39 +1285,39 @@ class PyHeat(hass.Hass):
             )
             return room_valve_percents.copy(), True, f"Total {total_from_bands}% >= min {self.boiler_min_valve_open_percent}%"
         
-        # Need to override - distribute evenly across calling rooms
+        # Need to persist valves - distribute evenly across calling rooms
         n_rooms = len(rooms_calling)
-        override_percent = int((self.boiler_min_valve_open_percent + n_rooms - 1) / n_rooms)  # Round up
+        persist_percent = int((self.boiler_min_valve_open_percent + n_rooms - 1) / n_rooms)  # Round up
         
         # Safety clamp: never command valve >100% even if config is misconfigured
-        override_percent = min(100, override_percent)
+        persist_percent = min(100, persist_percent)
         
-        overridden = {
-            room_id: override_percent
+        persisted = {
+            room_id: persist_percent
             for room_id in rooms_calling
         }
         
-        new_total = override_percent * n_rooms
+        new_total = persist_percent * n_rooms
         
         self.log(
-            f"Boiler: INTERLOCK OVERRIDE: total from bands {total_from_bands}% < "
-            f"min {self.boiler_min_valve_open_percent}% -> setting {n_rooms} room(s) to {override_percent}% "
+            f"Boiler: INTERLOCK PERSISTENCE: total from bands {total_from_bands}% < "
+            f"min {self.boiler_min_valve_open_percent}% -> setting {n_rooms} room(s) to {persist_percent}% "
             f"each (new total: {new_total}%)",
             level="INFO"
         )
         
-        return overridden, True, f"Override: {n_rooms} rooms @ {override_percent}% = {new_total}%"
+        return persisted, True, f"Persistence: {n_rooms} rooms @ {persist_percent}% = {new_total}%"
     
     def _check_trv_feedback_confirmed(
         self,
         rooms_calling: List[str],
-        valve_overrides: Dict[str, int]
+        valve_persistence: Dict[str, int]
     ) -> bool:
         """Check if TRV feedback confirms valves are at commanded positions.
         
         Args:
             rooms_calling: List of room IDs calling for heat
-            valve_overrides: Dict of commanded valve percentages
+            valve_persistence: Dict of commanded valve percentages
             
         Returns:
             True if all calling rooms have TRV feedback matching commanded position
@@ -1331,7 +1331,7 @@ class PyHeat(hass.Hass):
                 self.log(f"Boiler: room {room_id} disabled, skipping feedback check", level="WARNING")
                 return False
             
-            commanded = valve_overrides.get(room_id, 0)
+            commanded = valve_persistence.get(room_id, 0)
             trv = room_config['trv']
             
             # Get TRV feedback
@@ -1380,7 +1380,7 @@ class PyHeat(hass.Hass):
                 "rooms_calling": List[str],
                 "reason": str,
                 "interlock_ok": bool,
-                "overridden_valve_percents": Dict[str, int],
+                "persisted_valve_percents": Dict[str, int],
                 "total_valve_percent": int,
                 "valves_must_stay_open": bool (true during pump overrun)
             }
@@ -1389,24 +1389,24 @@ class PyHeat(hass.Hass):
         if self.boiler_state_entry_time is None:
             self.boiler_state_entry_time = now
         
-        # Calculate valve overrides if needed
-        overridden_valves, interlock_ok, interlock_reason = self.calculate_valve_overrides(
+        # Calculate valve persistence if needed
+        persisted_valves, interlock_ok, interlock_reason = self.calculate_valve_persistence(
             rooms_calling_for_heat,
             room_valve_percents
         )
         
         # Calculate total valve opening
-        total_valve = sum(overridden_valves.get(room_id, 0) for room_id in rooms_calling_for_heat)
+        total_valve = sum(persisted_valves.get(room_id, 0) for room_id in rooms_calling_for_heat)
         
-        # Merge overridden valves with all room valve percents for pump overrun tracking
+        # Merge persisted valves with all room valve percents for pump overrun tracking
         # This ensures we save ALL room valve positions, not just calling rooms
         all_valve_positions = room_valve_percents.copy()
-        all_valve_positions.update(overridden_valves)
+        all_valve_positions.update(persisted_valves)
         
         # Check TRV feedback confirmation
         trv_feedback_ok = self._check_trv_feedback_confirmed(
             rooms_calling_for_heat,
-            overridden_valves
+            persisted_valves
         )
         
         # Read current HVAC action
@@ -1421,6 +1421,7 @@ class PyHeat(hass.Hass):
         # State machine logic
         reason = ""
         valves_must_stay_open = False
+        persisted_valves = {}  # Initialize valve persistence dict
         
         if self.boiler_state == C.STATE_OFF:
             if has_demand and interlock_ok:
@@ -1483,7 +1484,7 @@ class PyHeat(hass.Hass):
                 reason = f"Pending OFF: off-delay ({self.boiler_off_delay_s}s) started"
                 # CRITICAL: Valves must stay open immediately upon entering PENDING_OFF
                 valves_must_stay_open = True
-                overridden_valves = self.boiler_last_valve_positions.copy()
+                persisted_valves = self.boiler_last_valve_positions.copy()
             elif not interlock_ok:
                 # Interlock failed while running - turn off immediately
                 self.log("Boiler: interlock failed while ON, turning off immediately", level="WARNING")
@@ -1507,8 +1508,8 @@ class PyHeat(hass.Hass):
             # CRITICAL: Valves must stay open during pending_off because boiler is still ON
             valves_must_stay_open = True
             # Use last known valve positions instead of current (which would be 0%)
-            overridden_valves = self.boiler_last_valve_positions.copy()
-            self.log(f"Boiler: STATE_PENDING_OFF using saved positions: {overridden_valves}", level="DEBUG")
+            persisted_valves = self.boiler_last_valve_positions.copy()
+            self.log(f"Boiler: STATE_PENDING_OFF using saved positions: {persisted_valves}", level="DEBUG")
             
             if has_demand and interlock_ok:
                 # Demand returned during off-delay, return to ON
@@ -1539,7 +1540,7 @@ class PyHeat(hass.Hass):
         elif self.boiler_state == C.STATE_PUMP_OVERRUN:
             valves_must_stay_open = True
             # Use last known valve positions to keep valves open during pump overrun
-            overridden_valves = self.boiler_last_valve_positions.copy()
+            persisted_valves = self.boiler_last_valve_positions.copy()
             
             if has_demand and interlock_ok and trv_feedback_ok:
                 # New demand during pump overrun, can return to ON
@@ -1556,7 +1557,7 @@ class PyHeat(hass.Hass):
                 self._clear_pump_overrun_valves()
                 reason = "Pump overrun complete, now OFF"
                 valves_must_stay_open = False
-                overridden_valves = {}  # Clear overrides so valves can close
+                persisted_valves = {}  # Clear persistence so valves can close
             else:
                 # Still in pump overrun
                 reason = f"Pump overrun: timer active (valves must stay open)"
@@ -1594,7 +1595,7 @@ class PyHeat(hass.Hass):
             self.boiler_state not in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN)):
             if len(rooms_calling_for_heat) == 0:
                 # Boiler is ON but no demand - EMERGENCY!
-                overridden_valves[self.boiler_safety_room] = 100
+                persisted_valves[self.boiler_safety_room] = 100
                 self.log(
                     f"🔴 EMERGENCY: Boiler ON with no demand! Forcing {self.boiler_safety_room} valve to 100% for safety",
                     level="ERROR"
@@ -1610,7 +1611,7 @@ class PyHeat(hass.Hass):
             "rooms_calling": rooms_calling_for_heat,
             "reason": reason,
             "interlock_ok": interlock_ok,
-            "overridden_valve_percents": overridden_valves,
+            "persisted_valve_percents": persisted_valves,
             "total_valve_percent": total_valve,
             "valves_must_stay_open": valves_must_stay_open,
             "time_in_state_s": time_in_state,
@@ -1690,10 +1691,10 @@ class PyHeat(hass.Hass):
         calling = data.get('calling', False)
         valve_percent = data.get('valve_percent', 0)
         
-        # Check if valve was overridden by boiler (e.g., pump overrun)
-        overridden_valves = boiler_status.get('overridden_valve_percents', {})
-        if room_id in overridden_valves:
-            valve_percent = overridden_valves[room_id]
+        # Check if valve was persisted by boiler (e.g., pump overrun)
+        persisted_valves = boiler_status.get('persisted_valve_percents', {})
+        if room_id in persisted_valves:
+            valve_percent = persisted_valves[room_id]
         
         # 1. Publish temperature (fused) - always, even if None/stale
         temp_entity = f"sensor.pyheat_{room_id}_temperature"
