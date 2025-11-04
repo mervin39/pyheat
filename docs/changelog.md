@@ -1,5 +1,53 @@
 # PyHeat Changelog
 
+## 2025-11-04: Configuration Bug Fix + Emergency Valve Logic Fix 🐛
+
+### Timer Configuration Bug Fixed
+**Issue:** Debug timer values (60s) were accidentally left active in `boiler.yaml`, causing incorrect anti-cycling timers.
+
+**Fix:**
+- Removed debug lines: `min_on_time_s: 60 # temporary debugging change`
+- Restored production values: `min_on_time_s: 180`, `min_off_time_s: 180`
+- Pump overrun timer was already correct at 180s
+
+**Discovery:** Found during pump overrun test timeline analysis - min_off timer only ran 17 seconds instead of expected 180 seconds.
+
+### Emergency Safety Valve Logic Fixed
+**Issue:** Emergency safety valve was triggering during normal FSM transition states (`PENDING_OFF`, `PUMP_OVERRUN`), causing unnecessary games valve activation.
+
+**Root Cause:** Emergency check compared `hvac_action` (physical boiler state from OpenTherm) against `rooms_calling_for_heat` (FSM logic), creating false positives during the ~30s transition period when FSM knows boiler is turning off but physical state is still "heating".
+
+**Fix:**
+- Emergency valve override now excludes `STATE_PENDING_OFF` and `STATE_PUMP_OVERRUN` from safety check
+- Emergency trigger only activates for true fault conditions (boiler physically ON in unexpected states)
+- Code change: `if (self.boiler_safety_room and hvac_action in ("heating", "idle") and self.boiler_state not in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN)):`
+
+**Testing:** Verified with pump overrun test - emergency valve no longer triggers during normal shutdown sequence.
+
+## 2025-11-04: Pump Overrun Live Test ✅
+
+**Test Sequence:** Turned Pete OFF at 19:56:59, monitored pump overrun operation:
+
+**Timeline:**
+- 19:57:00: FSM → `PENDING_OFF` (30s off-delay timer started)
+- 19:57:29: FSM → `PUMP_OVERRUN` (boiler commanded OFF, pump overrun + min_off timers started)
+- 19:57:56: Physical boiler state → "off" (confirmed via OpenTherm)
+- 20:00:31: Pump overrun timer completed
+- 20:00:35: FSM → `OFF`, valve overrides cleared, Pete valve → 0%
+
+**Valve Behavior During Pump Overrun:**
+- Pete's valve maintained at 100% throughout pump overrun period
+- Override system correctly preserved valve positions for 3 minutes after boiler shutdown
+- Normal valve calculation returned 0% (Pete OFF, not calling) but override forced 100%
+- Log oscillation (0%→100%→0%→100%) is **normal** - calculation vs override, physical valve stayed 100%
+
+**Timers:**
+- Off-delay timer: 30s ✅
+- Pump overrun timer: 180s ✅ (3 minutes)
+- Min off timer: Started correctly (config bug discovered - see above)
+
+**Verdict:** Pump overrun system works perfectly. Valves stay open for boiler-specified duration after shutdown.
+
 ## 2025-11-04: CRITICAL FIX - TRV Setpoint Locking ⚠️
 
 ### TRV Setpoint Changed from 5°C to 35°C (Maximum)

@@ -1569,7 +1569,9 @@ class PyHeat(hass.Hass):
         # CRITICAL SAFETY: Emergency valve override
         # If boiler is physically ON (heating) but no rooms calling for heat,
         # force safety room valve open to ensure there's a path for hot water
-        if self.boiler_safety_room and hvac_action in ("heating", "idle"):
+        # Exclude normal transition states (PENDING_OFF, PUMP_OVERRUN) where we expect physical mismatch
+        if (self.boiler_safety_room and hvac_action in ("heating", "idle") and
+            self.boiler_state not in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN)):
             if len(rooms_calling_for_heat) == 0:
                 # Boiler is ON but no demand - EMERGENCY!
                 overridden_valves[self.boiler_safety_room] = 100
