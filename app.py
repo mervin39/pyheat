@@ -544,11 +544,8 @@ class PyHeat(hass.Hass):
         if boiler_status.get('valves_must_stay_open') or boiler_status.get('overridden_valve_percents'):
             overridden = boiler_status['overridden_valve_percents']
             for room_id, valve_percent in overridden.items():
-                # Only send valve command if it's different from what we calculated
-                if valve_percent != room_valve_percents.get(room_id):
-                    self.log(f"Boiler override: setting room '{room_id}' valve to {valve_percent}% "
-                            f"(was {room_valve_percents.get(room_id, 0)}%)")
-                    self.set_trv_valve(room_id, valve_percent, now)
+                # Always send valve command when there's an override (boiler needs confirmation)
+                self.set_trv_valve(room_id, valve_percent, now)
         else:
             # No overrides - send normal valve commands
             for room_id, valve_percent in room_valve_percents.items():
@@ -821,6 +818,7 @@ class PyHeat(hass.Hass):
             elapsed = (now - last_update).total_seconds()
             if elapsed < min_interval:
                 # Too soon since last update
+                self.log(f"TRV {room_id}: Rate limited (elapsed={elapsed:.1f}s < min={min_interval}s)", level="DEBUG")
                 return
         
         # Check if value actually changed
@@ -829,7 +827,7 @@ class PyHeat(hass.Hass):
             # No change needed
             return
         
-        self.log(f"Setting TRV for room '{room_id}': {percent}% open")
+        self.log(f"Setting TRV for room '{room_id}': {percent}% open (was {last_commanded}%)")
         
         # Start non-blocking valve command sequence
         self._start_valve_command(room_id, percent, now)
