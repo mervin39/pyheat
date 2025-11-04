@@ -74,7 +74,7 @@
 
 ### Testing & Validation
 
-- ✅ **Initial Testing** (Task 4 - In Progress)
+- ✅ **Initial Testing** (Task 4 - Completed)
   - System successfully loads and initializes
   - Detects 6 rooms with configuration
   - TRV commands are sent successfully
@@ -83,6 +83,62 @@
   - Mode changes detected (case-insensitive now)
   - Manual setpoint changes detected
   - Verified Pete's room: temp sensor read, manual mode works, TRV opens to 100%, boiler turns on
+
+### Documentation & Repository Setup
+
+- ✅ **Complete Documentation**
+  - Comprehensive README.md with installation, configuration, and usage
+  - ha_yaml/README.md with entity setup instructions
+  - docs/SYMLINK_SETUP.md with migration commands from pyscript
+  - All Home Assistant entity YAML files copied to repo (ha_yaml/)
+  - .gitignore configured to exclude Python cache and logs
+  - Git repository fully set up with clean history
+
+### Repository Structure
+
+```
+pyheat/
+├── app.py                    # Main AppDaemon application (709 lines)
+├── constants.py              # System-wide configuration defaults
+├── __init__.py               # Package initialization
+├── README.md                 # Main documentation
+├── IMPLEMENTATION_PLAN.md    # Detailed roadmap (25-35 hours)
+├── config/
+│   ├── rooms.yaml           # Room hardware configuration (6 rooms)
+│   ├── schedules.yaml       # Weekly heating schedules
+│   ├── boiler.yaml          # Boiler configuration
+│   └── .appdaemon_ignore    # Prevents YAML from loading as apps
+├── ha_yaml/                  # Home Assistant entity definitions
+│   ├── README.md            # Setup instructions
+│   ├── pyheat_input_booleans.yaml
+│   ├── pyheat_input_selects.yaml
+│   ├── pyheat_input_numbers.yaml
+│   ├── pyheat_timers.yaml
+│   ├── pyheat_input_datetimes.yaml
+│   ├── pyheat_input_texts.yaml
+│   ├── pyheat_template_sensors.yaml
+│   ├── pyheat_mqtt_sensor.yaml
+│   └── pyheat_climate.yaml
+└── docs/
+    ├── changelog.md         # This file
+    └── SYMLINK_SETUP.md     # Migration instructions from pyscript
+```
+
+### Next Steps for Migration
+
+1. **Update Home Assistant symlinks** (see docs/SYMLINK_SETUP.md)
+   - Point yaml includes to /opt/appdata/appdaemon/conf/apps/pyheat/ha_yaml/
+   - Remove old pyscript symlinks
+   - Reload relevant HA integrations
+
+2. **Deactivate pyscript version**
+   - Disable or remove pyscript app
+   - Archive /home/pete/tmp/pyheat_pyscript if needed
+
+3. **Monitor AppDaemon pyheat**
+   - Watch logs for any issues
+   - Verify heating operates as expected
+   - Test all room modes and overrides
 
 ### Pending Implementation
 
