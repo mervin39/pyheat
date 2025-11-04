@@ -565,8 +565,9 @@ class PyHeat(hass.Hass):
                 # Room is off, stale, or has no target
                 self.room_call_for_heat[room_id] = False
                 room_valve_percents[room_id] = 0
-                if room_mode == "off" or (is_stale and room_mode != "manual"):
-                    self.set_trv_valve(room_id, 0, now)
+                # Don't send valve command here - let override logic in step 8 handle it
+                # (fixes pump overrun oscillation bug where OFF rooms had valves forced to 0%
+                # even though pump overrun needed them at saved positions)
                 self.log(f"Room '{room_id}': mode={room_mode}, stale={is_stale}, "
                         f"target={target}, no heating", level="DEBUG")
             
