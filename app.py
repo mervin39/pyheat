@@ -603,7 +603,10 @@ class PyHeat(hass.Hass):
     # ========================================================================
 
     def set_trv_valve(self, room_id: str, percent: int, now: datetime):
-        """Set TRV valve position (simplified version without full feedback).
+        """Set TRV valve position with sequential commands and feedback confirmation.
+        
+        Sends opening and closing degree commands sequentially, waiting for
+        feedback confirmation between each to avoid inconsistent states.
         
         Args:
             room_id: Room identifier
@@ -630,26 +633,149 @@ class PyHeat(hass.Hass):
             # No change needed
             return
         
-        # Send commands
+        # Calculate target values
         trv = room_config['trv']
-        opening = percent
-        closing = 100 - percent
+        target_open = percent
+        target_close = 100 - percent
         
-        self.log(f"Setting TRV for room '{room_id}': {percent}% open")
+        self.log(f"Setting TRV for room '{room_id}': {percent}% open (opening={target_open}, closing={target_close})")
         
-        # Send opening degree command
-        self.call_service("number/set_value",
-                         entity_id=trv['cmd_open'],
-                         value=opening)
+        if C.TRV_COMMAND_SEQUENCE_ENABLED:
+            # Sequential mode: set opening, wait for feedback, set closing, wait for feedback
+            success = self._set_valve_sequential(room_id, trv, target_open, target_close)
+        else:
+            # Legacy simultaneous mode (not recommended)
+            success = self._set_valve_simultaneous(room_id, trv, target_open, target_close)
         
-        # Send closing degree command
-        self.call_service("number/set_value",
-                         entity_id=trv['cmd_close'],
-                         value=closing)
+        if success:
+            # Update tracking
+            self.trv_last_commanded[room_id] = percent
+            self.trv_last_update[room_id] = now
+    
+    def _set_valve_sequential(self, room_id: str, trv: Dict, target_open: int, target_close: int) -> bool:
+        """Send valve commands sequentially with feedback confirmation.
         
-        # Update tracking
-        self.trv_last_commanded[room_id] = percent
-        self.trv_last_update[room_id] = now
+        Args:
+            room_id: Room identifier
+            trv: TRV configuration dict with entity IDs
+            target_open: Target opening degree (0-100)
+            target_close: Target closing degree (0-100)
+            
+        Returns:
+            True if both commands confirmed, False otherwise
+        """
+        retry_interval = C.TRV_COMMAND_RETRY_INTERVAL_S
+        max_retries = C.TRV_COMMAND_MAX_RETRIES
+        tolerance = C.TRV_COMMAND_FEEDBACK_TOLERANCE
+        
+        # Step 1: Set opening degree and wait for confirmation
+        self.log(f"TRV {room_id}: Setting opening degree to {target_open}%", level="DEBUG")
+        open_confirmed = False
+        
+        for attempt in range(max_retries):
+            try:
+                # Send command
+                self.call_service("number/set_value",
+                                entity_id=trv['cmd_open'],
+                                value=target_open)
+                
+                # Wait for feedback
+                import time
+                time.sleep(retry_interval)
+                
+                # Check feedback
+                fb_open = self.get_state(trv['fb_open'])
+                if fb_open is not None:
+                    try:
+                        fb_open_val = int(float(fb_open))
+                        if abs(fb_open_val - target_open) <= tolerance:
+                            self.log(f"TRV {room_id}: Opening degree confirmed at {fb_open_val}%", level="DEBUG")
+                            open_confirmed = True
+                            break
+                        else:
+                            self.log(f"TRV {room_id}: Opening mismatch (target={target_open}%, fb={fb_open_val}%), retry {attempt+1}/{max_retries}", level="DEBUG")
+                    except (ValueError, TypeError) as e:
+                        self.log(f"TRV {room_id}: Invalid opening feedback '{fb_open}': {e}", level="WARNING")
+                else:
+                    self.log(f"TRV {room_id}: No opening feedback available, retry {attempt+1}/{max_retries}", level="WARNING")
+                    
+            except Exception as e:
+                self.log(f"TRV {room_id}: Failed to set opening degree: {e}", level="ERROR")
+        
+        if not open_confirmed:
+            self.log(f"TRV {room_id}: Opening degree NOT confirmed after {max_retries} retries", level="WARNING")
+            return False
+        
+        # Step 2: Set closing degree and wait for confirmation
+        self.log(f"TRV {room_id}: Setting closing degree to {target_close}%", level="DEBUG")
+        close_confirmed = False
+        
+        for attempt in range(max_retries):
+            try:
+                # Send command
+                self.call_service("number/set_value",
+                                entity_id=trv['cmd_close'],
+                                value=target_close)
+                
+                # Wait for feedback
+                import time
+                time.sleep(retry_interval)
+                
+                # Check feedback
+                fb_close = self.get_state(trv['fb_close'])
+                if fb_close is not None:
+                    try:
+                        fb_close_val = int(float(fb_close))
+                        if abs(fb_close_val - target_close) <= tolerance:
+                            self.log(f"TRV {room_id}: Closing degree confirmed at {fb_close_val}%", level="DEBUG")
+                            close_confirmed = True
+                            break
+                        else:
+                            self.log(f"TRV {room_id}: Closing mismatch (target={target_close}%, fb={fb_close_val}%), retry {attempt+1}/{max_retries}", level="DEBUG")
+                    except (ValueError, TypeError) as e:
+                        self.log(f"TRV {room_id}: Invalid closing feedback '{fb_close}': {e}", level="WARNING")
+                else:
+                    self.log(f"TRV {room_id}: No closing feedback available, retry {attempt+1}/{max_retries}", level="WARNING")
+                    
+            except Exception as e:
+                self.log(f"TRV {room_id}: Failed to set closing degree: {e}", level="ERROR")
+        
+        if not close_confirmed:
+            self.log(f"TRV {room_id}: Closing degree NOT confirmed after {max_retries} retries", level="WARNING")
+            return False
+        
+        self.log(f"TRV {room_id}: Sequential valve command complete and confirmed", level="DEBUG")
+        return True
+    
+    def _set_valve_simultaneous(self, room_id: str, trv: Dict, target_open: int, target_close: int) -> bool:
+        """Send both valve commands simultaneously (legacy mode, not recommended).
+        
+        Args:
+            room_id: Room identifier
+            trv: TRV configuration dict with entity IDs
+            target_open: Target opening degree (0-100)
+            target_close: Target closing degree (0-100)
+            
+        Returns:
+            True if commands sent successfully
+        """
+        try:
+            # Send opening degree command
+            self.call_service("number/set_value",
+                            entity_id=trv['cmd_open'],
+                            value=target_open)
+            
+            # Send closing degree command
+            self.call_service("number/set_value",
+                            entity_id=trv['cmd_close'],
+                            value=target_close)
+            
+            self.log(f"TRV {room_id}: Simultaneous commands sent", level="DEBUG")
+            return True
+            
+        except Exception as e:
+            self.log(f"TRV {room_id}: Failed to set valve: {e}", level="ERROR")
+            return False
 
     # ========================================================================
     # Boiler Control (Simplified)

@@ -140,12 +140,14 @@ TRV_ENTITY_PATTERNS = {
 # Commands are rounded to nearest 0–100 integer
 VALVE_PERCENT_INTEGER = True
 
-# TRV feedback tolerance (%)
-TRV_FEEDBACK_TOLERANCE = 5
-
-# TRV command retry configuration
-TRV_RETRY_INTERVAL_S = 10
-TRV_MAX_RETRIES = 6
+# TRV Command Sequencing (Anti-Thrashing)
+# To avoid inconsistent feedback states, commands are sent sequentially:
+# 1. Set opening degree, wait for confirmation
+# 2. Set closing degree, wait for confirmation
+TRV_COMMAND_SEQUENCE_ENABLED = True
+TRV_COMMAND_RETRY_INTERVAL_S = 2   # Wait time between command and feedback check (seconds)
+TRV_COMMAND_MAX_RETRIES = 3        # Max retries per command (6s total per valve)
+TRV_COMMAND_FEEDBACK_TOLERANCE = 5  # Percent tolerance for feedback match
 
 # ============================================================================
 # Home Assistant Helper Entities (Expected to Exist)
