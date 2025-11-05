@@ -1,5 +1,68 @@
 # PyHeat Changelog
 
+## 2025-11-05: CRITICAL Anti-Cycling Bug Fix 🔴🛠️
+
+### Critical Bug Fix #5: Boiler Short-Cycling During Pump Overrun (SAFETY CRITICAL) 🔴
+**Status:** FIXED ✅  
+**Location:** `boiler_controller.py::update_state()` - STATE_PUMP_OVERRUN case  
+**Severity:** CRITICAL - Defeats anti-cycling protection, accelerates boiler wear
+
+**Issue:**
+When demand returned during pump overrun while the `min_off_time` timer was still active, the boiler would immediately turn back on without checking if the minimum off time had elapsed. This completely defeats the anti-cycling protection.
+
+**Test Scenario that Exposed Bug:**
+1. Boiler heating two rooms
+2. Both rooms reach target, demand stops
+3. Boiler enters PENDING_OFF (off-delay)
+4. Boiler turns off, enters PUMP_OVERRUN
+5. `min_off_time` timer starts (e.g., 300 seconds)
+6. `pump_overrun` timer starts (e.g., 180 seconds)  
+7. After 60 seconds, one room drops below target → demand resumes
+8. **BUG:** Boiler immediately turns ON (only 60s off, should wait 300s)
+9. **RESULT:** Short cycling - boiler cycles on/off rapidly
+
+**Original Code (BROKEN - in both monolithic and refactored!):**
+```python
+elif self.boiler_state == C.STATE_PUMP_OVERRUN:
+    if has_demand and interlock_ok and trv_feedback_ok:
+        # New demand during pump overrun, can return to ON
+        self._transition_to(C.STATE_ON, now, "demand resumed during pump overrun")
+        self._set_boiler_on()
+        # ... no min_off_time check!
+```
+
+**Fixed Code:**
+```python
+elif self.boiler_state == C.STATE_PUMP_OVERRUN:
+    if has_demand and interlock_ok and trv_feedback_ok:
+        # Check min_off_time before allowing turn-on
+        if not self._check_min_off_time_elapsed():
+            reason = f"Pump overrun: demand resumed but min_off_time not elapsed"
+            # Stay in pump overrun, wait for timer
+        else:
+            # Safe to turn on
+            self._transition_to(C.STATE_ON, now, ...)
+            self._set_boiler_on()
+```
+
+**Impact:**
+- **Before Fix:** Boiler could short-cycle every 1-2 minutes in some scenarios
+- **After Fix:** Minimum off time always enforced, protecting boiler from excessive cycling
+- **Equipment Protection:** Prevents premature boiler failure from rapid cycling
+
+**Why This Wasn't Caught in Initial Audit:**
+- Original monolithic code had the same bug
+- Audit compared refactored vs original, so bug was "correctly" ported
+- Only discovered through actual runtime testing with realistic heating patterns
+- Demonstrates importance of integration testing beyond code review
+
+**Testing:**
+✅ Tested with 2-room scenario as described above  
+✅ Verified boiler stays in PUMP_OVERRUN until min_off_time elapses  
+✅ Confirmed proper transition to ON only after anti-cycling timer complete  
+
+---
+
 ## 2025-11-05: CRITICAL Safety Audit & Bug Fixes - Post-Refactor 🔴🛠️
 
 **AUDIT STATUS:** Complete comprehensive safety audit of modular refactor vs monolithic original  

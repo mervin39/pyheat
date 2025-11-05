@@ -219,13 +219,23 @@ class BoilerController:
             persisted_valves = self.boiler_last_valve_positions.copy()
             
             if has_demand and interlock_ok and trv_feedback_ok:
-                # New demand during pump overrun, can return to ON
-                self._transition_to(C.STATE_ON, now, "demand resumed during pump overrun")
-                self._set_boiler_on()
-                self._cancel_timer(C.HELPER_PUMP_OVERRUN_TIMER)
-                self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self._get_min_on_time())
-                reason = f"Returned to ON: demand during pump overrun"
-                valves_must_stay_open = False
+                # New demand during pump overrun - check if min_off_time has elapsed
+                if not self._check_min_off_time_elapsed():
+                    # Cannot turn on yet - min_off_time anti-cycling protection
+                    reason = f"Pump overrun: demand resumed but min_off_time not elapsed"
+                    self.ad.log(
+                        f"Boiler: Demand during pump overrun, but min_off_time timer still active. "
+                        f"Waiting for anti-cycling protection.",
+                        level="INFO"
+                    )
+                else:
+                    # Min_off_time elapsed, can return to ON
+                    self._transition_to(C.STATE_ON, now, "demand resumed during pump overrun, min_off_time elapsed")
+                    self._set_boiler_on()
+                    self._cancel_timer(C.HELPER_PUMP_OVERRUN_TIMER)
+                    self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self._get_min_on_time())
+                    reason = f"Returned to ON: demand during pump overrun"
+                    valves_must_stay_open = False
             elif not self._is_timer_active(C.HELPER_PUMP_OVERRUN_TIMER):
                 # Pump overrun timer completed
                 self._transition_to(C.STATE_OFF, now, "pump overrun complete")
