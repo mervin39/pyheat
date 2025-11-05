@@ -37,6 +37,34 @@ class RoomController:
         self.room_current_band = {}  # {room_id: band_index}
         self.room_last_valve = {}  # {room_id: percent}
         
+    def initialize_from_ha(self) -> None:
+        """Initialize room state from current Home Assistant TRV positions.
+        
+        CRITICAL: Initialize room_call_for_heat based on current valve position.
+        If valve is open (>0%), assume room was calling for heat before restart.
+        This prevents sudden valve closures when in hysteresis deadband on startup
+        (prevents boiler running with all valves closed after AppDaemon restart).
+        """
+        for room_id, room_cfg in self.config.rooms.items():
+            if room_cfg.get('disabled'):
+                continue
+                
+            # Get current valve position from TRV controller
+            fb_valve_entity = room_cfg['trv']['fb_valve']
+            try:
+                fb_valve_str = self.ad.get_state(fb_valve_entity)
+                if fb_valve_str and fb_valve_str not in ['unknown', 'unavailable']:
+                    fb_valve = int(float(fb_valve_str))
+                    
+                    # If valve is open, assume room was calling for heat
+                    if fb_valve > 0:
+                        self.room_call_for_heat[room_id] = True
+                        self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%, assumed calling for heat", level="DEBUG")
+                    else:
+                        self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%", level="DEBUG")
+            except (ValueError, TypeError) as e:
+                self.ad.log(f"Failed to initialize room {room_id} state: {e}", level="WARNING")
+        
     def compute_room(self, room_id: str, now: datetime) -> Dict:
         """Compute heating requirements for a room.
         

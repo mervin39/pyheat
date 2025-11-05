@@ -77,6 +77,9 @@ class PyHeat(hass.Hass):
         # Initialize TRV state from current valve positions
         self.trvs.initialize_from_ha()
         
+        # Initialize room call-for-heat state from current valve positions (CRITICAL for startup)
+        self.rooms.initialize_from_ha()
+        
         # Setup callbacks for helper entities
         self.setup_callbacks()
         

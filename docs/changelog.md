@@ -116,6 +116,49 @@ This was lost in refactor because boiler state wasn't passed to TRV controller.
 
 **Fix:** Moved `self.first_boot = False` from `initial_recompute()` to `second_recompute()`.
 
+### Bug Fix #9: Missing room_call_for_heat Initialization (CRITICAL SAFETY)
+**Status:** FIXED ✅
+**Location:** `room_controller.py`
+**Issue:** `room_call_for_heat` state not initialized from current valve positions on startup. Always defaulted to False.
+
+**Impact:** **CRITICAL SAFETY BUG**
+- On AppDaemon restart, if a room was actively heating (valve open) and is in the hysteresis deadband, system would:
+  1. See current temp slightly below target (in deadband)
+  2. Default room_call_for_heat to False
+  3. Immediately close valve even though room needs heat
+  4. If this happened to all rooms simultaneously, boiler could be left running with all valves closed
+  5. Creates no-flow condition → potential boiler damage
+- Example: Room at 19.8°C, target 20°C, on_delta=0.3°C, off_delta=-0.1°C
+  - Error = +0.2°C (in deadband 0.3 to -0.1)
+  - On restart: room_call_for_heat defaults to False
+  - Valve closes to 0% even though room should still be heating
+  - If all rooms in deadband, all valves close → boiler interlock may fail to catch it
+
+**Root Cause:**
+Monolithic version had explicit initialization in `initialize_trv_state()`:
+```python
+# CRITICAL: Initialize room_call_for_heat based on current valve position
+# If valve is open (>0%), assume room was calling for heat before restart
+if fb_valve > 0:
+    self.room_call_for_heat[room_id] = True
+```
+
+This logic was completely missing from modular refactor. TRV controller only initialized valve tracking, not room heating state.
+
+**Fix:**
+- Added `initialize_from_ha()` method to `RoomController`
+- Reads current valve position for each room
+- If valve > 0%, sets `room_call_for_heat[room_id] = True`
+- Called during app initialization after TRV initialization
+- Prevents sudden valve closures on restart when rooms in hysteresis deadband
+- Critical safety feature to prevent no-flow condition on AppDaemon reload
+
+**Why This Matters:**
+Hysteresis deadband exists to prevent oscillation, but creates vulnerability on restart:
+- Normal operation: Room heating → reaches target → enters deadband → maintains previous state (calling=True)
+- On restart WITHOUT fix: Room in deadband → state defaults to False → valve closes → potential safety issue
+- With fix: Room in deadband → state initialized from valve position (True if open) → correct behavior
+
 ---
 
 ## Testing Required
