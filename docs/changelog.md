@@ -1,5 +1,147 @@
 # PyHeat Changelog
 
+## 2025-11-05: Critical Bug Fixes - Modular Refactor Safety Issues 🔴🛠️
+
+### Bug Fix #1: TRV Feedback Fighting with Boiler State Machine (CRITICAL SAFETY)
+**Status:** FIXED ✅
+**Location:** `trv_controller.py::check_feedback_for_unexpected_position()`
+**Issue:** Missing critical boiler state check - would trigger valve corrections during PENDING_OFF and PUMP_OVERRUN states when valves are intentionally held open for safety.
+
+**Impact:** 
+- During pump overrun (post-shutoff heat dissipation), TRVs were intentionally commanded to stay open to allow residual heat circulation
+- Feedback showing non-zero valve positions was incorrectly flagged as "unexpected"
+- System would fight itself: boiler controller holding valves open vs TRV controller trying to correct them
+- Could cause oscillating valve commands and failure to maintain safe pump overrun
+
+**Root Cause:** 
+In monolithic version, `trv_feedback_changed()` callback had explicit check:
+```python
+if self.boiler_state in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN):
+    self.log(f"TRV feedback ignored during {self.boiler_state} (valve persistence active)", level="DEBUG")
+    return
+```
+This was lost in refactor because boiler state wasn't passed to TRV controller.
+
+**Fix:**
+- Modified `check_feedback_for_unexpected_position()` to accept optional `boiler_state` parameter
+- Added state check at beginning of method to ignore feedback during PENDING_OFF/PUMP_OVERRUN
+- Updated `app.py::trv_feedback_changed()` to pass `self.boiler.boiler_state` to TRV controller
+- Prevents false "unexpected position" detections during safety-critical pump overrun period
+
+### Bug Fix #2: Missing Service Handlers (MAJOR FUNCTIONALITY)
+**Status:** FIXED ✅
+**Location:** `service_handler.py`
+**Issue:** Only `reload_config` service implemented. Missing 8 critical services: `override`, `boost`, `cancel_override`, `set_mode`, `set_default_target`, `get_schedules`, `get_rooms`, `replace_schedules`.
+
+**Impact:**
+- No way to set room overrides or boosts from Home Assistant UI/automations
+- No way to change room modes programmatically
+- No way to query or update schedules dynamically
+- Missing all user-facing control interfaces except manual entity changes
+
+**Fix:**
+- Implemented all 9 services with full parameter validation
+- Ported exact logic from monolithic version including:
+  - Parameter type and range checking
+  - Room existence validation
+  - Timer management for override/boost
+  - YAML file updates for schedule modifications
+  - Immediate recompute triggering after changes
+- Added scheduler reference to service handler for boost service (needs current target calculation)
+
+### Bug Fix #3: Missing Override Timer Clear on Expiry
+**Status:** FIXED ✅
+**Location:** `app.py::room_timer_changed()`
+**Issue:** When override/boost timer expired, target temperature wasn't cleared from helper entity.
+
+**Impact:**
+- Old override target would persist after timer expired
+- Next override/boost would show stale value
+- Could confuse users about active vs expired overrides
+
+**Fix:**
+- Added logic to clear override target (set to 0 sentinel value) when timer transitions from active/paused to idle
+- Matches monolithic version behavior exactly
+
+### Bug Fix #4: Boiler State Not Passed to TRV Controller
+**Status:** FIXED ✅ (part of Fix #1)
+**Location:** Multiple files
+**Issue:** TRV controller had no way to check current boiler state to prevent fighting during PENDING_OFF/PUMP_OVERRUN.
+
+**Fix:**
+- Modified TRV controller method signature to accept boiler_state
+- Updated all call sites to pass current state
+- Enables safety-critical state-aware feedback handling
+
+### Bug Fix #5: Missing Boiler Control on Master Enable OFF
+**Status:** FIXED ✅
+**Location:** `app.py::recompute_all()`
+**Issue:** Master enable OFF check existed but was incomplete - had TODO comment instead of actual boiler shutoff and valve closure.
+
+**Impact:**
+- When master enable turned OFF, boiler and valves would stay in current state
+- No automatic shutdown on system disable
+- Potential for boiler to keep running when system thought it was disabled
+
+**Fix:**
+- Implemented full shutdown logic:
+  - Turn off boiler actor (input_boolean)
+  - Close all TRV valves (set to 0%)
+  - Early return to skip further processing
+- System now properly shuts down when disabled
+
+### Bug Fix #6: Duplicate Method Definition
+**Status:** FIXED ✅
+**Location:** `boiler_controller.py::_set_boiler_off()`
+**Issue:** Method defined twice in same file.
+
+**Fix:** Removed duplicate definition, kept first occurrence.
+
+### Bug Fix #7: Double Return Statement
+**Status:** FIXED ✅
+**Location:** `boiler_controller.py::_get_hvac_action()`
+**Issue:** Method had two consecutive return statements (unreachable code).
+
+**Fix:** Removed duplicate return statement.
+
+### Bug Fix #8: First Boot Flag Reset Timing
+**Status:** FIXED ✅
+**Location:** `app.py`
+**Issue:** `first_boot` flag reset in `initial_recompute()` instead of `second_recompute()`.
+
+**Impact:**
+- Flag meant to track sensor restoration period on startup
+- Resetting too early could affect startup behavior
+- Monolithic version reset in second_recompute after full sensor restoration delay
+
+**Fix:** Moved `self.first_boot = False` from `initial_recompute()` to `second_recompute()`.
+
+---
+
+## Testing Required
+
+**Critical Tests:**
+1. **Pump Overrun Valve Persistence**: Verify valves stay open during pump overrun and no "unexpected position" warnings appear
+2. **Service Handlers**: Test each service via Developer Tools → Services
+   - pyheat.override
+   - pyheat.boost
+   - pyheat.cancel_override
+   - pyheat.set_mode
+   - pyheat.set_default_target
+   - pyheat.reload_config
+   - pyheat.get_schedules
+   - pyheat.get_rooms
+   - pyheat.replace_schedules
+3. **Master Enable**: Verify system shuts down completely when master enable toggled OFF
+4. **Override Expiry**: Verify override target cleared when timer expires
+
+**Simulation Scenarios:**
+- Start heating → rooms satisfied → enter PENDING_OFF → boiler off → pump overrun → verify valves held open → pump overrun complete → valves close
+- User changes TRV setpoint manually during pump overrun → verify NO correction triggered
+- Master enable OFF while boiler running → verify immediate shutdown
+
+---
+
 ## 2025-11-05: Architecture - Modular Refactoring 🏗️
 
 ### Major Implementation: Complete Boiler State Machine with Safety Features

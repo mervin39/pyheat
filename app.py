@@ -96,8 +96,8 @@ class PyHeat(hass.Hass):
         self.run_in(self.initial_recompute, C.STARTUP_INITIAL_DELAY_S)
         self.run_in(self.second_recompute, C.STARTUP_SECOND_DELAY_S)
         
-        # Register service handlers
-        self.services.register_all(self.trigger_recompute)
+        # Register service handlers (pass scheduler for boost service)
+        self.services.register_all(self.trigger_recompute, self.scheduler)
         
         # Log startup summary
         self.log(f"PyHeat initialized successfully")
@@ -183,6 +183,12 @@ class PyHeat(hass.Hass):
                 self.log(f"Room '{room_id}' override started")
             elif old in ["active", "paused"] and new == "idle":
                 self.log(f"Room '{room_id}' override expired")
+                # Clear the override target
+                target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
+                if self.entity_exists(target_entity):
+                    # Set to sentinel value (entity min is 5, so 0 indicates cleared)
+                    self.call_service("input_number/set_value",
+                                    entity_id=target_entity, value=0)
             self.trigger_recompute(f"room_{room_id}_timer_changed")
 
     def sensor_changed(self, entity, attribute, old, new, kwargs):
@@ -207,8 +213,8 @@ class PyHeat(hass.Hass):
                 now = datetime.now()
                 self.log(f"TRV feedback updated: {entity} = {feedback_percent}", level="DEBUG")
                 
-                # Check for unexpected valve position
-                self.trvs.check_feedback_for_unexpected_position(room_id, feedback_percent, now)
+                # Check for unexpected valve position (pass current boiler state to prevent fighting)
+                self.trvs.check_feedback_for_unexpected_position(room_id, feedback_percent, now, self.boiler.boiler_state)
                 
                 # If unexpected position detected, trigger immediate recompute
                 if room_id in self.trvs.unexpected_valve_positions:
@@ -255,11 +261,11 @@ class PyHeat(hass.Hass):
         """Initial recompute after startup."""
         self.log("Running initial recompute...")
         self.recompute_all(datetime.now())
-        self.first_boot = False
 
     def second_recompute(self, kwargs):
         """Second recompute after startup (for late-restoring sensors)."""
         self.log("Running second recompute (for late-restoring sensors)...")
+        self.first_boot = False
         self.recompute_all(datetime.now())
 
     def trigger_recompute(self, reason: str):
@@ -285,7 +291,14 @@ class PyHeat(hass.Hass):
             master_enable = self.get_state(C.HELPER_MASTER_ENABLE)
             if master_enable != "on":
                 self.log("Master enable is OFF, system idle")
-                # TODO: Set all valves to 0 and turn off boiler
+                # Turn off boiler if running
+                if self.entity_exists(C.HELPER_BOILER_ACTOR):
+                    if self.get_state(C.HELPER_BOILER_ACTOR) == "on":
+                        self.call_service("input_boolean/turn_off", entity_id=C.HELPER_BOILER_ACTOR)
+                        self.log("Boiler turned OFF (master disabled)")
+                # Close all valves
+                for room_id in self.config.rooms.keys():
+                    self.rooms.set_room_valve(room_id, 0, now)
                 return
         
         # Compute each room

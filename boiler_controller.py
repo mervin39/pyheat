@@ -412,7 +412,6 @@ class BoilerController:
                 action = attrs['attributes'].get("hvac_action", "unknown")
                 return action
             return "unknown"
-            return "unknown"
         except Exception:
             return "unknown"
     
@@ -607,36 +606,4 @@ class BoilerController:
     def _get_pump_overrun(self) -> int:
         """Get pump overrun time from config."""
         return self.config.boiler_config.get('pump_overrun_s', C.BOILER_PUMP_OVERRUN_DEFAULT)
-    def _set_boiler_off(self) -> None:
-        """Turn boiler off."""
-        boiler_entity = self.config.boiler_config.get('entity_id')
-        if not boiler_entity:
-            self.ad.log("No boiler entity configured", level="ERROR")
-            return
-        
-        try:
-            # Set mode to off (temperature doesn't matter when off)
-            self.ad.call_service('climate/set_hvac_mode',
-                            entity_id=boiler_entity,
-                            hvac_mode='off')
-            self.ad.log(f"Boiler OFF")
-        except Exception as e:
-            self.ad.log(f"Failed to turn boiler off: {e}", level="ERROR")
-    
-    def _set_boiler_setpoint(self, setpoint: float) -> None:
-        """Set boiler climate entity setpoint.
-        
-        Args:
-            setpoint: Target temperature in °C
-        """
-        boiler_entity = self.config.boiler_config.get('entity_id')
-        if not boiler_entity:
-            self.ad.log("No boiler entity configured", level="ERROR")
-            return
-        
-        try:
-            self.ad.call_service('climate/set_temperature',
-                            entity_id=boiler_entity,
-                            temperature=setpoint)
-        except Exception as e:
-            self.ad.log(f"Failed to turn boiler off: {e}", level="ERROR")
+

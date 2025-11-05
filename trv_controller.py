@@ -218,14 +218,22 @@ class TRVController:
             self.ad.log(f"TRV {room_id}: Error checking feedback: {e}", level="ERROR")
             del self._valve_command_state[state_key]
     
-    def check_feedback_for_unexpected_position(self, room_id: str, feedback_percent: int, now: datetime) -> None:
+    def check_feedback_for_unexpected_position(self, room_id: str, feedback_percent: int, now: datetime, boiler_state: str = None) -> None:
         """Check if TRV feedback shows unexpected valve position.
         
         Args:
             room_id: Room identifier
             feedback_percent: Current valve position from feedback sensor
             now: Current datetime
+            boiler_state: Current boiler state (optional, for safety check)
         """
+        # CRITICAL: During PENDING_OFF and PUMP_OVERRUN states, valve persistence is active
+        # and feedback changes are expected as valves are forcibly held open. Don't trigger
+        # corrections during these states to avoid fighting with the persistence logic.
+        if boiler_state and boiler_state in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN):
+            self.ad.log(f"TRV feedback ignored during {boiler_state} (valve persistence active)", level="DEBUG")
+            return
+        
         # Check if there's an active valve command in progress
         state_key = f"valve_cmd_{room_id}"
         if state_key in self._valve_command_state:
