@@ -2,6 +2,41 @@
 
 ## 2025-11-05: Architecture - Modular Refactoring 🏗️
 
+### Critical Bugfix: Room Mode Case Sensitivity
+**Fixed:** Room mode comparisons were case-sensitive, causing manual/auto/off mode logic to fail.
+
+**Root Cause:**
+- Home Assistant `input_select` entities use capitalized values: "Auto", "Manual", "Off"
+- Scheduler and room controller were comparing against lowercase: "auto", "manual", "off"
+- Mode checks always failed, causing manual mode to fall through to schedule mode
+- This prevented manual setpoint from being used (showed default schedule target instead)
+
+**Impact:**
+- Manual mode didn't work - rooms stayed at schedule temperatures instead of manual setpoint
+- Example: Pete set to Manual 25°C showed target of 14.0°C (schedule default)
+- Call-for-heat logic failed due to wrong target temperature
+- Affected all rooms in all modes (manual/auto/off)
+
+**Fix:**
+Added `.lower()` normalization in `room_controller.py` to match original monolithic implementation:
+```python
+room_mode = self.ad.get_state(mode_entity) if self.ad.entity_exists(mode_entity) else "off"
+room_mode = room_mode.lower() if room_mode else "auto"
+```
+
+**Testing:**
+- ✅ Manual mode: Pete 25°C target with 20.6°C actual → 100% valve, boiler ON
+- ✅ Auto mode: Falls back to schedule target correctly
+- ✅ Off mode: No target, no heating demand
+- ✅ Multiple rooms: Pete + lounge both calling for heat simultaneously
+- ✅ System idle: All rooms in auto with temps above target → boiler off
+
+**Commits:**
+- `c5ae43a` - Initial modular refactoring
+- `ef9a06d` - Documentation (MODULAR_ARCHITECTURE.md)
+- `e80331e` - Fix HTTP 400 errors (number entity service calls)
+- `9a9a635` - Fix room mode case sensitivity
+
 ### Major Refactoring: Modular Architecture
 **What:** Refactored monolithic 2,373-line `app.py` into clean modular architecture with 8 focused modules plus thin orchestrator.
 
