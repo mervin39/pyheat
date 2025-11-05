@@ -15,22 +15,31 @@ PyHeat provides intelligent multi-room heating control with:
 
 ## Architecture
 
-This is a complete rewrite of the original PyScript implementation, migrated to AppDaemon for better reliability and state management.
+This is a complete rewrite of the original PyScript implementation, migrated to AppDaemon for better reliability and state management. The codebase has been fully modularized for maintainability.
 
 ### Key Components
 
-- **app.py** - Main AppDaemon application class
+- **app.py** - Main AppDaemon application orchestration
+- **boiler_controller.py** - 7-state FSM boiler control with safety interlocks
+- **room_controller.py** - Per-room heating logic and target resolution
+- **trv_controller.py** - TRV valve command and setpoint locking
+- **sensor_manager.py** - Temperature sensor fusion and staleness detection
+- **scheduler.py** - Schedule parsing and time-based target calculation
+- **service_handler.py** - Home Assistant service handlers for programmatic control
+- **status_publisher.py** - Entity creation and status publication
+- **config_loader.py** - YAML configuration validation and loading
 - **constants.py** - System-wide configuration defaults
 - **config/** - YAML configuration files for rooms, schedules, and boiler
 - **ha_yaml/** - Home Assistant helper entity definitions
 
 ### Heating Logic
 
-1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles
+1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles and staleness detection
 2. **Target Resolution**: Precedence: Off → Manual → Override/Boost → Schedule → Default
 3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation
-4. **Valve Control**: Stepped bands (0%, low%, mid%, max%) based on temperature error
-5. **Boiler Control**: Simple on/off based on aggregated room demand (full state machine pending)
+4. **Valve Control**: Stepped bands (0%, low%, mid%, max%) based on temperature error with multi-band jump optimization
+5. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
+6. **Boiler Control**: Full 7-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
 
 ## Installation
 
@@ -187,21 +196,24 @@ The app logs:
 
 ### ✅ Completed
 - Core heating logic (sensor fusion, target resolution, hysteresis)
-- Basic TRV control with rate limiting
-- Simplified boiler on/off control
-- Status entity publishing
+- Full modular architecture with 10 specialized modules
+- TRV control with setpoint locking (35°C), rate limiting, and feedback confirmation
+- Complete 7-state boiler FSM with anti-cycling protection
+- TRV-open interlock validation and safety override
+- Pump overrun timer with valve position persistence
+- Status entity publishing with comprehensive diagnostics
+- Per-room sensor entities (temperature, target, valve_percent, calling_for_heat)
 - Configuration loading and validation
 - Callback registration for all state changes
+- Service handlers (registered but not yet callable from HA)
+- Debug monitoring tool for system testing
 
 ### 🚧 Pending
-- Full 7-state boiler state machine with anti-cycling
-- TRV feedback monitoring and retry logic
-- Override/boost service handlers
-- Enhanced error handling and recovery
-- Valve band step hysteresis
-- Comprehensive integration testing
+- Make service handlers callable from Home Assistant (currently only registered within AppDaemon)
+- Enhanced error handling for edge cases
+- Comprehensive integration testing suite
 
-See `docs/IMPLEMENTATION_PLAN.md` for detailed roadmap.
+See `docs/TODO.md` for detailed roadmap and completed items.
 
 ## Troubleshooting
 

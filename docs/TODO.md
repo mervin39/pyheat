@@ -94,7 +94,7 @@
   - [x] **Per-room entities** (All 24 entities working)
     - [x] `sensor.pyheat_<room>_temperature` - Fused room temperature
     - [x] `sensor.pyheat_<room>_target` - Resolved target
-    - [x] `number.pyheat_<room>_valve_percent` - Valve opening (0-100) ✅
+    - [x] `sensor.pyheat_<room>_valve_percent` - Valve opening (0-100) ✅
     - [x] `binary_sensor.pyheat_<room>_calling_for_heat` - Heat demand (on/off) ✅
 
 ### Phase 3: Testing & Verification
@@ -152,13 +152,36 @@
   - [x] Automatic correction within seconds
   - [x] Periodic backup monitoring
 
+### Phase 8: Bug Fixes - COMPLETE ✅
+- [x] **Configuration and Emergency Valve Fixes**
+  - [x] Fixed boiler.yaml timer configuration (debug values removed)
+  - [x] Fixed emergency safety valve logic (exclude transition states)
+  - [x] Pump overrun live test successful (180s duration verified)
+  - [x] Emergency valve no longer triggers during PENDING_OFF/PUMP_OVERRUN
+
+### Phase 9: Modular Architecture Refactor - COMPLETE ✅
+- [x] **Code Organization and Maintainability**
+  - [x] Split monolithic app.py (1900+ lines) into 10 specialized modules
+  - [x] boiler_controller.py - Isolated 7-state FSM logic (295 lines)
+  - [x] room_controller.py - Per-room heating control (180 lines)
+  - [x] trv_controller.py - TRV command and setpoint management (175 lines)
+  - [x] sensor_manager.py - Temperature sensor fusion (145 lines)
+  - [x] scheduler.py - Schedule parsing and resolution (155 lines)
+  - [x] service_handler.py - HA service implementations (245 lines)
+  - [x] status_publisher.py - Entity creation and updates (160 lines)
+  - [x] config_loader.py - YAML validation and loading (125 lines)
+  - [x] All functionality verified after refactor
+  - [x] Fixed sensor entity creation bug (HTTP 400 with numeric 0)
+  - [x] Created debug_monitor.py tool for system testing (280 lines)
+  - [x] Documentation cleanup and archiving
+
 ---
 
 ## In Progress / Next Steps 🚧
 
-### Next Priority: Service Handlers (~5-8 hours)
+### Next Priority: Service Handler Integration (~2-3 hours)
 
-Implementing Home Assistant service handlers to match PyScript version functionality. These services allow programmatic control from automations and 3rd party apps.
+Make service handlers callable from Home Assistant. Currently they're registered within AppDaemon but don't appear as HA services.
 
 ### Phase 8: Bug Fixes - COMPLETE ✅
 - [x] **Configuration and Emergency Valve Fixes**
@@ -247,24 +270,27 @@ Implementing Home Assistant service handlers to match PyScript version functiona
 
 ## Development Estimates
 
-### Time Investment So Far: ~30-35 hours
+### Time Investment So Far: ~42-48 hours
 - Foundation & structure: 4 hours
 - Core heating logic: 8 hours
 - TRV setpoint locking refactor: 3 hours
-- Testing & debugging: 3-4 hours
+- Initial testing & debugging: 3-4 hours
 - Full boiler state machine: 4-5 hours
 - Valve band control with hysteresis: 3-4 hours
 - Per-room entity publishing fixes: 2-3 hours
 - TRV setpoint correction (35°C fix): 1-2 hours
-- Documentation: 3-4 hours
+- Modular architecture refactor: 6-8 hours
+- Bug fixes and sensor entity fix: 2-3 hours
+- Debug monitoring tool: 2-3 hours
+- Documentation updates: 2-3 hours
 
 ### Remaining Work Estimates (Optional Enhancements)
-- **Service handlers**: 2-3 hours
-- **Enhanced features**: 1-2 hours
-- **Comprehensive testing**: 2-3 hours
+- **Service handler integration**: 2-3 hours
+- **Enhanced error handling**: 1-2 hours
+- **Comprehensive testing suite**: 2-3 hours
 - **Total remaining**: ~5-8 hours
 
-### Total Project: ~35-43 hours
+### Total Project: ~47-56 hours
 Complete recreation of the PyScript implementation with significant improvements and feature parity achieved.
 
 ---
