@@ -189,7 +189,7 @@ class HAMonitor:
         f.write("Timers: MinOff=Min Off, MinOn=Min On, OffDly=Off Delay, Pump=Pump Overrun\n")
         f.write("\n" + "=" * 100 + "\n\n")
     
-    def log_all_states(self, reason: str = ""):
+    def log_all_states(self, reason: str = "", changed_entities: list = None):
         """Log all monitored entities in compact table format"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         
@@ -198,6 +198,9 @@ class HAMonitor:
         for entity_id in MONITORED_ENTITIES:
             state_data = self.get_state(entity_id)
             states[entity_id] = state_data
+        
+        # Create set of changed entities for quick lookup
+        changed_set = set(changed_entities) if changed_entities else set()
         
         # Write to log file in table format
         with open(self.output_file, 'a') as f:
@@ -215,6 +218,9 @@ class HAMonitor:
                 for entity_id in row_entities:
                     abbr = ABBREVIATIONS.get(entity_id, entity_id[:10])
                     value = self.get_value(states[entity_id])
+                    # Add asterisk if this entity changed
+                    if entity_id in changed_set:
+                        value = value + "*"
                     row_parts.append(f"{abbr:8s} = {value:15s}")
                 rows.append(" | ".join(row_parts))
             
@@ -261,8 +267,10 @@ class HAMonitor:
             
             # If anything changed (excluding temp sensors), log everything
             if changed:
-                reason = f"CHANGE DETECTED: {', '.join(changed_entities)}"
-                self.log_all_states(reason)
+                # Create readable reason with abbreviations
+                abbr_list = [ABBREVIATIONS.get(e, e) for e in changed_entities]
+                reason = f"CHANGE DETECTED: {', '.join(abbr_list)}"
+                self.log_all_states(reason, changed_entities)
 
 def main():
     # Load environment
