@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Pyheat - Home Heating Controller for AppDaemon
 
@@ -77,6 +78,9 @@ class PyHeat(hass.Hass):
         
         # Initialize sensor values from current state
         self.initialize_sensor_values()
+        
+        # Initialize TRV state from current valve positions
+        self.initialize_trv_state()
         
         # Schedule periodic recompute
         self.run_every(self.periodic_recompute, "now+5", C.RECOMPUTE_INTERVAL_S)
@@ -287,13 +291,50 @@ class PyHeat(hass.Hass):
                     self.sensor_last_values[entity_id] = (value, last_updated_naive)
                     
                     age_minutes = (now - last_updated_naive).total_seconds() / 60
-                    self.log(f"Initialized {entity_id} for room '{room_id}': {value}°C (age: {age_minutes:.1f}min)", 
+                    self.log(f"Initialized {entity_id} for room '{room_id}': {value}C (age: {age_minutes:.1f}min)", 
                             level="DEBUG")
                     
                 except (ValueError, TypeError, KeyError) as e:
                     self.log(f"Failed to initialize sensor {entity_id}: {e}", level="WARNING")
         
         self.log(f"Initialized {len(self.sensor_last_values)} sensors")
+    
+    def initialize_trv_state(self):
+        """Initialize TRV command tracking from current valve feedback on startup.
+        
+        This prevents unnecessary valve commands on first recompute and ensures
+        rate limiting works correctly from startup.
+        """
+        self.log("Initializing TRV state from current valve positions...")
+        now = datetime.now()
+        
+        for room_id, room_config in self.rooms.items():
+            if room_config.get('disabled'):
+                continue
+            
+            try:
+                # Get current valve position from feedback
+                fb_valve_entity = room_config['trv']['fb_valve']
+                fb_valve_str = self.get_state(fb_valve_entity)
+                
+                if fb_valve_str in [None, "unknown", "unavailable"]:
+                    self.log(f"TRV {room_id}: Feedback not available during initialization", level="DEBUG")
+                    continue
+                
+                fb_valve = int(float(fb_valve_str))
+                
+                # Initialize tracking as if we just commanded this position
+                # This prevents sending duplicate commands on first recompute
+                self.trv_last_commanded[room_id] = fb_valve
+                # Don't set trv_last_update - let first command happen without rate limiting
+                # This ensures if the desired position differs from current, we update immediately
+                
+                self.log(f"TRV {room_id}: Initialized at {fb_valve}%", level="DEBUG")
+                
+            except (ValueError, TypeError) as e:
+                self.log(f"Failed to initialize TRV state for {room_id}: {e}", level="WARNING")
+        
+        self.log(f"Initialized TRV state for {len(self.trv_last_commanded)} rooms")
 
     # ========================================================================
     # Callback Handlers
@@ -343,7 +384,7 @@ class PyHeat(hass.Hass):
             value = float(new)
             now = datetime.now()
             self.sensor_last_values[entity] = (value, now)
-            self.log(f"Sensor '{entity}' for room '{room_id}' updated: {value}°C", level="DEBUG")
+            self.log(f"Sensor '{entity}' for room '{room_id}' updated: {value}C", level="DEBUG")
             self.trigger_recompute(f"sensor_{entity}_changed")
         except (ValueError, TypeError):
             self.log(f"Invalid sensor value for '{entity}': {new}", level="WARNING")
@@ -381,7 +422,7 @@ class PyHeat(hass.Hass):
             if abs(new_temp - C.TRV_LOCKED_SETPOINT_C) > 0.1:
                 self.log(
                     f"TRV setpoint change detected for room '{room_id}': "
-                    f"{old}°C -> {new_temp}°C (expected {C.TRV_LOCKED_SETPOINT_C}°C), "
+                    f"{old}C -> {new_temp}C (expected {C.TRV_LOCKED_SETPOINT_C}C), "
                     f"correcting immediately",
                     level="WARNING"
                 )
@@ -394,21 +435,21 @@ class PyHeat(hass.Hass):
     # ========================================================================
 
     def lock_all_trv_setpoints(self, kwargs=None):
-        """Lock all TRV setpoints to 35°C to force them into 'open' mode.
+        """Lock all TRV setpoints to 35C to force them into 'open' mode.
         
         This allows us to control valve position directly via opening_degree only.
         The TRV's internal controller will think the room is cold and should be open,
         letting us control the actual position via opening_degree.
         Called on startup and periodically to handle accidental user changes.
         """
-        self.log("Locking all TRV setpoints to 35°C...")
+        self.log("Locking all TRV setpoints to 35C...")
         for room_id, room in self.rooms.items():
             if room.get('disabled'):
                 continue
             self.lock_trv_setpoint(room_id)
 
     def lock_trv_setpoint(self, room_id: str):
-        """Lock a single TRV setpoint to 35°C (maximum).
+        """Lock a single TRV setpoint to 35C (maximum).
         
         Args:
             room_id: Room identifier
@@ -431,12 +472,12 @@ class PyHeat(hass.Hass):
         
         # Set to locked value if different
         if current_temp is None or abs(current_temp - C.TRV_LOCKED_SETPOINT_C) > 0.1:
-            self.log(f"Locking TRV setpoint for room '{room_id}': {current_temp}°C -> {C.TRV_LOCKED_SETPOINT_C}°C")
+            self.log(f"Locking TRV setpoint for room '{room_id}': {current_temp}C -> {C.TRV_LOCKED_SETPOINT_C}C")
             self.call_service("climate/set_temperature",
                             entity_id=climate_entity,
                             temperature=C.TRV_LOCKED_SETPOINT_C)
         else:
-            self.log(f"TRV setpoint for room '{room_id}' already locked at {C.TRV_LOCKED_SETPOINT_C}°C", level="DEBUG")
+            self.log(f"TRV setpoint for room '{room_id}' already locked at {C.TRV_LOCKED_SETPOINT_C}C", level="DEBUG")
 
     def check_trv_setpoints(self, kwargs):
         """Periodic callback to check and correct TRV setpoints.
@@ -456,7 +497,7 @@ class PyHeat(hass.Hass):
                     
                     # Check if setpoint has drifted
                     if abs(current_temp - C.TRV_LOCKED_SETPOINT_C) > 0.1:
-                        self.log(f"TRV setpoint drift detected for room '{room_id}': {current_temp}°C (expected {C.TRV_LOCKED_SETPOINT_C}°C)", level="WARNING")
+                        self.log(f"TRV setpoint drift detected for room '{room_id}': {current_temp}C (expected {C.TRV_LOCKED_SETPOINT_C}C)", level="WARNING")
                         self.lock_trv_setpoint(room_id)
             except (ValueError, TypeError) as e:
                 self.log(f"Failed to check TRV setpoint for room '{room_id}': {e}", level="WARNING")
@@ -559,7 +600,7 @@ class PyHeat(hass.Hass):
                 valve_percent = self.compute_valve_percent(room_id, target, temp, calling)
                 room_valve_percents[room_id] = valve_percent
                 
-                self.log(f"Room '{room_id}': temp={temp:.1f}°C, target={target:.1f}°C, "
+                self.log(f"Room '{room_id}': temp={temp:.1f}C, target={target:.1f}C, "
                         f"calling={calling}, valve={valve_percent}%", level="DEBUG")
             else:
                 # Room is off, stale, or has no target
@@ -675,7 +716,7 @@ class PyHeat(hass.Hass):
         Precedence (highest wins): off → manual → override → schedule/default
         
         Returns:
-            Target temperature in °C, or None if room is off
+            Target temperature in C, or None if room is off
             Note: Manual mode returns target even if sensors are stale
         """
         # Room off → no target
@@ -771,8 +812,8 @@ class PyHeat(hass.Hass):
         
         Args:
             room_id: Room identifier
-            target: Target temperature (°C)
-            temp: Current temperature (°C)
+            target: Target temperature (C)
+            temp: Current temperature (C)
             
         Returns:
             True if room should call for heat, False otherwise
@@ -819,8 +860,8 @@ class PyHeat(hass.Hass):
         
         Args:
             room_id: Room identifier
-            target: Target temperature (°C)
-            temp: Current temperature (°C)
+            target: Target temperature (C)
+            temp: Current temperature (C)
             calling: Whether room is calling for heat
             
         Returns:
@@ -897,7 +938,7 @@ class PyHeat(hass.Hass):
         if new_band != current_band:
             self.log(
                 f"Room '{room_id}': valve band {current_band} → {new_band} "
-                f"(error={error:.2f}°C, valve={valve_pct}%)",
+                f"(error={error:.2f}C, valve={valve_pct}%)",
                 level="INFO"
             )
         
@@ -910,7 +951,7 @@ class PyHeat(hass.Hass):
     def set_trv_valve(self, room_id: str, percent: int, now: datetime):
         """Set TRV valve position with non-blocking feedback confirmation.
         
-        With TRV setpoint locked at 35°C (maximum), the TRV is always in "open" mode,
+        With TRV setpoint locked at 35C (maximum), the TRV is always in "open" mode,
         so we only need to control opening_degree (not closing_degree).
         
         Uses scheduler-based delays instead of blocking sleep() to avoid
@@ -1106,7 +1147,7 @@ class PyHeat(hass.Hass):
         """Set boiler setpoint (binary control mode).
         
         Args:
-            setpoint: Target temperature in °C
+            setpoint: Target temperature in C
         """
         try:
             # Determine if we want boiler ON or OFF based on setpoint
@@ -1120,7 +1161,7 @@ class PyHeat(hass.Hass):
                 self.call_service("climate/set_temperature",
                                 entity_id=self.boiler_entity,
                                 temperature=setpoint)
-                self.log(f"Boiler: set hvac_mode=heat, temperature={setpoint}°C", level="DEBUG")
+                self.log(f"Boiler: set hvac_mode=heat, temperature={setpoint}C", level="DEBUG")
             else:
                 # Turn OFF: set mode to off (setpoint doesn't matter when off)
                 self.call_service("climate/set_hvac_mode",
@@ -1672,8 +1713,8 @@ class PyHeat(hass.Hass):
         """Publish per-room entities for detailed room status.
         
         Publishes the following entities for each room:
-        - sensor.pyheat_<room>_temperature (°C)
-        - sensor.pyheat_<room>_target (°C)
+        - sensor.pyheat_<room>_temperature (C)
+        - sensor.pyheat_<room>_target (C)
         - sensor.pyheat_<room>_state (off/manual/auto/stale)
         - number.pyheat_<room>_valve_percent (0-100)
         - binary_sensor.pyheat_<room>_calling_for_heat (on/off)
@@ -1703,7 +1744,7 @@ class PyHeat(hass.Hass):
             temp_entity,
             state=temp_state,
             attributes={
-                "unit_of_measurement": "°C",
+                "unit_of_measurement": "C",
                 "device_class": "temperature",
                 "state_class": "measurement",
                 "friendly_name": f"{room_name} Temperature"
@@ -1717,7 +1758,7 @@ class PyHeat(hass.Hass):
             target_entity,
             state=target_state,
             attributes={
-                "unit_of_measurement": "°C",
+                "unit_of_measurement": "C",
                 "device_class": "temperature",
                 "state_class": "measurement",
                 "friendly_name": f"{room_name} Target"
@@ -1800,7 +1841,7 @@ class PyHeat(hass.Hass):
         
         Args:
             room (str): Room ID (required)
-            target (float): Target temperature in °C (required)
+            target (float): Target temperature in C (required)
             minutes (int): Duration in minutes (required)
         """
         room = kwargs.get('room')
@@ -1833,15 +1874,15 @@ class PyHeat(hass.Hass):
             return {"success": False, "error": "minutes must be positive"}
         
         if target < 10.0 or target > 35.0:
-            self.log(f"pyheat.override: target {target}°C out of range (10-35°C)", level="ERROR")
-            return {"success": False, "error": f"target {target}°C out of range (10-35°C)"}
+            self.log(f"pyheat.override: target {target}C out of range (10-35C)", level="ERROR")
+            return {"success": False, "error": f"target {target}C out of range (10-35C)"}
         
         # Validate room exists
         if room not in self.rooms:
             self.log(f"pyheat.override: room '{room}' not found", level="ERROR")
             return {"success": False, "error": f"room '{room}' not found"}
         
-        self.log(f"pyheat.override: room={room}, target={target}°C, minutes={minutes}")
+        self.log(f"pyheat.override: room={room}, target={target}C, minutes={minutes}")
         
         try:
             # Set override target in helper
@@ -1869,7 +1910,7 @@ class PyHeat(hass.Hass):
         
         Args:
             room (str): Room ID (required)
-            delta (float): Temperature delta in °C (can be negative) (required)
+            delta (float): Temperature delta in C (can be negative) (required)
             minutes (int): Duration in minutes (required)
         """
         room = kwargs.get('room')
@@ -1902,15 +1943,15 @@ class PyHeat(hass.Hass):
             return {"success": False, "error": "minutes must be positive"}
         
         if delta < -10.0 or delta > 10.0:
-            self.log(f"pyheat.boost: delta {delta}°C out of range (-10 to +10°C)", level="ERROR")
-            return {"success": False, "error": f"delta {delta}°C out of range (-10 to +10°C)"}
+            self.log(f"pyheat.boost: delta {delta}C out of range (-10 to +10C)", level="ERROR")
+            return {"success": False, "error": f"delta {delta}C out of range (-10 to +10C)"}
         
         # Validate room exists
         if room not in self.rooms:
             self.log(f"pyheat.boost: room '{room}' not found", level="ERROR")
             return {"success": False, "error": f"room '{room}' not found"}
         
-        self.log(f"pyheat.boost: room={room}, delta={delta:+.1f}°C, minutes={minutes}")
+        self.log(f"pyheat.boost: room={room}, delta={delta:+.1f}C, minutes={minutes}")
         
         try:
             # Get current target to calculate boost target
@@ -2048,7 +2089,7 @@ class PyHeat(hass.Hass):
         
         Args:
             room (str): Room ID (required)
-            target (float): New default target temperature in °C (required)
+            target (float): New default target temperature in C (required)
         """
         room = kwargs.get('room')
         target = kwargs.get('target')
@@ -2070,15 +2111,15 @@ class PyHeat(hass.Hass):
             return {"success": False, "error": f"invalid target type: {e}"}
         
         if target < 5.0 or target > 35.0:
-            self.log(f"pyheat.set_default_target: target {target}°C out of range (5-35°C)", level="ERROR")
-            return {"success": False, "error": f"target {target}°C out of range (5-35°C)"}
+            self.log(f"pyheat.set_default_target: target {target}C out of range (5-35C)", level="ERROR")
+            return {"success": False, "error": f"target {target}C out of range (5-35C)"}
         
         # Validate room exists
         if room not in self.schedules:
             self.log(f"pyheat.set_default_target: room '{room}' not found in schedules", level="ERROR")
             return {"success": False, "error": f"room '{room}' not found in schedules"}
         
-        self.log(f"pyheat.set_default_target: room={room}, target={target}°C")
+        self.log(f"pyheat.set_default_target: room={room}, target={target}C")
         
         try:
             # Update schedules in memory
@@ -2092,7 +2133,7 @@ class PyHeat(hass.Hass):
             with open(schedules_file, 'w') as f:
                 yaml.dump(self.schedules, f, default_flow_style=False, sort_keys=False)
             
-            self.log(f"Updated schedules.yaml: {room} default_target = {target}°C")
+            self.log(f"Updated schedules.yaml: {room} default_target = {target}C")
             
             # Trigger immediate recompute
             self.run_in(lambda kwargs: self.recompute_all("set_default_target service"), 1)
