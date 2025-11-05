@@ -1754,7 +1754,6 @@ class PyHeat(hass.Hass):
                     "friendly_name": f"{room_name} Valve"
                 }
             )
-            self.log(f"DEBUG: Successfully set {valve_entity} to {valve_state}", level="DEBUG")
         except Exception as e:
             self.log(f"ERROR: Failed to set {valve_entity}: {type(e).__name__}: {e}", level="ERROR")
             import traceback
@@ -1770,7 +1769,6 @@ class PyHeat(hass.Hass):
                     "friendly_name": f"{room_name} Calling For Heat"
                 }
             )
-            self.log(f"DEBUG: Successfully set {cfh_entity} to {'on' if calling else 'off'}", level="DEBUG")
         except Exception as e:
             self.log(f"ERROR: Failed to set {cfh_entity}: {type(e).__name__}: {e}", level="ERROR")
             import traceback
