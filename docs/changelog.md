@@ -1,5 +1,38 @@
 # PyHeat Changelog
 
+## 2025-11-05: Debug Monitoring Tool 🔧
+
+### New Feature: Debug Monitor for System Testing
+**Status:** COMPLETE ✅  
+**Location:** `debug_monitor.py` (280 lines)  
+**Purpose:** Testing tool for debugging boiler interlock and timing behavior
+
+**Features:**
+- Monitors 41 entities across all 6 rooms
+- Per room: temperature, setpoint, mode, Z2M valve feedback, PyHeat valve calc, calling status
+- System: 4 boiler timers, 1 boiler state
+- Compact table format with entity abbreviations (e.g., `Vp-Pet = 50%*`)
+- Logs snapshots whenever any monitored entity changes (except temperature)
+- Changed values highlighted with asterisk (`*`)
+- Change reason shows abbreviated entity names
+
+**Usage:**
+```bash
+python3 debug_monitor.py [output_file]
+```
+
+**Output Example:**
+```
+[2025-11-05 23:06:49.578] CHANGE DETECTED: Setp-Pet, Vp-Pet
+----------------------------------------------------------------------------------------------------
+Temp-Pet = 20.8°C          | Temp-Gam = 16.9°C          | Temp-Lou = 18.9°C          | Temp-Abb = 19.1°C         
+Setp-Pet = 22.5°C*         | Setp-Gam = 17.1°C          | Setp-Lou = 20.0°C          | Setp-Abb = 20.0°C         
+Vp-Pet   = 100%*           | Vp-Gam   = 0%              | Vp-Lou   = 0%              | Vp-Abb   = 0%             
+Call-Pet = on              | Call-Gam = on              | Call-Lou = off             | Call-Abb = off            
+```
+
+---
+
 ## 2025-11-05: Sensor Creation Fix (Final) 🛠️
 
 ### Bug Fix #6: Valve Position Sensor HTTP 400 Error (SOLVED)
