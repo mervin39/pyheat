@@ -39,14 +39,26 @@ class StatusPublisher:
             boiler_reason: Reason for boiler state
             now: Current datetime
         """
-        # Build state string
-        if any_calling:
+        # Build state string based on boiler state machine (like monolithic version)
+        if boiler_state == C.STATE_ON:
             state = f"heating ({len(active_rooms)} room{'s' if len(active_rooms) != 1 else ''})"
+        elif boiler_state == C.STATE_PUMP_OVERRUN:
+            state = "pump overrun"
+        elif boiler_state == C.STATE_PENDING_ON:
+            state = "pending on (waiting for TRVs)"
+        elif boiler_state == C.STATE_PENDING_OFF:
+            state = "pending off (delay)"
+        elif boiler_state == C.STATE_INTERLOCK_BLOCKED:
+            state = "blocked (interlock)"
         else:
             state = "idle"
         
         # Build attributes
         attrs = {
+            'any_call_for_heat': any_calling,
+            'active_rooms': active_rooms,
+            'room_calling_count': len(active_rooms),
+            'total_rooms': len(self.config.rooms),
             'rooms': {},
             'boiler_state': boiler_state,
             'boiler_reason': boiler_reason,

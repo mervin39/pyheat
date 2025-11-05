@@ -5,8 +5,9 @@ boiler:
   # Boiler control entity
   # Currently: Nest Thermostat 3rd Gen via OpenTherm (binary on/off only)
   # Future: Ihor Melnyk OT shield on ESP32 (full OpenTherm modulation)
-  entity_id: climate.boiler
-  
+  # entity_id: climate.boiler
+  entity_id: climate.dummy
+
   # OpenTherm mode
   # false: Binary on/off control via setpoint (Nest mode)
   # true: Full OpenTherm modulation (future implementation)
@@ -22,15 +23,15 @@ boiler:
   # Pump overrun handling
   # Boiler pump continues to run after heating stops to dissipate residual heat
   # TRVs must remain open during this period to allow water to flow
-  pump_overrun_s: 180  # ~3 minutes (adjust after measuring actual boiler behavior)
+  pump_overrun_s: 30  # ~3 minutes (adjust after measuring actual boiler behavior)
   
   # Anti-short-cycling protection
   # Prevents rapid on/off cycles that damage the boiler and waste energy
   anti_cycling:
-    # Minimum time boiler must stay ON once started (seconds)
-    min_on_time_s: 180
-    # Minimum time boiler must stay OFF once stopped (seconds)
-    min_off_time_s: 180
+    # Minimum time boiler must stay ON once started (defautl 180 seconds)
+    min_on_time_s: 30
+    # Minimum time boiler must stay OFF once stopped (default 180 seconds)
+    min_off_time_s: 30
     # Delay before turning off when demand stops (seconds)
     # Prevents cycling when users adjust setpoints or rooms briefly stop calling
     off_delay_s: 30
