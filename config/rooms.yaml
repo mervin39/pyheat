@@ -49,7 +49,7 @@ rooms:
     name: "Abby's Room"
     precision: 1
     sensors:
-      - entity_id: sensor.roomtemp_abby
+      - entity_id: sensor.abby_xiaomi_temperature
         role: primary
         timeout_m: 180
     trv:
