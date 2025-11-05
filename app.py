@@ -1430,24 +1430,24 @@ class PyHeat(hass.Hass):
         if self.boiler_state_entry_time is None:
             self.boiler_state_entry_time = now
         
-        # Calculate valve persistence if needed
-        persisted_valves, interlock_ok, interlock_reason = self.calculate_valve_persistence(
+        # Calculate valve persistence if needed (for interlock safety)
+        calculated_valve_persistence, interlock_ok, interlock_reason = self.calculate_valve_persistence(
             rooms_calling_for_heat,
             room_valve_percents
         )
         
         # Calculate total valve opening
-        total_valve = sum(persisted_valves.get(room_id, 0) for room_id in rooms_calling_for_heat)
+        total_valve = sum(calculated_valve_persistence.get(room_id, 0) for room_id in rooms_calling_for_heat)
         
         # Merge persisted valves with all room valve percents for pump overrun tracking
         # This ensures we save ALL room valve positions, not just calling rooms
         all_valve_positions = room_valve_percents.copy()
-        all_valve_positions.update(persisted_valves)
+        all_valve_positions.update(calculated_valve_persistence)
         
         # Check TRV feedback confirmation
         trv_feedback_ok = self._check_trv_feedback_confirmed(
             rooms_calling_for_heat,
-            persisted_valves
+            calculated_valve_persistence
         )
         
         # Read current HVAC action
@@ -1462,7 +1462,8 @@ class PyHeat(hass.Hass):
         # State machine logic
         reason = ""
         valves_must_stay_open = False
-        persisted_valves = {}  # Initialize valve persistence dict
+        # Initialize with calculated interlock persistence (will be overridden for pump overrun states)
+        persisted_valves = calculated_valve_persistence.copy()
         
         if self.boiler_state == C.STATE_OFF:
             if has_demand and interlock_ok:

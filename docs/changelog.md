@@ -1,5 +1,62 @@
 # PyHeat Changelog
 
+## 2025-11-05: CRITICAL - Interlock Persistence Bug Fixed 🔧
+
+### Issue: Valve Stuck at Band Percentage Instead of 100%
+**Symptom:** When only one room was calling for heat (lounge), the calculated valve band was 40%. The interlock persistence logic correctly calculated that the valve should be at 100% (to meet the minimum 100% total valve opening), but the valve command was never sent. The valve remained stuck at 40% for over 71 minutes.
+
+**Root Cause:**
+Variable name collision in `update_boiler_state()`:
+1. Line 1434: `persisted_valves` assigned from `calculate_valve_persistence()` with correct 100% value
+2. Line 1465: `persisted_valves = {}` **overwrote** the calculated values with empty dict
+3. Result: Persistence values were calculated correctly but immediately discarded
+4. The code only populated `persisted_valves` for PENDING_OFF and PUMP_OVERRUN states (saved positions)
+5. For INTERLOCK_BLOCKED and normal heating states, `persisted_valves` remained empty
+6. Empty dict meant no persistence commands were sent, valve stayed at band percentage (40%)
+
+**Timeline from Production (2025-11-05 08:00 - 08:15):**
+```
+- Lounge calling for heat, temp below target
+- Valve band calculated: 40%
+- Interlock persistence calculated: 100% (only 1 room, needs 100% total)
+- Logs showed: "INTERLOCK PERSISTENCE: total from bands 40% < min 100% -> setting 1 room(s) to 100%"
+- BUT: No "Setting TRV" command sent to change from 40% to 100%
+- Valve stuck at 40% for 71+ minutes
+- Warning: "Boiler has been waiting for TRV feedback for 71 minutes. Rooms: lounge"
+```
+
+**Fix:**
+Renamed variable at line 1434 to avoid collision:
+```python
+# Before:
+persisted_valves, interlock_ok, interlock_reason = self.calculate_valve_persistence(...)
+# ... later ...
+persisted_valves = {}  # Overwrote calculated values!
+
+# After:
+calculated_valve_persistence, interlock_ok, interlock_reason = self.calculate_valve_persistence(...)
+# ... later ...
+persisted_valves = calculated_valve_persistence.copy()  # Preserve calculated values
+```
+
+Now `persisted_valves` is initialized with the calculated interlock persistence values, which are only overridden for pump overrun states (where saved positions are needed).
+
+**Verification (08:15:30):**
+```
+- Command sent: "Setting TRV for room 'lounge': 100% open (was 0%)"
+- TRV confirmed: "TRV feedback for room 'lounge' updated: 100"
+- Boiler state: "pending_on → on (TRV feedback confirmed)"
+- Saved positions: "{'lounge': 100, ...}" (correct!)
+```
+
+**Impact:**
+- Interlock persistence now works correctly for all states
+- Single-room heating scenarios properly command 100% valve opening
+- Prevents boiler running with insufficient valve opening (safety issue)
+- Eliminates false "waiting for TRV feedback" warnings
+
+---
+
 ## 2025-11-04: Terminology Cleanup - Valve Persistence Renaming 🏷️
 
 ### Resolved Naming Conflict: "Override" vs "Persistence"
