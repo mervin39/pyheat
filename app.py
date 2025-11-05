@@ -61,6 +61,9 @@ class PyHeat(hass.Hass):
         # Valve command state tracking (for non-blocking commands)
         self._valve_command_state: Dict[str, Dict] = {}
         
+        # Configuration file monitoring
+        self.config_file_mtimes = {}  # {filepath: mtime}
+        
         # Timing
         self.last_recompute = None
         self.recompute_count = 0
@@ -87,6 +90,9 @@ class PyHeat(hass.Hass):
         
         # Schedule TRV setpoint monitoring (check every 5 minutes)
         self.run_every(self.check_trv_setpoints, "now+10", C.TRV_SETPOINT_CHECK_INTERVAL_S)
+        
+        # Schedule config file monitoring (check every 30 seconds)
+        self.run_every(self.check_config_files, "now+15", 30)
         
         # Lock all TRV setpoints immediately (before initial recompute)
         self.run_in(self.lock_all_trv_setpoints, 3)
@@ -117,6 +123,11 @@ class PyHeat(hass.Hass):
         rooms_file = os.path.join(config_dir, "rooms.yaml")
         schedules_file = os.path.join(config_dir, "schedules.yaml")
         boiler_file = os.path.join(config_dir, "boiler.yaml")
+        
+        # Store modification times for file monitoring
+        for filepath in [rooms_file, schedules_file, boiler_file]:
+            if os.path.exists(filepath):
+                self.config_file_mtimes[filepath] = os.path.getmtime(filepath)
         
         # Load rooms
         with open(rooms_file, 'r') as f:
@@ -513,6 +524,37 @@ class PyHeat(hass.Hass):
                         self.lock_trv_setpoint(room_id)
             except (ValueError, TypeError) as e:
                 self.log(f"Failed to check TRV setpoint for room '{room_id}': {e}", level="WARNING")
+
+    def check_config_files(self, kwargs):
+        """Periodic callback to check if configuration files have changed.
+        
+        Automatically reloads configuration if any YAML files are modified.
+        """
+        changed_files = []
+        
+        for filepath, stored_mtime in self.config_file_mtimes.items():
+            if not os.path.exists(filepath):
+                self.log(f"Config file no longer exists: {filepath}", level="WARNING")
+                continue
+            
+            current_mtime = os.path.getmtime(filepath)
+            if current_mtime != stored_mtime:
+                filename = os.path.basename(filepath)
+                changed_files.append(filename)
+        
+        if changed_files:
+            self.log(f"Configuration files changed: {', '.join(changed_files)} - reloading...")
+            try:
+                self.load_configuration()
+                # Reinitialize sensor listeners for any new/changed rooms
+                self.setup_callbacks()
+                # Trigger immediate recompute
+                self.run_in(lambda kwargs: self.trigger_recompute("config_file_changed"), 1)
+                self.log(f"Configuration reloaded successfully: {len(self.rooms)} rooms, {len(self.schedules)} schedules")
+            except Exception as e:
+                self.log(f"Failed to reload configuration: {e}", level="ERROR")
+                import traceback
+                self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
 
     # ========================================================================
     # Periodic Recompute

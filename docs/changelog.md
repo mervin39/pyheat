@@ -1,5 +1,42 @@
 # PyHeat Changelog
 
+## 2025-11-05: Feature - Automatic Configuration Reload 🔄
+
+### New Feature: Configuration File Monitoring
+**What:** PyHeat now automatically detects changes to configuration files and reloads them without requiring manual intervention or AppDaemon restart.
+
+**How It Works:**
+- Monitors `rooms.yaml`, `schedules.yaml`, and `boiler.yaml` every 30 seconds
+- Compares file modification times against stored values
+- Automatically reloads configuration when changes detected
+- Reinitializes sensor callbacks for new/changed rooms
+- Triggers immediate recompute to apply new settings
+
+**Implementation:**
+- Added `config_file_mtimes` dict to track modification times
+- New `check_config_files()` periodic callback (runs every 30s)
+- Updates stored mtimes in `load_configuration()`
+- Graceful error handling with detailed logging
+
+**User Experience:**
+Before: Edit `rooms.yaml` → Restart AppDaemon or call `pyheat.reload_config` service
+After: Edit `rooms.yaml` → Wait ~30 seconds → Changes applied automatically
+
+**Example from Logs:**
+```
+09:00:06 INFO: Configuration files changed: rooms.yaml - reloading...
+09:00:06 INFO: Configuration reloaded successfully: 6 rooms, 6 schedules
+09:00:07 DEBUG: Recompute #49 triggered: config_file_changed
+```
+
+**Impact:**
+- More convenient configuration updates (no manual reload needed)
+- Faster iteration during setup/debugging
+- Reduced risk of forgetting to reload after changes
+- `pyheat.reload_config` service still available for manual use
+
+---
+
 ## 2025-11-05: CRITICAL SAFETY - Fix Valve Closure on AppDaemon Restart ⚠️
 
 ### Issue: Valves Close When AppDaemon Restarts While Boiler Is Heating
