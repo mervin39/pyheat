@@ -107,11 +107,17 @@ class StatusPublisher:
             state_str = f"heating ({data.get('valve_percent', 0)}%)"
         self.ad.set_state(state_entity, state=state_str)
         
-        # Valve percent number
+        # Valve percent number - use service call instead of set_state for number entities
         valve_entity = f"number.pyheat_{room_id}_valve_percent"
-        self.ad.set_state(valve_entity, 
-                     state=data.get('valve_percent', 0),
-                     attributes={'unit_of_measurement': '%'})
+        try:
+            self.ad.call_service('number/set_value',
+                            entity_id=valve_entity,
+                            value=data.get('valve_percent', 0))
+        except Exception as e:
+            # If entity doesn't exist, create it via set_state
+            self.ad.set_state(valve_entity, 
+                         state=data.get('valve_percent', 0),
+                         attributes={'unit_of_measurement': '%'})
         
         # Calling binary sensor
         calling_entity = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
