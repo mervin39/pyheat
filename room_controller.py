@@ -59,6 +59,7 @@ class RoomController:
         # Get room mode
         mode_entity = C.HELPER_ROOM_MODE.format(room=room_id)
         room_mode = self.ad.get_state(mode_entity) if self.ad.entity_exists(mode_entity) else "off"
+        room_mode = room_mode.lower() if room_mode else "auto"
         
         # Get holiday mode
         holiday_mode = False
