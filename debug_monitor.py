@@ -54,6 +54,31 @@ MONITORED_ENTITIES = [
     "climate.dummy",
 ]
 
+# Entity abbreviations for compact output
+ABBREVIATIONS = {
+    # TRV valves
+    "sensor.trv_pete_valve_opening_degree_z2m": "V-Pet",
+    "sensor.trv_games_valve_opening_degree_z2m": "V-Gam",
+    "sensor.trv_lounge_valve_opening_degree_z2m": "V-Lou",
+    "sensor.trv_abby_valve_opening_degree_z2m": "V-Abb",
+    "sensor.trv_office_valve_opening_degree_z2m": "V-Off",
+    "sensor.trv_bathroom_valve_opening_degree_z2m": "V-Bat",
+    # Calling for heat
+    "binary_sensor.pyheat_pete_calling_for_heat": "C-Pet",
+    "binary_sensor.pyheat_games_calling_for_heat": "C-Gam",
+    "binary_sensor.pyheat_lounge_calling_for_heat": "C-Lou",
+    "binary_sensor.pyheat_abby_calling_for_heat": "C-Abb",
+    "binary_sensor.pyheat_office_calling_for_heat": "C-Off",
+    "binary_sensor.pyheat_bathroom_calling_for_heat": "C-Bat",
+    # Timers
+    "timer.pyheat_boiler_min_off_timer": "T-MinOff",
+    "timer.pyheat_boiler_min_on_timer": "T-MinOn",
+    "timer.pyheat_boiler_off_delay_timer": "T-OffDly",
+    "timer.pyheat_boiler_pump_overrun_timer": "T-Pump",
+    # Boiler
+    "climate.dummy": "Boiler",
+}
+
 class HAMonitor:
     def __init__(self, base_url: str, token: str, output_file: str):
         self.base_url = base_url.rstrip('/')
@@ -79,43 +104,53 @@ class HAMonitor:
             print(f"ERROR: Failed to get {entity_id}: {e}")
             return None
     
-    def format_state(self, entity_id: str, state_data: dict) -> str:
-        """Format entity state for logging"""
+    def get_value(self, state_data: dict) -> str:
+        """Extract displayable value from state data"""
         if state_data is None:
-            return f"{entity_id:60s} = NOT FOUND"
+            return "NOT_FOUND"
         
         state = state_data.get('state', 'unknown')
+        entity_id = state_data.get('entity_id', '')
         
-        # For timers, include remaining time attribute if active
+        # For timers, show state and remaining if active
         if entity_id.startswith('timer.'):
-            attrs = state_data.get('attributes', {})
             if state == 'active':
-                remaining = attrs.get('remaining', 'unknown')
-                duration = attrs.get('duration', 'unknown')
-                return f"{entity_id:60s} = {state:12s} (remaining: {remaining}, duration: {duration})"
+                attrs = state_data.get('attributes', {})
+                remaining = attrs.get('remaining', '?')
+                return f"active({remaining})"
             else:
-                return f"{entity_id:60s} = {state:12s}"
+                return state
         
-        # For climate, include hvac_action
+        # For climate, show state and action
         if entity_id.startswith('climate.'):
             attrs = state_data.get('attributes', {})
-            hvac_action = attrs.get('hvac_action', 'unknown')
-            return f"{entity_id:60s} = {state:12s} (action: {hvac_action})"
+            hvac_action = attrs.get('hvac_action', '?')
+            return f"{state}/{hvac_action}"
         
         # For binary_sensors, show on/off
         if entity_id.startswith('binary_sensor.'):
-            return f"{entity_id:60s} = {state:12s}"
+            return state
         
         # For sensors (valve positions), show value with unit
         attrs = state_data.get('attributes', {})
         unit = attrs.get('unit_of_measurement', '')
         if unit:
-            return f"{entity_id:60s} = {state:>6s}{unit}"
+            return f"{state}{unit}"
         else:
-            return f"{entity_id:60s} = {state}"
+            return state
+    
+    def write_legend(self, f):
+        """Write legend at top of log file"""
+        f.write("LEGEND:\n")
+        f.write("-------\n")
+        f.write("V-XXX = TRV Valve Position (%)      C-XXX = Calling for Heat (on/off)\n")
+        f.write("T-XXX = Timer (idle/active)         Boiler = Boiler state/action\n")
+        f.write("\nRooms: Pet=Pete, Gam=Games, Lou=Lounge, Abb=Abby, Off=Office, Bat=Bathroom\n")
+        f.write("Timers: MinOff=Min Off, MinOn=Min On, OffDly=Off Delay, Pump=Pump Overrun\n")
+        f.write("\n" + "=" * 100 + "\n\n")
     
     def log_all_states(self, reason: str = ""):
-        """Log all monitored entities"""
+        """Log all monitored entities in compact table format"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         
         # Get all current states
@@ -124,33 +159,27 @@ class HAMonitor:
             state_data = self.get_state(entity_id)
             states[entity_id] = state_data
         
-        # Write to log file
+        # Write to log file in table format
         with open(self.output_file, 'a') as f:
-            separator = "=" * 100
-            f.write(f"\n{separator}\n")
             f.write(f"[{timestamp}] {reason}\n")
-            f.write(f"{separator}\n")
+            f.write("-" * 100 + "\n")
             
-            # Group by category
-            f.write("\n### TRV Valve Positions ###\n")
-            for entity_id in MONITORED_ENTITIES:
-                if entity_id.startswith('sensor.trv_'):
-                    f.write(f"  {self.format_state(entity_id, states[entity_id])}\n")
+            # Create compact table with 4 columns
+            rows = []
+            entities_list = list(MONITORED_ENTITIES)
             
-            f.write("\n### PyHeat Calling for Heat ###\n")
-            for entity_id in MONITORED_ENTITIES:
-                if entity_id.startswith('binary_sensor.pyheat_'):
-                    f.write(f"  {self.format_state(entity_id, states[entity_id])}\n")
+            # Process in groups of 4
+            for i in range(0, len(entities_list), 4):
+                row_entities = entities_list[i:i+4]
+                row_parts = []
+                for entity_id in row_entities:
+                    abbr = ABBREVIATIONS.get(entity_id, entity_id[:10])
+                    value = self.get_value(states[entity_id])
+                    row_parts.append(f"{abbr:8s} = {value:15s}")
+                rows.append(" | ".join(row_parts))
             
-            f.write("\n### Boiler Timers ###\n")
-            for entity_id in MONITORED_ENTITIES:
-                if entity_id.startswith('timer.'):
-                    f.write(f"  {self.format_state(entity_id, states[entity_id])}\n")
-            
-            f.write("\n### Boiler State ###\n")
-            for entity_id in MONITORED_ENTITIES:
-                if entity_id.startswith('climate.'):
-                    f.write(f"  {self.format_state(entity_id, states[entity_id])}\n")
+            for row in rows:
+                f.write(row + "\n")
             
             f.write("\n")
         
@@ -210,14 +239,19 @@ def main():
         script_dir = Path(__file__).parent
         output_file = script_dir / "debug_monitor.log"
     
-    # Clear existing log file
+    # Clear existing log file and write legend
     with open(output_file, 'w') as f:
         f.write(f"PyHeat Debug Monitor - Started at {datetime.now()}\n")
         f.write(f"Monitoring {len(MONITORED_ENTITIES)} entities\n")
-        f.write("=" * 100 + "\n")
+        f.write("=" * 100 + "\n\n")
     
     # Start monitoring
     monitor = HAMonitor(base_url, token, output_file)
+    
+    # Write legend
+    with open(output_file, 'a') as f:
+        monitor.write_legend(f)
+    
     try:
         monitor.monitor_loop()
     except KeyboardInterrupt:
