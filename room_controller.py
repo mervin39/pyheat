@@ -116,6 +116,8 @@ class RoomController:
             self.room_call_for_heat[room_id] = False
             self.room_current_band[room_id] = 0
             result['valve_percent'] = 0
+            # NOTE: Don't send valve command here - let app.py persistence logic handle it
+            # (During pump overrun, app.py will use persisted valve positions instead of this 0%)
             return result
         
         if temp is None and room_mode != "manual":
@@ -123,6 +125,7 @@ class RoomController:
             self.room_call_for_heat[room_id] = False
             self.room_current_band[room_id] = 0
             result['valve_percent'] = 0
+            # NOTE: Don't send valve command here - let app.py persistence logic handle it
             return result
         
         # Manual mode with stale sensors → use last known or default to target
@@ -131,6 +134,7 @@ class RoomController:
             self.room_call_for_heat[room_id] = False
             self.room_current_band[room_id] = 0
             result['valve_percent'] = 0
+            # NOTE: Don't send valve command here - let app.py persistence logic handle it
             return result
         
         # Calculate error

@@ -258,7 +258,11 @@ class PyHeat(hass.Hass):
 
     def periodic_recompute(self, kwargs):
         """Periodic recompute callback (runs every minute)."""
-        self.recompute_all(datetime.now())
+        self.recompute_count += 1
+        now = datetime.now()
+        self.last_recompute = now
+        self.log(f"Periodic recompute #{self.recompute_count}", level="DEBUG")
+        self.recompute_all(now)
 
     def initial_recompute(self, kwargs):
         """Initial recompute after startup."""
@@ -277,8 +281,14 @@ class PyHeat(hass.Hass):
         Args:
             reason: Description of why recompute was triggered
         """
-        self.log(f"Recompute triggered: {reason}")
-        self.run_in(lambda kwargs: self.recompute_all(datetime.now()), 0.1)
+        # Call recompute synchronously to avoid race conditions with rapid triggers
+        # (multiple sensor updates could queue up 10+ delayed recomputes)
+        self.recompute_count += 1
+        now = datetime.now()
+        self.last_recompute = now
+        
+        self.log(f"Recompute #{self.recompute_count} triggered: {reason}", level="DEBUG")
+        self.recompute_all(now)
 
     def recompute_all(self, now: datetime):
         """Main recompute logic - calculates and applies heating decisions for all rooms.
@@ -286,7 +296,12 @@ class PyHeat(hass.Hass):
         Args:
             now: Current datetime
         """
-        self.recompute_count += 1
+        # Note: recompute_count is incremented in trigger_recompute, not here
+        # (to avoid double-counting when called directly from periodic_recompute)
+        if not hasattr(self, 'last_recompute'):
+            self.last_recompute = now
+            self.recompute_count = 0
+            
         self.last_recompute = now
         
         # Check master enable
@@ -321,24 +336,34 @@ class PyHeat(hass.Hass):
         boiler_state, boiler_reason, persisted_valves, valves_must_stay_open = \
             self.boiler.update_state(any_calling, active_rooms, room_data, now)
         
-        # Apply valve commands (using persisted values if boiler requires it)
-        for room_id in self.config.rooms.keys():
-            data = room_data[room_id]
-            
-            # Use persisted valve if boiler state machine requires it, otherwise use computed
-            if valves_must_stay_open and room_id in persisted_valves:
-                valve_percent = persisted_valves[room_id]
+        # Apply valve commands with persistence priority
+        # CRITICAL: If there are persisted valves (pump overrun or interlock), use them for affected rooms
+        # and use normal calculations for rooms NOT in persistence dict
+        if persisted_valves:
+            # Send persistence commands first (critical for pump overrun safety)
+            for room_id, valve_percent in persisted_valves.items():
                 self.log(f"Room '{room_id}': using persisted valve {valve_percent}% (boiler state: {boiler_state})", level="DEBUG")
-            else:
+                self.rooms.set_room_valve(room_id, valve_percent, now)
+                
+                # Publish room entities with persisted valve
+                data_for_publish = room_data[room_id].copy()
+                data_for_publish['valve_percent'] = valve_percent
+                self.status.publish_room_entities(room_id, data_for_publish, now)
+            
+            # Send normal commands for rooms NOT in persistence dict
+            for room_id in self.config.rooms.keys():
+                if room_id not in persisted_valves:
+                    data = room_data[room_id]
+                    valve_percent = data['valve_percent']
+                    self.rooms.set_room_valve(room_id, valve_percent, now)
+                    self.status.publish_room_entities(room_id, data, now)
+        else:
+            # No persistence - send all normal valve commands
+            for room_id in self.config.rooms.keys():
+                data = room_data[room_id]
                 valve_percent = data['valve_percent']
-            
-            # Set TRV valve
-            self.rooms.set_room_valve(room_id, valve_percent, now)
-            
-            # Publish room entities (with actual commanded valve percent)
-            data_for_publish = data.copy()
-            data_for_publish['valve_percent'] = valve_percent
-            self.status.publish_room_entities(room_id, data_for_publish, now)
+                self.rooms.set_room_valve(room_id, valve_percent, now)
+                self.status.publish_room_entities(room_id, data, now)
         
         # Publish system status
         self.status.publish_system_status(any_calling, active_rooms, room_data, 
