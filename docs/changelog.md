@@ -1,5 +1,55 @@
 # PyHeat Changelog
 
+## 2025-11-05: Documentation & Entity Cleanup 📚
+
+### Updated: Migration to Package Format
+**What:** Documentation now reflects the migration from individual domain YAML files to the consolidated `pyheat_package.yaml` format.
+
+**Changes:**
+- Updated `ha_yaml/README.md` to prioritize package format installation
+- Legacy individual file installation moved to collapsed section for reference
+- Updated main `README.md` installation instructions with package setup
+- Package format simplifies Home Assistant configuration (single file vs. 9+ individual files)
+
+**Installation (Package Format):**
+```bash
+# From Home Assistant config directory
+ln -s /opt/appdata/appdaemon/conf/apps/pyheat/ha_yaml/pyheat_package.yaml packages/pyheat_package.yaml
+```
+
+Add to `configuration.yaml`:
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+**Benefits:**
+- Cleaner Home Assistant configuration
+- Single file to manage instead of multiple domain files
+- Easier to version control and maintain
+- Reduced chance of missing entity definitions
+
+### Cleanup: Removed Orphaned Entities
+**What:** Cleaned up 39 orphaned PyHeat entities from previous development iterations.
+
+**Entities Removed:**
+- Old naming patterns: `petes_room`, `abbys_room`, `dining_room`, `living_room` (replaced by `pete`, `abby`, `games`, `lounge`)
+- Deprecated entities: `boiler_actor`, `test_bool`, `test_button`, `season`, `safety_radiator`
+- Old override duration pattern: `*_override_duration_minutes`
+- Unused datetimes: `boiler_last_on`, `boiler_last_off`
+
+**Process:**
+- Created cleanup script that identified state-only entities (created by old AppDaemon code)
+- Successfully removed 39 entities via Home Assistant States API
+- These were remnants from previous PyScript and early AppDaemon iterations
+
+**Benefits:**
+- Cleaner Home Assistant entity registry
+- Reduced confusion from outdated/duplicate entities
+- Better alignment between code and HA entities
+
+---
+
 ## 2025-11-05: Feature - Automatic TRV Valve Position Correction 🔧
 
 ### New Feature: Detect and Correct Unexpected Valve Positions

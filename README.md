@@ -53,7 +53,22 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
    Edit `config/rooms.yaml` and `config/schedules.yaml` to match your setup.
 
 3. **Install Home Assistant entities**:
-   See `ha_yaml/README.md` for instructions on setting up the required helper entities.
+   
+   Add the PyHeat package to your Home Assistant configuration:
+   
+   ```bash
+   # From your Home Assistant config directory
+   ln -s /opt/appdata/appdaemon/conf/apps/pyheat/ha_yaml/pyheat_package.yaml packages/pyheat_package.yaml
+   ```
+   
+   Then ensure your `configuration.yaml` has packages enabled:
+   
+   ```yaml
+   homeassistant:
+     packages: !include_dir_named packages
+   ```
+   
+   See `ha_yaml/README.md` for alternative installation methods.
 
 4. **Register the app** in `apps.yaml`:
    ```yaml

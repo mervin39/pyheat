@@ -1,8 +1,18 @@
 # Home Assistant Entity Definitions
 
-This directory contains the YAML configuration files for all Home Assistant helper entities used by PyHeat.
+This directory contains the YAML configuration for all Home Assistant helper entities used by PyHeat.
 
-## Entities Included
+## Package Format (Recommended)
+
+All PyHeat entities are now consolidated in a single package file:
+
+- **pyheat_package.yaml** - Complete PyHeat entity definitions (input booleans, selects, numbers, timers, etc.)
+
+This package format is the recommended and supported approach for installing PyHeat entities.
+
+### Legacy Individual Files
+
+The following individual domain files are maintained for reference only:
 
 - **pyheat_input_booleans.yaml** - Master enable and holiday mode toggles
 - **pyheat_input_selects.yaml** - Per-room heating mode selectors (Auto/Manual/Off)
@@ -14,11 +24,32 @@ This directory contains the YAML configuration files for all Home Assistant help
 - **pyheat_mqtt_sensor.yaml** - MQTT sensor definitions (if applicable)
 - **pyheat_climate.yaml** - Climate entity configurations
 
+**Note:** Use either the package format OR the individual files, not both.
+
 ## Installation
 
-These files need to be included in your Home Assistant configuration. There are two approaches:
+### Using Package Format (Recommended)
 
-### Option 1: Symlink (Recommended for development)
+1. Create a symlink or copy `pyheat_package.yaml` to your Home Assistant config directory:
+
+```bash
+# From your Home Assistant config directory
+ln -s /opt/appdata/appdaemon/conf/apps/pyheat/ha_yaml/pyheat_package.yaml packages/pyheat_package.yaml
+```
+
+2. In your `configuration.yaml`, ensure packages are enabled:
+
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+3. Restart Home Assistant.
+
+### Using Individual Files (Legacy)
+
+<details>
+<summary>Click to expand legacy installation instructions</summary>
 
 Create symlinks from your Home Assistant config directory to these files:
 
@@ -60,15 +91,7 @@ sensor: !include_dir_merge_list yaml/sensor
 climate: !include_dir_merge_list yaml/climate
 ```
 
-### Option 2: Direct Copy
-
-Copy the files to your Home Assistant config directory and include them directly:
-
-```yaml
-input_boolean: !include pyheat_input_booleans.yaml
-input_select: !include pyheat_input_selects.yaml
-# ... etc
-```
+</details>
 
 ## Required Entities
 
