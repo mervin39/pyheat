@@ -41,8 +41,16 @@ def load_env():
 # Entities to monitor
 ROOMS = ['pete', 'games', 'lounge', 'abby', 'office', 'bathroom']
 MONITORED_ENTITIES = [
-    # TRV valve positions (actual hardware state)
+    # Room temperatures
+    *[f"sensor.pyheat_{room}_temperature" for room in ROOMS],
+    # Room setpoints
+    *[f"input_number.pyheat_{room}_manual_setpoint" for room in ROOMS],
+    # Room modes
+    *[f"input_select.pyheat_{room}_mode" for room in ROOMS],
+    # TRV valve positions from Z2M (actual hardware feedback)
     *[f"sensor.trv_{room}_valve_opening_degree_z2m" for room in ROOMS],
+    # PyHeat calculated valve positions
+    *[f"sensor.pyheat_{room}_valve_percent" for room in ROOMS],
     # PyHeat calling for heat status
     *[f"binary_sensor.pyheat_{room}_calling_for_heat" for room in ROOMS],
     # Boiler timers
@@ -56,20 +64,48 @@ MONITORED_ENTITIES = [
 
 # Entity abbreviations for compact output
 ABBREVIATIONS = {
-    # TRV valves
-    "sensor.trv_pete_valve_opening_degree_z2m": "V-Pet",
-    "sensor.trv_games_valve_opening_degree_z2m": "V-Gam",
-    "sensor.trv_lounge_valve_opening_degree_z2m": "V-Lou",
-    "sensor.trv_abby_valve_opening_degree_z2m": "V-Abb",
-    "sensor.trv_office_valve_opening_degree_z2m": "V-Off",
-    "sensor.trv_bathroom_valve_opening_degree_z2m": "V-Bat",
+    # Room temperatures
+    "sensor.pyheat_pete_temperature": "Temp-Pet",
+    "sensor.pyheat_games_temperature": "Temp-Gam",
+    "sensor.pyheat_lounge_temperature": "Temp-Lou",
+    "sensor.pyheat_abby_temperature": "Temp-Abb",
+    "sensor.pyheat_office_temperature": "Temp-Off",
+    "sensor.pyheat_bathroom_temperature": "Temp-Bat",
+    # Room setpoints
+    "input_number.pyheat_pete_manual_setpoint": "Setp-Pet",
+    "input_number.pyheat_games_manual_setpoint": "Setp-Gam",
+    "input_number.pyheat_lounge_manual_setpoint": "Setp-Lou",
+    "input_number.pyheat_abby_manual_setpoint": "Setp-Abb",
+    "input_number.pyheat_office_manual_setpoint": "Setp-Off",
+    "input_number.pyheat_bathroom_manual_setpoint": "Setp-Bat",
+    # Room modes
+    "input_select.pyheat_pete_mode": "Mode-Pet",
+    "input_select.pyheat_games_mode": "Mode-Gam",
+    "input_select.pyheat_lounge_mode": "Mode-Lou",
+    "input_select.pyheat_abby_mode": "Mode-Abb",
+    "input_select.pyheat_office_mode": "Mode-Off",
+    "input_select.pyheat_bathroom_mode": "Mode-Bat",
+    # TRV valves (Z2M feedback)
+    "sensor.trv_pete_valve_opening_degree_z2m": "Vz-Pet",
+    "sensor.trv_games_valve_opening_degree_z2m": "Vz-Gam",
+    "sensor.trv_lounge_valve_opening_degree_z2m": "Vz-Lou",
+    "sensor.trv_abby_valve_opening_degree_z2m": "Vz-Abb",
+    "sensor.trv_office_valve_opening_degree_z2m": "Vz-Off",
+    "sensor.trv_bathroom_valve_opening_degree_z2m": "Vz-Bat",
+    # PyHeat calculated valves
+    "sensor.pyheat_pete_valve_percent": "Vp-Pet",
+    "sensor.pyheat_games_valve_percent": "Vp-Gam",
+    "sensor.pyheat_lounge_valve_percent": "Vp-Lou",
+    "sensor.pyheat_abby_valve_percent": "Vp-Abb",
+    "sensor.pyheat_office_valve_percent": "Vp-Off",
+    "sensor.pyheat_bathroom_valve_percent": "Vp-Bat",
     # Calling for heat
-    "binary_sensor.pyheat_pete_calling_for_heat": "C-Pet",
-    "binary_sensor.pyheat_games_calling_for_heat": "C-Gam",
-    "binary_sensor.pyheat_lounge_calling_for_heat": "C-Lou",
-    "binary_sensor.pyheat_abby_calling_for_heat": "C-Abb",
-    "binary_sensor.pyheat_office_calling_for_heat": "C-Off",
-    "binary_sensor.pyheat_bathroom_calling_for_heat": "C-Bat",
+    "binary_sensor.pyheat_pete_calling_for_heat": "Call-Pet",
+    "binary_sensor.pyheat_games_calling_for_heat": "Call-Gam",
+    "binary_sensor.pyheat_lounge_calling_for_heat": "Call-Lou",
+    "binary_sensor.pyheat_abby_calling_for_heat": "Call-Abb",
+    "binary_sensor.pyheat_office_calling_for_heat": "Call-Off",
+    "binary_sensor.pyheat_bathroom_calling_for_heat": "Call-Bat",
     # Timers
     "timer.pyheat_boiler_min_off_timer": "T-MinOff",
     "timer.pyheat_boiler_min_on_timer": "T-MinOn",
@@ -111,19 +147,18 @@ class HAMonitor:
         
         state = state_data.get('state', 'unknown')
         entity_id = state_data.get('entity_id', '')
+        attrs = state_data.get('attributes', {})
         
         # For timers, show state and remaining if active
         if entity_id.startswith('timer.'):
             if state == 'active':
-                attrs = state_data.get('attributes', {})
                 remaining = attrs.get('remaining', '?')
                 return f"active({remaining})"
             else:
                 return state
         
-        # For climate, show state and action
+        # For climate (boiler only), show state/action
         if entity_id.startswith('climate.'):
-            attrs = state_data.get('attributes', {})
             hvac_action = attrs.get('hvac_action', '?')
             return f"{state}/{hvac_action}"
         
@@ -131,8 +166,11 @@ class HAMonitor:
         if entity_id.startswith('binary_sensor.'):
             return state
         
-        # For sensors (valve positions), show value with unit
-        attrs = state_data.get('attributes', {})
+        # For input_select, just show the state
+        if entity_id.startswith('input_select.'):
+            return state
+        
+        # For sensors and input_numbers, show value with unit
         unit = attrs.get('unit_of_measurement', '')
         if unit:
             return f"{state}{unit}"
@@ -143,8 +181,10 @@ class HAMonitor:
         """Write legend at top of log file"""
         f.write("LEGEND:\n")
         f.write("-------\n")
-        f.write("V-XXX = TRV Valve Position (%)      C-XXX = Calling for Heat (on/off)\n")
-        f.write("T-XXX = Timer (idle/active)         Boiler = Boiler state/action\n")
+        f.write("Temp-XXX = Room Temperature (°C)        Setp-XXX = Manual Setpoint (°C)\n")
+        f.write("Mode-XXX = Room Mode                    Vz-XXX = TRV Valve Z2M feedback (%)\n")
+        f.write("Vp-XXX   = PyHeat Valve calc (%)        Call-XXX = Calling for Heat (on/off)\n")
+        f.write("T-XXX    = Timer (idle/active)          Boiler = Boiler state/action\n")
         f.write("\nRooms: Pet=Pete, Gam=Games, Lou=Lounge, Abb=Abby, Off=Office, Bat=Bathroom\n")
         f.write("Timers: MinOff=Min Off, MinOn=Min On, OffDly=Off Delay, Pump=Pump Overrun\n")
         f.write("\n" + "=" * 100 + "\n\n")
