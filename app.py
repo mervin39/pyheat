@@ -418,6 +418,9 @@ class PyHeat(hass.Hass):
         
         This monitors for unexpected valve position changes (e.g., manual user override via z2m)
         and triggers correction to bring valve back to expected position.
+        
+        IMPORTANT: Only flags unexpected positions when pyheat is NOT actively commanding
+        a valve change (to avoid fighting with normal valve operations in progress).
         """
         room_id = kwargs.get('room_id')
         self.log(f"TRV feedback for room '{room_id}' updated: {entity} = {new}", level="DEBUG")
@@ -429,7 +432,16 @@ class PyHeat(hass.Hass):
             self.log(f"TRV feedback ignored during {self.boiler_state} (valve persistence active)", level="DEBUG")
             return
         
-        # Check if the feedback matches what we expect
+        # CRITICAL: If we're actively commanding a valve change for this room, don't flag
+        # unexpected positions - the feedback is just catching up to our command
+        state_key = f"valve_cmd_{room_id}"
+        if state_key in self._valve_command_state:
+            self.log(f"TRV feedback for '{room_id}' ignored - valve command in progress", level="DEBUG")
+            # Still trigger recompute for interlock checking, just don't flag as unexpected
+            self.trigger_recompute(f"trv_feedback_{room_id}_changed")
+            return
+        
+        # Check if the feedback matches what we expect (only when NOT actively commanding)
         if new not in [None, "unknown", "unavailable"]:
             try:
                 fb_valve = int(float(new))

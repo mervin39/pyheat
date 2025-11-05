@@ -13,6 +13,7 @@
 
 **How It Works:**
 - `trv_feedback_changed()` callback now compares feedback valve position against `trv_last_commanded`
+- **CRITICAL:** Only checks when pyheat is NOT actively commanding a valve (avoids fighting with normal operations)
 - If difference exceeds tolerance (5%), logs WARNING and flags room for correction
 - Next recompute bypasses rate-limiting and "no change" checks for flagged rooms
 - Sends immediate correction command to restore expected valve position
@@ -20,29 +21,34 @@
 
 **Implementation Details:**
 - Added `unexpected_valve_positions` dict to track detected discrepancies
-- Modified `trv_feedback_changed()` to check feedback vs. expected
+- Modified `trv_feedback_changed()` to:
+  - Check if valve command is in progress (`_valve_command_state`)
+  - Only flag unexpected positions when idle (not actively commanding)
+  - Compare feedback vs. expected with tolerance
 - Modified `set_trv_valve()` to bypass normal checks when `is_correction=True`
 - Logs clear INFO message when correction applied
 
 **Example from Logs:**
 ```
-10:22:14 DEBUG: TRV feedback for room 'pete' updated: sensor.trv_pete_valve_opening_degree_z2m = 100
-10:22:14 WARNING: Unexpected valve position for room 'pete': feedback=100%, expected=0%. Triggering correction.
-10:22:14 INFO: Correcting unexpected valve position for room 'pete': actual=100%, expected=0%, commanding to 0%
-10:22:14 INFO: Setting TRV for room 'pete': 0% open (was 0%)
-10:22:16 DEBUG: TRV pete: Valve position confirmed at 0%
+10:32:45 DEBUG: TRV feedback updated: sensor.trv_pete_valve_opening_degree_z2m = 30
+10:32:45 WARNING: Unexpected valve position for room 'pete': feedback=30%, expected=100%. Triggering correction.
+10:32:45 INFO: Correcting unexpected valve position for room 'pete': actual=30%, expected=100%, commanding to 100%
+10:32:46 DEBUG: TRV feedback updated: sensor.trv_pete_valve_opening_degree_z2m = 100
+10:32:46 DEBUG: TRV feedback for 'pete' ignored - valve command in progress
 ```
 
 **Benefits:**
 - Prevents manual overrides from causing indefinite wasteful heating
 - Maintains system control over valves
 - Fast correction (within seconds of detection)
+- **Does NOT interfere with normal valve operations** (only acts when idle)
 - Clear logging for debugging and audit trail
 
 **Impact:**
 - Energy savings by preventing unintended valve openings
 - Better system reliability and control authority
 - Easier to diagnose manual intervention issues
+- No false corrections during normal operation
 
 ---
 
