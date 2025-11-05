@@ -300,15 +300,29 @@ class PyHeat(hass.Hass):
             if data['calling']:
                 any_calling = True
                 active_rooms.append(room_id)
+        
+        # Update boiler state (returns persisted valve positions if needed)
+        boiler_state, boiler_reason, persisted_valves, valves_must_stay_open = \
+            self.boiler.update_state(any_calling, active_rooms, room_data, now)
+        
+        # Apply valve commands (using persisted values if boiler requires it)
+        for room_id in self.config.rooms.keys():
+            data = room_data[room_id]
+            
+            # Use persisted valve if boiler state machine requires it, otherwise use computed
+            if valves_must_stay_open and room_id in persisted_valves:
+                valve_percent = persisted_valves[room_id]
+                self.log(f"Room '{room_id}': using persisted valve {valve_percent}% (boiler state: {boiler_state})", level="DEBUG")
+            else:
+                valve_percent = data['valve_percent']
             
             # Set TRV valve
-            self.rooms.set_room_valve(room_id, data['valve_percent'], now)
+            self.rooms.set_room_valve(room_id, valve_percent, now)
             
-            # Publish room entities
-            self.status.publish_room_entities(room_id, data, now)
-        
-        # Update boiler state
-        boiler_state, boiler_reason = self.boiler.update_state(any_calling, active_rooms, room_data, now)
+            # Publish room entities (with actual commanded valve percent)
+            data_for_publish = data.copy()
+            data_for_publish['valve_percent'] = valve_percent
+            self.status.publish_room_entities(room_id, data_for_publish, now)
         
         # Publish system status
         self.status.publish_system_status(any_calling, active_rooms, room_data, 
