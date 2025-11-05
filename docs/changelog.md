@@ -2,6 +2,148 @@
 
 ## 2025-11-05: Architecture - Modular Refactoring 🏗️
 
+### Major Implementation: Complete Boiler State Machine with Safety Features
+**Implemented:** Full 6-state boiler FSM with comprehensive safety features ported from monolithic version.
+
+**Background:**
+- Initial modular refactor simplified boiler control to basic ON/OFF (~40 lines)
+- Original monolithic version had sophisticated 6-state FSM with multiple safety features (~450 lines)
+- Missing features created significant safety risks:
+  - **HIGH RISK**: No valve interlock (boiler could run with no flow → overheating/damage)
+  - **HIGH RISK**: No anti-cycling protection (rapid on/off cycles → premature wear)
+  - **MEDIUM RISK**: No pump overrun (trapped heat in boiler/pipes)
+  - **LOW RISK**: No TRV feedback confirmation (valve position mismatch)
+
+**Implementation:**
+Ported complete boiler state machine from monolithic version with all safety features:
+
+**Six-State FSM:**
+1. **STATE_OFF**: Boiler off, no demand, no constraints active
+2. **STATE_PENDING_ON**: Demand exists, waiting for TRV position confirmation before turning on
+3. **STATE_ON**: Boiler actively heating, min_on_timer running
+4. **STATE_PENDING_OFF**: Demand ceased, in off-delay period (30s), min_on_timer must expire
+5. **STATE_PUMP_OVERRUN**: Boiler off, valves held open for 180s to dissipate heat
+6. **STATE_INTERLOCK_BLOCKED**: Insufficient valve opening detected, startup prevented
+
+**Safety Features:**
+- **Valve Interlock System**: Requires minimum total valve opening (100% default) across all rooms before allowing boiler startup. Prevents no-flow condition that could damage heat exchanger
+- **Anti-Cycling Protection**: 
+  - `min_on_time_s` (180s): Minimum boiler run time once started
+  - `min_off_time_s` (180s): Minimum off time before restart allowed
+  - `off_delay_s` (30s): Grace period when demand ceases before turning off
+- **Pump Overrun**: After boiler turns off, keeps valves open for `pump_overrun_s` (180s) to dissipate residual heat and prevent thermal stress
+- **TRV Feedback Confirmation**: Waits in PENDING_ON until TRV valve position matches commanded position before turning on boiler
+- **Safety Room Failsafe**: If boiler is on but no rooms calling for heat, opens designated safety room valve (default: "games") to provide emergency flow path
+- **Valve Persistence**: Saves valve positions when transitioning to PUMP_OVERRUN, maintains those positions across recomputes until pump overrun completes
+
+**Configuration:**
+```yaml
+boiler:
+  entity_id: climate.boiler
+  binary_control:
+    on_setpoint_c: 30.0
+    off_setpoint_c: 5.0
+  anti_cycling:
+    min_on_time_s: 180      # 3 minutes minimum ON time
+    min_off_time_s: 180     # 3 minutes minimum OFF time
+    off_delay_s: 30         # 30 second grace period
+  interlock:
+    min_valve_open_percent: 100  # Require 100% total valve opening
+  pump_overrun_s: 180       # 3 minutes pump overrun
+  safety_room: games        # Emergency flow path room
+```
+
+**Required Home Assistant Entities:**
+- `timer.pyheat_boiler_min_on_timer` - Enforces minimum ON time
+- `timer.pyheat_boiler_min_off_timer` - Enforces minimum OFF time
+- `timer.pyheat_boiler_off_delay_timer` - Grace period before turning off
+- `timer.pyheat_boiler_pump_overrun_timer` - Pump overrun timing
+- `input_text.pyheat_pump_overrun_valves` - Stores valve positions during pump overrun (survives restarts)
+
+**Code Changes:**
+- `boiler_controller.py`: Complete rewrite from ~40 lines to ~450 lines
+  - Added `update_state()` returning 4-tuple: `(state, reason, persisted_valves, valves_must_stay_open)`
+  - Added `_calculate_valve_persistence()` - interlock checking and valve distribution
+  - Added `_check_trv_feedback_confirmed()` - TRV position validation
+  - Added timer management: `_start_timer()`, `_cancel_timer()`, `_is_timer_active()`
+  - Added valve persistence: `_save_pump_overrun_valves()`, `_clear_pump_overrun_valves()`
+  - Added state transitions: `_transition_to()` with detailed logging
+  - Added boiler control: `_set_boiler_on()`, `_set_boiler_off()` (hvac_mode + temperature)
+  
+- `app.py`: Updated orchestrator to handle valve persistence
+  - Modified `recompute_all()` to unpack 4-tuple from `boiler.update_state()`
+  - Added logic to apply persisted valves when `valves_must_stay_open=True`
+  - Persisted valves used during PENDING_OFF and PUMP_OVERRUN states
+  
+- `config_loader.py`: Fixed nested configuration extraction
+  - Changed from `self.boiler_config = yaml.safe_load(f)` to `self.boiler_config = boiler_yaml.get('boiler', {})`
+  - Properly extracts nested `binary_control`, `anti_cycling`, `interlock` structures
+
+**Testing Results:**
+✅ **State Transitions:**
+- OFF → PENDING_ON (waiting for TRV feedback)
+- PENDING_ON → ON (TRV confirmed, boiler turns ON at 30°C)
+- ON → PENDING_OFF (demand ceased, off-delay timer starts)
+- PENDING_OFF → PUMP_OVERRUN (off-delay complete, boiler turns OFF, valves stay open)
+- PUMP_OVERRUN → OFF (pump overrun complete, valves released)
+- PUMP_OVERRUN → ON (demand resumes during pump overrun)
+
+✅ **Timers:**
+- min_on_timer: 180s enforced before allowing OFF
+- off_delay_timer: 30s grace period working
+- min_off_timer: 180s started correctly on PUMP_OVERRUN entry
+- pump_overrun_timer: 180s valve hold confirmed
+
+✅ **Valve Persistence:**
+- Valve positions saved during STATE_ON
+- Positions maintained during PENDING_OFF
+- Positions maintained during PUMP_OVERRUN
+- Positions cleared and valves closed on transition to OFF
+- Logged: "Room 'pete': using persisted valve 100% (boiler state: pump_overrun)"
+
+✅ **Interlock System:**
+- Total valve opening calculated correctly
+- Interlock satisfied with 100% total opening
+- Logged: "total valve opening 100% >= min 100%, using valve bands"
+
+✅ **Boiler Control:**
+- Turns ON: `climate.boiler` set to heat mode at 30°C
+- Turns OFF: `climate.boiler` set to off mode
+- State verified via Home Assistant API
+
+**Example Log Sequence:**
+```
+14:38:09 Boiler: off → pending_on (waiting for TRV confirmation)
+14:38:11 Boiler: pending_on → on (TRV feedback confirmed)
+14:38:13 Boiler: started timer.pyheat_boiler_min_on_timer for 00:03:00
+14:41:10 Boiler: on → pending_off (demand ceased, entering off-delay)
+14:41:10 Boiler: started timer.pyheat_boiler_off_delay_timer for 00:00:30
+14:41:50 Boiler: pending_off → pump_overrun (off-delay elapsed, turning off)
+14:41:52 Boiler: started timer.pyheat_boiler_min_off_timer for 00:03:00
+14:41:52 Boiler: started timer.pyheat_boiler_pump_overrun_timer for 00:03:00
+14:41:52 Boiler: saved pump overrun valves: {'pete': 100, 'games': 0, ...}
+14:45:00 Boiler: pump_overrun → off (pump overrun complete)
+14:45:00 Boiler: cleared pump overrun valves
+```
+
+**Comparison:**
+| Feature | Before (Modular) | After (Full FSM) |
+|---------|-----------------|------------------|
+| Lines of code | ~40 | ~450 |
+| States | 2 (ON/OFF) | 6 (full FSM) |
+| Valve interlock | ❌ No | ✅ Yes (100% min) |
+| Anti-cycling | ❌ No | ✅ Yes (180s/180s/30s) |
+| Pump overrun | ❌ No | ✅ Yes (180s) |
+| TRV feedback | ❌ No | ✅ Yes (waits for match) |
+| Safety room | ❌ No | ✅ Yes (games) |
+| Valve persistence | ❌ No | ✅ Yes (during overrun) |
+| Timer management | ❌ No | ✅ Yes (4 timers) |
+
+**Commits:**
+- `c957507` - Implement complete 6-state boiler FSM with safety features
+
+---
+
 ### Critical Bugfix: Room Mode Case Sensitivity
 **Fixed:** Room mode comparisons were case-sensitive, causing manual/auto/off mode logic to fail.
 
