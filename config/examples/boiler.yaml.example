@@ -11,7 +11,7 @@ boiler:
   # OpenTherm mode
   # false: Binary on/off control via setpoint (Nest mode)
   # true: Full OpenTherm modulation (future implementation)
-  opentherm: false
+  opentherm: boiler
   
   # Binary on/off control settings (used when opentherm: false)
   binary_control:
@@ -23,15 +23,15 @@ boiler:
   # Pump overrun handling
   # Boiler pump continues to run after heating stops to dissipate residual heat
   # TRVs must remain open during this period to allow water to flow
-  pump_overrun_s: 60  # ~3 minutes (adjust after measuring actual boiler behavior)
+  pump_overrun_s: 150  # ~3 minutes (adjust after measuring actual boiler behavior)
   
   # Anti-short-cycling protection
   # Prevents rapid on/off cycles that damage the boiler and waste energy
   anti_cycling:
     # Minimum time boiler must stay ON once started (defautl 180 seconds)
-    min_on_time_s: 60
+    min_on_time_s: 180
     # Minimum time boiler must stay OFF once stopped (default 180 seconds)
-    min_off_time_s: 60
+    min_off_time_s: 180
     # Delay before turning off when demand stops (seconds)
     # Prevents cycling when users adjust setpoints or rooms briefly stop calling
     off_delay_s: 30

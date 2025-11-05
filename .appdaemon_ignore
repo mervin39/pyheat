@@ -1,0 +1,6 @@
+# AppDaemon ignore file - exclude example config files so AppDaemon doesn't try to load them
+config/examples/*.yaml
+
+# Also ignore any example run logs
+debug_monitor.log
+test*.log
