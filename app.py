@@ -304,6 +304,9 @@ class PyHeat(hass.Hass):
         
         This prevents unnecessary valve commands on first recompute and ensures
         rate limiting works correctly from startup.
+        
+        Also initializes room_call_for_heat state to prevent sudden valve closures
+        when rooms are in the hysteresis deadband on startup.
         """
         self.log("Initializing TRV state from current valve positions...")
         now = datetime.now()
@@ -329,12 +332,21 @@ class PyHeat(hass.Hass):
                 # Don't set trv_last_update - let first command happen without rate limiting
                 # This ensures if the desired position differs from current, we update immediately
                 
-                self.log(f"TRV {room_id}: Initialized at {fb_valve}%", level="DEBUG")
+                # CRITICAL: Initialize room_call_for_heat based on current valve position
+                # If valve is open (>0%), assume room was calling for heat before restart
+                # This prevents sudden valve closures when in hysteresis deadband on startup
+                # (prevents boiler running with all valves closed after AppDaemon restart)
+                if fb_valve > 0:
+                    self.room_call_for_heat[room_id] = True
+                    self.log(f"TRV {room_id}: Initialized at {fb_valve}%, assumed calling for heat", level="DEBUG")
+                else:
+                    self.log(f"TRV {room_id}: Initialized at {fb_valve}%", level="DEBUG")
                 
             except (ValueError, TypeError) as e:
                 self.log(f"Failed to initialize TRV state for {room_id}: {e}", level="WARNING")
         
         self.log(f"Initialized TRV state for {len(self.trv_last_commanded)} rooms")
+
 
     # ========================================================================
     # Callback Handlers

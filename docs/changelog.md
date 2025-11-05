@@ -1,5 +1,62 @@
 # PyHeat Changelog
 
+## 2025-11-05: CRITICAL SAFETY - Fix Valve Closure on AppDaemon Restart ⚠️
+
+### Issue: Valves Close When AppDaemon Restarts While Boiler Is Heating
+**Symptom:** When AppDaemon restarts/reloads while the boiler is actively heating:
+1. Open valves (e.g., lounge at 100%) immediately command to 0%
+2. Boiler continues running with all valves closed (safety hazard!)
+3. Valves reopen after ~30 seconds when first temperature sensor update triggers recompute
+
+**Timeline from Production (2025-11-05 08:19:34):**
+```
+08:19:10-08:19:30 - Lounge calling for heat, valve 100%, boiler ON
+08:19:34 - AppDaemon restarts (initialization messages appear)
+08:19:36 - First recompute: lounge shows calling=False, valve=0%
+08:19:36 - Command sent: "Setting TRV for room 'lounge': 0% open (was 100%)"
+08:19:37 - TRV confirms: valve closes to 0%
+08:19:37-08:20:00 - Boiler ON with no valves open (23 seconds!)
+08:20:00 - Temperature sensor update triggers recompute
+08:20:01 - Lounge starts calling again, valve commands to 100%
+08:20:10 - Valve finally reopens (30s rate limit elapsed)
+```
+
+**Root Cause:**
+In `compute_call_for_heat()` (line 829), when determining if room should call for heat:
+```python
+prev_calling = self.room_call_for_heat.get(room_id, False)
+```
+
+On AppDaemon restart, `room_call_for_heat` is a fresh empty dictionary. When a room is in the hysteresis deadband (0.1°C < error < 0.3°C), it should maintain the previous state, but defaults to `False` instead.
+
+Example:
+- Lounge: temp=17.7°C, target=18.0°C, error=0.3°C (exactly at threshold)
+- Hysteresis deadband: maintain previous state
+- Previous state unknown (just restarted) → defaults to `False`
+- Room doesn't call for heat → valve closes to 0%
+
+**Fix:**
+Initialize `room_call_for_heat` in `initialize_trv_state()` based on current valve position:
+```python
+# If valve is open (>0%), assume room was calling for heat before restart
+if fb_valve > 0:
+    self.room_call_for_heat[room_id] = True
+```
+
+This ensures:
+1. Rooms with open valves continue calling for heat after restart
+2. Hysteresis logic maintains heating state correctly
+3. No sudden valve closures during active heating
+4. Prevents boiler running with closed valves (safety issue)
+
+**Impact:**
+- **CRITICAL SAFETY FIX**: Prevents boiler operating with all valves closed after restart
+- Eliminates valve oscillation (close→open) during AppDaemon restarts
+- Preserves heating state across restarts when rooms are in deadband
+- More stable temperature control during system maintenance
+
+---
+
 ## 2025-11-05: Fix Temperature Sensor Units in Home Assistant 🌡️
 
 ### Issue: Temperature Units Changed from °C to C
