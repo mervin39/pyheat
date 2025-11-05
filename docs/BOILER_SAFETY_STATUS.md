@@ -1,32 +1,38 @@
 # Boiler Safety Features - Implementation Status
 
-**Date:** 2025-11-05
+**Date:** 2025-11-05  
 **Branch:** split  
-**CRITICAL:** Modular refactor has SIMPLIFIED boiler control - safety features NOT yet implemented
+**Status:** ✅ **COMPLETE** - All safety features implemented and tested
 
 ## Executive Summary
 
-⚠️ **WARNING:** The modular refactored code currently implements **SIMPLIFIED** boiler control without the comprehensive safety features present in the original monolithic version.
+✅ **IMPLEMENTED:** The modular refactored code now includes the **COMPLETE** boiler safety system from the original monolithic version.
 
-### What's Working
-- ✅ Basic ON/OFF control (climate.set_hvac_mode + set_temperature)
-- ✅ Boiler turns ON when rooms call for heat
-- ✅ Boiler turns OFF when no rooms calling
-- ✅ Correct setpoint commands (30°C on, mode off)
+### Implementation Status
+- ✅ **Basic ON/OFF control** (climate.set_hvac_mode + set_temperature)
+- ✅ **Boiler turns ON** when rooms call for heat
+- ✅ **Boiler turns OFF** when no rooms calling
+- ✅ **Correct setpoint commands** (30°C on, mode off)
+- ✅ **Anti-cycling protection** (180s min on/off times, 30s off-delay) - IMPLEMENTED
+- ✅ **Valve interlock system** (prevents boiler running with insufficient flow) - IMPLEMENTED
+- ✅ **Pump overrun handling** (keeps valves open 180s after boiler off) - IMPLEMENTED
+- ✅ **Safety room failsafe** (emergency flow path to "games") - IMPLEMENTED
+- ✅ **Full 6-state machine** (OFF, PENDING_ON, ON, PENDING_OFF, PUMP_OVERRUN, INTERLOCK_BLOCKED) - IMPLEMENTED
+- ✅ **TRV feedback confirmation** (waits for valves to open before turning on) - IMPLEMENTED
 
-### What's MISSING (from original)
-- ❌ **Anti-cycling protection** (min on/off times, off-delay)
-- ❌ **Valve interlock system** (prevents boiler running with insufficient flow)
-- ❌ **Pump overrun handling** (keeps valves open after boiler off)
-- ❌ **Safety room failsafe** (emergency flow path)
-- ❌ **Full state machine** (PENDING_ON, PENDING_OFF, PUMP_OVERRUN, INTERLOCK_BLOCKED)
-- ❌ **TRV feedback confirmation** (waits for valves to open before turning on)
+**Implementation:** Complete port from monolithic version  
+**Lines of code:** ~450 (boiler_controller.py)  
+**Testing:** Comprehensive - see `BOILER_FSM_TEST_RESULTS.md`  
+**Safety level:** HIGH - All critical features working  
+**Commit:** c957507 (2025-11-05)
 
-## Original Monolithic Implementation
+---
 
-The original `app.py.monolithic` has a **comprehensive 6-state boiler FSM** with extensive safety features:
+## ~~Original~~ Comparison: Monolithic vs Modular Implementation
 
-### State Machine States
+The ~~original~~ monolithic `app.py.monolithic` ~~has~~ **had** a comprehensive 6-state boiler FSM. This has now been **fully ported** to the modular architecture.
+
+### State Machine States (NOW IMPLEMENTED)
 1. **STATE_OFF** - Boiler off, no demand
 2. **STATE_PENDING_ON** - Demand exists, waiting for TRV confirmation
 3. **STATE_ON** - Boiler actively heating
