@@ -75,15 +75,42 @@ class BoilerController:
     
     def _set_boiler_on(self) -> None:
         """Turn boiler on."""
-        setpoint = self.config.boiler_config.get('binary_on_setpoint', C.BOILER_BINARY_ON_SETPOINT_DEFAULT)
-        self._set_boiler_setpoint(setpoint)
-        self.ad.log(f"Boiler ON (setpoint={setpoint}°C)")
+        binary_cfg = self.config.boiler_config.get('binary_control', {})
+        setpoint = binary_cfg.get('on_setpoint_c', C.BOILER_BINARY_ON_SETPOINT_DEFAULT)
+        
+        boiler_entity = self.config.boiler_config.get('entity_id')
+        if not boiler_entity:
+            self.ad.log("No boiler entity configured", level="ERROR")
+            return
+        
+        try:
+            # Set mode to heat first
+            self.ad.call_service('climate/set_hvac_mode',
+                            entity_id=boiler_entity,
+                            hvac_mode='heat')
+            # Then set temperature
+            self.ad.call_service('climate/set_temperature',
+                            entity_id=boiler_entity,
+                            temperature=setpoint)
+            self.ad.log(f"Boiler ON (setpoint={setpoint}°C)")
+        except Exception as e:
+            self.ad.log(f"Failed to turn boiler on: {e}", level="ERROR")
     
     def _set_boiler_off(self) -> None:
         """Turn boiler off."""
-        setpoint = self.config.boiler_config.get('binary_off_setpoint', C.BOILER_BINARY_OFF_SETPOINT_DEFAULT)
-        self._set_boiler_setpoint(setpoint)
-        self.ad.log(f"Boiler OFF (setpoint={setpoint}°C)")
+        boiler_entity = self.config.boiler_config.get('entity_id')
+        if not boiler_entity:
+            self.ad.log("No boiler entity configured", level="ERROR")
+            return
+        
+        try:
+            # Set mode to off (temperature doesn't matter when off)
+            self.ad.call_service('climate/set_hvac_mode',
+                            entity_id=boiler_entity,
+                            hvac_mode='off')
+            self.ad.log(f"Boiler OFF")
+        except Exception as e:
+            self.ad.log(f"Failed to turn boiler off: {e}", level="ERROR")
     
     def _set_boiler_setpoint(self, setpoint: float) -> None:
         """Set boiler climate entity setpoint.
@@ -101,4 +128,4 @@ class BoilerController:
                             entity_id=boiler_entity,
                             temperature=setpoint)
         except Exception as e:
-            self.ad.log(f"Failed to set boiler setpoint: {e}", level="ERROR")
+            self.ad.log(f"Failed to turn boiler off: {e}", level="ERROR")
