@@ -1,5 +1,33 @@
 # PyHeat Changelog
 
+## 2025-11-05: Fix Temperature Sensor Units in Home Assistant 🌡️
+
+### Issue: Temperature Units Changed from °C to C
+**Symptom:** Home Assistant displayed warnings for all pyheat temperature sensors:
+```
+The unit of 'Pete's Room Temperature' (sensor.pyheat_pete_temperature) changed to 'C' 
+which can't be converted to the previously stored unit, '°C'.
+```
+
+**Root Cause:**
+During a previous change to fix log formatting issues with degree symbols, we changed the temperature logging from `°C` to just `C`. However, this accidentally also changed the `unit_of_measurement` attribute for all temperature and target sensors published to Home Assistant.
+
+**Fix:**
+Corrected the `unit_of_measurement` in `publish_room_entities()`:
+- Line 1747: Temperature sensor: `"C"` → `"°C"`
+- Line 1761: Target sensor: `"C"` → `"°C"`
+- Updated docstring comments to reflect correct units
+
+**Impact:**
+- All `sensor.pyheat_*_temperature` entities now properly report `°C`
+- All `sensor.pyheat_*_target` entities now properly report `°C`
+- Home Assistant can properly convert and track temperature history
+- Eliminates unit conversion warnings in HA logs
+
+**Note:** Log output still uses plain `C` (without degree symbol) to avoid character encoding issues in log files.
+
+---
+
 ## 2025-11-05: CRITICAL - Interlock Persistence Bug Fixed 🔧
 
 ### Issue: Valve Stuck at Band Percentage Instead of 100%

@@ -1714,8 +1714,8 @@ class PyHeat(hass.Hass):
         """Publish per-room entities for detailed room status.
         
         Publishes the following entities for each room:
-        - sensor.pyheat_<room>_temperature (C)
-        - sensor.pyheat_<room>_target (C)
+        - sensor.pyheat_<room>_temperature (°C)
+        - sensor.pyheat_<room>_target (°C)
         - sensor.pyheat_<room>_state (off/manual/auto/stale)
         - number.pyheat_<room>_valve_percent (0-100)
         - binary_sensor.pyheat_<room>_calling_for_heat (on/off)
@@ -1745,7 +1745,7 @@ class PyHeat(hass.Hass):
             temp_entity,
             state=temp_state,
             attributes={
-                "unit_of_measurement": "C",
+                "unit_of_measurement": "°C",
                 "device_class": "temperature",
                 "state_class": "measurement",
                 "friendly_name": f"{room_name} Temperature"
@@ -1759,7 +1759,7 @@ class PyHeat(hass.Hass):
             target_entity,
             state=target_state,
             attributes={
-                "unit_of_measurement": "C",
+                "unit_of_measurement": "°C",
                 "device_class": "temperature",
                 "state_class": "measurement",
                 "friendly_name": f"{room_name} Target"
