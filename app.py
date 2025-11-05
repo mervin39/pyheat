@@ -57,6 +57,7 @@ class PyHeat(hass.Hass):
         self.room_last_valve = {}  # {room_id: percent}
         self.room_current_band = {}  # {room_id: band_index}
         self.first_boot = True  # Flag for startup behavior
+        self.unexpected_valve_positions = {}  # Track unexpected valve positions for correction: {room_id: {actual, expected, detected_at}}
         
         # Valve command state tracking (for non-blocking commands)
         self._valve_command_state: Dict[str, Dict] = {}
@@ -413,7 +414,11 @@ class PyHeat(hass.Hass):
             self.log(f"Invalid sensor value for '{entity}': {new}", level="WARNING")
 
     def trv_feedback_changed(self, entity, attribute, old, new, kwargs):
-        """Handle TRV feedback sensor update."""
+        """Handle TRV feedback sensor update.
+        
+        This monitors for unexpected valve position changes (e.g., manual user override via z2m)
+        and triggers correction to bring valve back to expected position.
+        """
         room_id = kwargs.get('room_id')
         self.log(f"TRV feedback for room '{room_id}' updated: {entity} = {new}", level="DEBUG")
         
@@ -424,7 +429,34 @@ class PyHeat(hass.Hass):
             self.log(f"TRV feedback ignored during {self.boiler_state} (valve persistence active)", level="DEBUG")
             return
         
-        # Trigger recompute to check interlock status
+        # Check if the feedback matches what we expect
+        if new not in [None, "unknown", "unavailable"]:
+            try:
+                fb_valve = int(float(new))
+                last_commanded = self.trv_last_commanded.get(room_id)
+                tolerance = C.TRV_COMMAND_FEEDBACK_TOLERANCE
+                
+                if last_commanded is not None and abs(fb_valve - last_commanded) > tolerance:
+                    # Unexpected valve position detected! This could be:
+                    # 1. Manual user override via z2m
+                    # 2. TRV commanded by another system
+                    # 3. Hardware malfunction
+                    self.log(
+                        f"WARNING: Unexpected valve position for room '{room_id}': "
+                        f"feedback={fb_valve}%, expected={last_commanded}%. "
+                        f"Triggering correction.",
+                        level="WARNING"
+                    )
+                    # Mark that this room needs immediate correction (bypass rate limiting)
+                    self.unexpected_valve_positions[room_id] = {
+                        'actual': fb_valve,
+                        'expected': last_commanded,
+                        'detected_at': datetime.now()
+                    }
+            except (ValueError, TypeError):
+                self.log(f"Invalid TRV feedback value for room '{room_id}': {new}", level="WARNING")
+        
+        # Trigger recompute to check interlock status and apply correction if needed
         self.trigger_recompute(f"trv_feedback_{room_id}_changed")
 
     def trv_setpoint_changed(self, entity, attribute, old, new, kwargs):
@@ -1020,23 +1052,39 @@ class PyHeat(hass.Hass):
         if not room_config or room_config.get('disabled'):
             return
         
-        # Check rate limiting
-        min_interval = room_config['valve_update']['min_interval_s']
-        last_update = self.trv_last_update.get(room_id)
+        # Check if this is a correction for an unexpected valve position
+        is_correction = room_id in self.unexpected_valve_positions
         
-        if last_update:
-            elapsed = (now - last_update).total_seconds()
-            if elapsed < min_interval:
-                # Too soon since last update
-                self.log(f"TRV {room_id}: Rate limited (elapsed={elapsed:.1f}s < min={min_interval}s)", level="DEBUG")
+        if not is_correction:
+            # Normal flow: check rate limiting
+            min_interval = room_config['valve_update']['min_interval_s']
+            last_update = self.trv_last_update.get(room_id)
+            
+            if last_update:
+                elapsed = (now - last_update).total_seconds()
+                if elapsed < min_interval:
+                    # Too soon since last update
+                    self.log(f"TRV {room_id}: Rate limited (elapsed={elapsed:.1f}s < min={min_interval}s)", level="DEBUG")
+                    return
+            
+            # Check if value actually changed
+            last_commanded = self.trv_last_commanded.get(room_id)
+            if last_commanded == percent:
+                # No change needed
                 return
+        else:
+            # Correction flow: bypass checks and log
+            unexpected = self.unexpected_valve_positions[room_id]
+            self.log(
+                f"Correcting unexpected valve position for room '{room_id}': "
+                f"actual={unexpected['actual']}%, expected={unexpected['expected']}%, "
+                f"commanding to {percent}%",
+                level="INFO"
+            )
+            # Clear the unexpected position flag
+            del self.unexpected_valve_positions[room_id]
         
-        # Check if value actually changed
         last_commanded = self.trv_last_commanded.get(room_id)
-        if last_commanded == percent:
-            # No change needed
-            return
-        
         self.log(f"Setting TRV for room '{room_id}': {percent}% open (was {last_commanded}%)")
         
         # Start non-blocking valve command sequence

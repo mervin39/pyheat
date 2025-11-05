@@ -1,5 +1,51 @@
 # PyHeat Changelog
 
+## 2025-11-05: Feature - Automatic TRV Valve Position Correction 🔧
+
+### New Feature: Detect and Correct Unexpected Valve Positions
+**What:** PyHeat now automatically detects when a TRV valve is at an unexpected position (e.g., manual override via z2m or Home Assistant) and corrects it to match the expected position.
+
+**Problem Scenario:**
+1. User manually changes `number.trv_pete_valve_opening_degree` to 100% via z2m or Home Assistant
+2. PyHeat expects valve at 0% (room not calling for heat)
+3. Previously: Valve would remain at 100% indefinitely until temperature changed enough to trigger a different valve command
+4. Result: Wasted energy, room overheating, boiler running unnecessarily
+
+**How It Works:**
+- `trv_feedback_changed()` callback now compares feedback valve position against `trv_last_commanded`
+- If difference exceeds tolerance (5%), logs WARNING and flags room for correction
+- Next recompute bypasses rate-limiting and "no change" checks for flagged rooms
+- Sends immediate correction command to restore expected valve position
+- Clears correction flag after command sent
+
+**Implementation Details:**
+- Added `unexpected_valve_positions` dict to track detected discrepancies
+- Modified `trv_feedback_changed()` to check feedback vs. expected
+- Modified `set_trv_valve()` to bypass normal checks when `is_correction=True`
+- Logs clear INFO message when correction applied
+
+**Example from Logs:**
+```
+10:22:14 DEBUG: TRV feedback for room 'pete' updated: sensor.trv_pete_valve_opening_degree_z2m = 100
+10:22:14 WARNING: Unexpected valve position for room 'pete': feedback=100%, expected=0%. Triggering correction.
+10:22:14 INFO: Correcting unexpected valve position for room 'pete': actual=100%, expected=0%, commanding to 0%
+10:22:14 INFO: Setting TRV for room 'pete': 0% open (was 0%)
+10:22:16 DEBUG: TRV pete: Valve position confirmed at 0%
+```
+
+**Benefits:**
+- Prevents manual overrides from causing indefinite wasteful heating
+- Maintains system control over valves
+- Fast correction (within seconds of detection)
+- Clear logging for debugging and audit trail
+
+**Impact:**
+- Energy savings by preventing unintended valve openings
+- Better system reliability and control authority
+- Easier to diagnose manual intervention issues
+
+---
+
 ## 2025-11-05: Feature - Automatic Configuration Reload 🔄
 
 ### New Feature: Configuration File Monitoring
