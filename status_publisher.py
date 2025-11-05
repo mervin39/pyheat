@@ -119,13 +119,30 @@ class StatusPublisher:
         state_str = data['mode']
         if data['mode'] == 'auto' and data.get('calling', False):
             state_str = f"heating ({data.get('valve_percent', 0)}%)"
-        self.ad.set_state(state_entity, state=state_str)
+        self.ad.set_state(state_entity, state=state_str, 
+                     attributes={'friendly_name': f"{room_name} State"}, replace=True)
         
         # Valve percent sensor (read-only information)
         valve_entity = f"sensor.pyheat_{room_id}_valve_percent"
-        self.ad.set_state(valve_entity, state=data.get('valve_percent', 0))
+        valve_percent = data.get('valve_percent', 0)
+        try:
+            # Convert to string to avoid AppDaemon issues with numeric 0
+            valve_state = str(int(valve_percent))
+            self.ad.set_state(
+                valve_entity,
+                state=valve_state,
+                attributes={
+                    "unit_of_measurement": "%",
+                    "friendly_name": f"{room_name} Valve Position"
+                }
+            )
+        except Exception as e:
+            self.ad.log(f"ERROR: Failed to set {valve_entity}: {type(e).__name__}: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
         
         # Calling binary sensor
         calling_entity = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
         self.ad.set_state(calling_entity, 
-                     state="on" if data.get('calling', False) else "off")
+                     state="on" if data.get('calling', False) else "off",
+                     attributes={'friendly_name': f"{room_name} Calling for Heat"}, replace=True)

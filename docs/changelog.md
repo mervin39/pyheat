@@ -1,5 +1,73 @@
 # PyHeat Changelog
 
+## 2025-11-05: Sensor Creation Fix (Final) 🛠️
+
+### Bug Fix #6: Valve Position Sensor HTTP 400 Error (SOLVED)
+**Status:** FIXED ✅  
+**Location:** `status_publisher.py::publish_room_entities()` - Lines 126-143  
+**Severity:** MEDIUM - Causes error log spam for one room, sensors silently fail for others
+
+**Root Cause:**
+AppDaemon has a known issue when setting entity states with numeric value of `0`. When the state value is the integer `0`, AppDaemon fails to properly serialize the HTTP POST request to Home Assistant, causing:
+1. HTTP 400 Bad Request errors (for some rooms)
+2. Silent failures where attributes are not set (for other rooms)
+
+**Investigation Process:**
+1. Initially suspected missing attributes → Added attributes, still failed
+2. Tried `replace=True` parameter → Still failed
+3. Tried `check_existence=False` → Still failed  
+4. Removed apostrophes from friendly names → Still failed
+5. Checked for entity ID conflicts → Not the issue
+6. Manual curl POST worked perfectly → Confirmed AppDaemon-specific problem
+7. **Found the solution in app.py.monolithic**: Convert state to string!
+
+**The Fix:**
+The monolithic version had a comment: *"Convert to string to avoid AppDaemon issues with 0"*
+
+```python
+# Before (lines 126-137) - FAILS with numeric 0
+valve_entity = f"sensor.pyheat_{room_id}_valve_percent"
+self.ad.set_state(valve_entity, state=data.get('valve_percent', 0),
+                 attributes={'unit_of_measurement': '%', ...})
+
+# After (lines 126-143) - WORKS by converting to string
+valve_entity = f"sensor.pyheat_{room_id}_valve_percent"
+valve_percent = data.get('valve_percent', 0)
+try:
+    # Convert to string to avoid AppDaemon issues with numeric 0
+    valve_state = str(int(valve_percent))
+    self.ad.set_state(
+        valve_entity,
+        state=valve_state,  # String, not numeric!
+        attributes={
+            "unit_of_measurement": "%",
+            "friendly_name": f"{room_name} Valve Position"
+        }
+    )
+except Exception as e:
+    self.ad.log(f"ERROR: Failed to set {valve_entity}: {e}", level="ERROR")
+```
+
+**Why This Happened:**
+- During modular refactor, the monolithic version used `number.pyheat_*_valve_percent` domain
+- We changed to `sensor.pyheat_*_valve_percent` domain but didn't copy the string conversion
+- The string conversion is critical regardless of domain - it's an AppDaemon workaround
+- Only Pete's room showed HTTP 400 errors; others silently failed (reason unknown)
+
+**Verification:**
+All six rooms now have correct sensor entities with proper attributes:
+- `sensor.pyheat_pete_valve_percent`: "Pete's Room Valve Position", unit: "%", state: "0"
+- `sensor.pyheat_games_valve_percent`: "Dining Room Valve Position", unit: "%", state: "0"
+- `sensor.pyheat_lounge_valve_percent`: "Living Room Valve Position", unit: "%", state: "0"
+- `sensor.pyheat_abby_valve_percent`: "Abby's Room Valve Position", unit: "%", state: "0"
+- `sensor.pyheat_office_valve_percent`: "Office Valve Position", unit: "%", state: "0"
+- `sensor.pyheat_bathroom_valve_percent`: "Bathroom Valve Position", unit: "%", state: "0"
+
+**Lesson Learned:**
+When refactoring working code, preserve ALL workarounds even if their purpose isn't immediately clear. The `str(int(...))` conversion looked like unnecessary complexity but was actually a critical bugfix.
+
+---
+
 ## 2025-11-05: CRITICAL Anti-Cycling Bug Fix 🔴🛠️
 
 ### Critical Bug Fix #5: Boiler Short-Cycling During Pump Overrun (SAFETY CRITICAL) 🔴
