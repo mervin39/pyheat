@@ -1,0 +1,398 @@
+# PyHeat package for Home Assistant
+# Includes the helper entities that the AppDaemon PyHeat app expects or can use.
+# This package groups the same entities that previously lived as separate YAML
+# fragments under ha_yaml/*.yaml into a single package file for convenience.
+#
+# Drop this file into your Home Assistant packages directory (and include it
+# from configuration.yaml) or copy the relevant sections into your existing
+# YAML structure. This file is provided for convenience and is NOT committed.
+
+ 
+
+# ---------------------------------------------------------------------------
+# Input booleans
+# ---------------------------------------------------------------------------
+input_boolean:
+  pyheat_master_enable:
+    name: "PyHeat Master Enable"
+    icon: mdi:home-automation
+
+  pyheat_holiday_mode:
+    name: "PyHeat Holiday Mode"
+    icon: mdi:airplane
+
+# ---------------------------------------------------------------------------
+# Input selects (per-room modes) - used if present; app checks entity_exists()
+# ---------------------------------------------------------------------------
+input_select:
+  pyheat_abby_mode:
+    name: Abby's Room Heating Mode
+    options:
+      - Auto
+      - Manual
+      - 'Off'
+    icon: mdi:cogs
+
+  pyheat_bathroom_mode:
+    name: Bathroom Heating Mode
+    options:
+      - Auto
+      - Manual
+      - 'Off'
+    icon: mdi:cogs
+
+  pyheat_games_mode:
+    name: Dining Room Heating Mode
+    options:
+      - Auto
+      - Manual
+      - 'Off'
+    icon: mdi:cogs
+
+  pyheat_lounge_mode:
+    name: Living Room Heating Mode
+    options:
+      - Auto
+      - Manual
+      - 'Off'
+    icon: mdi:cogs
+
+  pyheat_office_mode:
+    name: Office Heating Mode
+    options:
+      - Auto
+      - Manual
+      - 'Off'
+    icon: mdi:cogs
+
+  pyheat_pete_mode:
+    name: Pete's Room Heating Mode
+    options:
+      - Auto
+      - Manual
+      - 'Off'
+    icon: mdi:cogs
+
+# ---------------------------------------------------------------------------
+# Input numbers (manual setpoints and override targets)
+# ---------------------------------------------------------------------------
+input_number:
+  # Override persistence targets
+  pyheat_pete_override_target:
+    name: "Pete's Room Override Target"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+
+  pyheat_abby_override_target:
+    name: "Abby's Room Override Target"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+
+  pyheat_office_override_target:
+    name: "Office Override Target"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+
+  pyheat_lounge_override_target:
+    name: "Living Room Override Target"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+
+  pyheat_games_override_target:
+    name: "Dining Room Override Target"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+
+  pyheat_bathroom_override_target:
+    name: "Bathroom Override Target"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+
+  # Manual setpoints
+  pyheat_pete_manual_setpoint:
+    name: "Pete's Room Manual Setpoint"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:radiator
+
+  pyheat_abby_manual_setpoint:
+    name: "Abby's Room Manual Setpoint"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:radiator
+
+  pyheat_office_manual_setpoint:
+    name: "Office Manual Setpoint"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:radiator
+
+  pyheat_lounge_manual_setpoint:
+    name: "Living Room Manual Setpoint"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:radiator
+
+  pyheat_games_manual_setpoint:
+    name: "Dining Room Manual Setpoint"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:radiator
+
+  pyheat_bathroom_manual_setpoint:
+    name: "Bathroom Manual Setpoint"
+    min: 5
+    max: 35
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:radiator
+
+# ---------------------------------------------------------------------------
+# Timers (per-room override timers + boiler safety timers)
+# ---------------------------------------------------------------------------
+timer:
+  pyheat_pete_override:
+    name: "Pete's Room Override Timer"
+    restore: true
+    duration: "00:00:00"
+    icon: mdi:timer
+
+  pyheat_abby_override:
+    name: "Abby's Room Override Timer"
+    restore: true
+    duration: "00:00:00"
+    icon: mdi:timer
+
+  pyheat_office_override:
+    name: "Office Override Timer"
+    restore: true
+    duration: "00:00:00"
+    icon: mdi:timer
+
+  pyheat_lounge_override:
+    name: "Living Room Override Timer"
+    restore: true
+    duration: "00:00:00"
+    icon: mdi:timer
+
+  pyheat_games_override:
+    name: "Dining Room Override Timer"
+    restore: true
+    duration: "00:00:00"
+    icon: mdi:timer
+
+  pyheat_bathroom_override:
+    name: "Bathroom Override Timer"
+    restore: true
+    duration: "00:00:00"
+    icon: mdi:timer
+
+  pyheat_boiler_min_on_timer:
+    name: "Boiler Minimum On Timer"
+    restore: false
+    duration: "00:00:00"
+    icon: mdi:timer-check
+
+  pyheat_boiler_min_off_timer:
+    name: "Boiler Minimum Off Timer"
+    restore: false
+    duration: "00:00:00"
+    icon: mdi:timer-check
+
+  pyheat_boiler_off_delay_timer:
+    name: "Boiler Off Delay Timer"
+    restore: false
+    duration: "00:00:00"
+    icon: mdi:timer-sand
+
+  pyheat_boiler_pump_overrun_timer:
+    name: "Boiler Pump Overrun Timer"
+    restore: false
+    duration: "00:00:00"
+    icon: mdi:pump
+
+# ---------------------------------------------------------------------------
+# Input text - pump overrun persistence
+# ---------------------------------------------------------------------------
+input_text:
+  pyheat_pump_overrun_valves:
+    name: "PyHeat Pump Overrun Valve Positions"
+    initial: ""
+    max: 255
+
+# ---------------------------------------------------------------------------
+# MQTT sensors (TRV feedback) - these are important for valve feedback
+# The state_topic values below match the Zigbee2MQTT topics used in the
+# original ha_yaml. Adjust topics if your TRV integration differs.
+# These are declared under the `mqtt:` domain in legacy YAML form because
+# some Home Assistant setups disallow `platform: mqtt` under `sensor:`.
+# ---------------------------------------------------------------------------
+mqtt:
+  sensor:
+    - name: "TRV Pete Valve Closing Degree (Z2M)"
+      unique_id: trv_pete_valve_closing_degree_z2m
+      state_topic: "zigbee2mqtt/trv_pete"
+      value_template: "{{ value_json.valve_closing_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_pete/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Pete Valve Opening Degree (Z2M)"
+      unique_id: trv_pete_valve_opening_degree_z2m
+      state_topic: "zigbee2mqtt/trv_pete"
+      value_template: "{{ value_json.valve_opening_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_pete/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Lounge Valve Closing Degree (Z2M)"
+      unique_id: trv_lounge_valve_closing_degree_z2m
+      state_topic: "zigbee2mqtt/trv_lounge"
+      value_template: "{{ value_json.valve_closing_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_lounge/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Lounge Valve Opening Degree (Z2M)"
+      unique_id: trv_lounge_valve_opening_degree_z2m
+      state_topic: "zigbee2mqtt/trv_lounge"
+      value_template: "{{ value_json.valve_opening_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_lounge/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Games Valve Closing Degree (Z2M)"
+      unique_id: trv_games_valve_closing_degree_z2m
+      state_topic: "zigbee2mqtt/trv_games"
+      value_template: "{{ value_json.valve_closing_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_games/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Games Valve Opening Degree (Z2M)"
+      unique_id: trv_games_valve_opening_degree_z2m
+      state_topic: "zigbee2mqtt/trv_games"
+      value_template: "{{ value_json.valve_opening_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_games/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Abby Valve Closing Degree (Z2M)"
+      unique_id: trv_abby_valve_closing_degree_z2m
+      state_topic: "zigbee2mqtt/trv_abby"
+      value_template: "{{ value_json.valve_closing_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_abby/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Abby Valve Opening Degree (Z2M)"
+      unique_id: trv_abby_valve_opening_degree_z2m
+      state_topic: "zigbee2mqtt/trv_abby"
+      value_template: "{{ value_json.valve_opening_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_abby/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Office Valve Closing Degree (Z2M)"
+      unique_id: trv_office_valve_closing_degree_z2m
+      state_topic: "zigbee2mqtt/trv_office"
+      value_template: "{{ value_json.valve_closing_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_office/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Office Valve Opening Degree (Z2M)"
+      unique_id: trv_office_valve_opening_degree_z2m
+      state_topic: "zigbee2mqtt/trv_office"
+      value_template: "{{ value_json.valve_opening_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_office/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Bathroom Valve Closing Degree (Z2M)"
+      unique_id: trv_bathroom_valve_closing_degree_z2m
+      state_topic: "zigbee2mqtt/trv_bathroom"
+      value_template: "{{ value_json.valve_closing_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_bathroom/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+    - name: "TRV Bathroom Valve Opening Degree (Z2M)"
+      unique_id: trv_bathroom_valve_opening_degree_z2m
+      state_topic: "zigbee2mqtt/trv_bathroom"
+      value_template: "{{ value_json.valve_opening_degree | int }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      availability_topic: "zigbee2mqtt/trv_bathroom/availability"
+      availability_template: "{{ value_json.state }}"
+      payload_available: "online"
+      payload_not_available: "offline"
+
+
