@@ -241,7 +241,7 @@ class HAMonitor:
         while True:
             time.sleep(1)
             
-            # Check each entity for changes
+            # Check each entity for changes (excluding temperature sensors)
             changed = False
             changed_entities = []
             
@@ -252,11 +252,14 @@ class HAMonitor:
                 last_state = self.last_states.get(entity_id)
                 
                 if current_state != last_state:
-                    changed = True
-                    changed_entities.append(entity_id)
+                    # Only trigger log if it's not a temperature sensor
+                    if not entity_id.startswith('sensor.pyheat_') or not entity_id.endswith('_temperature'):
+                        changed = True
+                        changed_entities.append(entity_id)
+                    # Always update last state though
                     self.last_states[entity_id] = current_state
             
-            # If anything changed, log everything
+            # If anything changed (excluding temp sensors), log everything
             if changed:
                 reason = f"CHANGE DETECTED: {', '.join(changed_entities)}"
                 self.log_all_states(reason)
