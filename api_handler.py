@@ -293,6 +293,7 @@ class APIHandler:
                 # Check for active override/boost timer and enhance status_text
                 timer_entity = f"timer.pyheat_{room_id}_override"
                 status_text = base_status_text
+                override_end_time = None  # ISO 8601 timestamp when override finishes
                 
                 if self.ad.entity_exists(timer_entity):
                     timer_state = self.ad.get_state(timer_entity)
@@ -300,6 +301,9 @@ class APIHandler:
                         # Timer is active - get remaining time and override details
                         timer_attrs = self.ad.get_state(timer_entity, attribute="all")
                         if timer_attrs and "attributes" in timer_attrs:
+                            # Get finishes_at for client-side countdown
+                            override_end_time = timer_attrs["attributes"].get("finishes_at")
+                            
                             remaining_str = timer_attrs["attributes"].get("remaining")
                             if remaining_str:
                                 # Parse remaining time (format: "H:MM:SS" or "M:SS")
@@ -347,7 +351,8 @@ class APIHandler:
                     "is_stale": room_data.get("is_stale", True),
                     "status_text": status_text,
                     "manual_setpoint": manual_setpoint,
-                    "valve_feedback_consistent": valve_fb_consistent
+                    "valve_feedback_consistent": valve_fb_consistent,
+                    "override_end_time": override_end_time  # ISO 8601 timestamp or null
                 }
                 rooms.append(room_status)
             
