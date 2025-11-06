@@ -40,18 +40,18 @@ class APIHandler:
         
         self.ad.log("Registered PyHeat HTTP API endpoints")
         
-    def _handle_request(self, callback, request_data: Dict[str, Any]) -> tuple:
+    def _handle_request(self, callback, request_body: Dict[str, Any]) -> tuple:
         """Common request handler with error handling.
         
         Args:
             callback: Service callback function to invoke
-            request_data: Request parameters from HTTP body
+            request_body: Request parameters from HTTP body
             
         Returns:
             Tuple of (response_dict, status_code)
         """
         try:
-            result = callback("api", "pyheat", "api", request_data)
+            result = callback("api", "pyheat", "api", request_body)
             
             if isinstance(result, dict):
                 if result.get("success", True):
@@ -66,7 +66,7 @@ class APIHandler:
             self.ad.log(f"API request error: {e}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
     
-    async def api_override(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_override(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_override
         
         Sets absolute target override for a room.
@@ -77,9 +77,10 @@ class APIHandler:
             "minutes": int
         }
         """
-        return self._handle_request(self.service_handler.svc_override, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_override, request_body)
     
-    async def api_boost(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_boost(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_boost
         
         Applies delta boost to current target.
@@ -90,9 +91,10 @@ class APIHandler:
             "minutes": int
         }
         """
-        return self._handle_request(self.service_handler.svc_boost, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_boost, request_body)
     
-    async def api_cancel_override(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_cancel_override(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_cancel_override
         
         Cancels active override/boost.
@@ -101,9 +103,10 @@ class APIHandler:
             "room": str
         }
         """
-        return self._handle_request(self.service_handler.svc_cancel_override, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_cancel_override, request_body)
     
-    async def api_set_mode(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_set_mode(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_set_mode
         
         Sets room operating mode.
@@ -113,9 +116,10 @@ class APIHandler:
             "mode": str  # "auto", "manual", or "off"
         }
         """
-        return self._handle_request(self.service_handler.svc_set_mode, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_set_mode, request_body)
     
-    async def api_set_default_target(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_set_default_target(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_set_default_target
         
         Updates room's default target temperature in schedules.yaml.
@@ -125,18 +129,20 @@ class APIHandler:
             "target": float
         }
         """
-        return self._handle_request(self.service_handler.svc_set_default_target, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_set_default_target, request_body)
     
-    async def api_reload_config(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_reload_config(self, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_reload_config
         
         Reloads PyHeat configuration from files.
         
         Request body: {} (empty)
         """
-        return self._handle_request(self.service_handler.svc_reload_config, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_reload_config, request_body)
     
-    async def api_get_schedules(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_get_schedules(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: GET/POST /api/appdaemon/pyheat_get_schedules
         
         Gets current schedules configuration.
@@ -144,8 +150,9 @@ class APIHandler:
         Request body: {} (empty)
         Returns: Complete schedules.yaml contents
         """
+        request_body = data.get("body", {})
         try:
-            result = self.service_handler.svc_get_schedules("api", "pyheat", "get_schedules", request_data)
+            result = self.service_handler.svc_get_schedules("api", "pyheat", "get_schedules", request_body)
             
             # Format response to match what pyheat-web expects
             if isinstance(result, dict) and not result.get("success") == False:
@@ -165,7 +172,7 @@ class APIHandler:
             self.ad.log(f"get_schedules API error: {e}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
     
-    async def api_get_rooms(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_get_rooms(self, data: Dict[str, Any]) -> tuple:
         """API endpoint: GET/POST /api/appdaemon/pyheat_get_rooms
         
         Gets current rooms configuration.
@@ -173,9 +180,10 @@ class APIHandler:
         Request body: {} (empty)
         Returns: Complete rooms.yaml contents
         """
-        return self._handle_request(self.service_handler.svc_get_rooms, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_get_rooms, request_body)
     
-    async def api_replace_schedules(self, request_data: Dict[str, Any]) -> tuple:
+    async def api_replace_schedules(self, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_replace_schedules
         
         Atomically replaces entire schedules.yaml.
@@ -190,4 +198,5 @@ class APIHandler:
             }
         }
         """
-        return self._handle_request(self.service_handler.svc_replace_schedules, request_data)
+        request_body = data.get("body", {})
+        return self._handle_request(self.service_handler.svc_replace_schedules, request_body)
