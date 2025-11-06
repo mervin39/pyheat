@@ -72,6 +72,7 @@ class APIHandler:
         self.ad.register_endpoint(self.api_get_rooms, "pyheat_get_rooms")
         self.ad.register_endpoint(self.api_replace_schedules, "pyheat_replace_schedules")
         self.ad.register_endpoint(self.api_get_status, "pyheat_get_status")
+        self.ad.register_endpoint(self.api_get_history, "pyheat_get_history")
         
         self.ad.log("Registered PyHeat HTTP API endpoints")
         
@@ -378,4 +379,138 @@ class APIHandler:
             import traceback
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
+
+    def api_get_history(self, namespace, data: Dict[str, Any]) -> tuple:
+        """API endpoint: POST /api/appdaemon/pyheat_get_history
+        
+        Gets historical temperature, setpoint, and boiler data for a room.
+        
+        Request body: {
+            "room": str,        # Room ID (e.g., "pete", "lounge")
+            "period": str       # "today" or "yesterday"
+        }
+        
+        Returns: {
+            "temperature": [{"time": str, "value": float}],
+            "setpoint": [{"time": str, "value": float}],
+            "calling_for_heat": [["start_time", "end_time"]]
+        }
+        """
+        from datetime import datetime, timedelta, timezone
+        
+        request_body = namespace if isinstance(namespace, dict) else {}
+        
+        try:
+            room_id = request_body.get("room")
+            period = request_body.get("period", "today")
+            
+            if not room_id:
+                return {"success": False, "error": "room parameter required"}, 400
+            
+            if period not in ["today", "yesterday"]:
+                return {"success": False, "error": "period must be 'today' or 'yesterday'"}, 400
+            
+            # Calculate time range
+            now = datetime.now(timezone.utc)
+            if period == "today":
+                start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_time = now
+            else:  # yesterday
+                yesterday = now - timedelta(days=1)
+                start_time = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_time = start_time + timedelta(days=1)
+            
+            # Build entity IDs for this room
+            temp_sensor = f"sensor.pyheat_{room_id}_temperature"
+            target_sensor = f"sensor.pyheat_{room_id}_target"
+            status_sensor = "sensor.pyheat_status"
+            
+            # Fetch history using AppDaemon's get_history
+            # get_history(entity_id, start_time=None, end_time=None)
+            temperature_data = []
+            setpoint_data = []
+            calling_ranges = []
+            
+            # Temperature history
+            if self.ad.entity_exists(temp_sensor):
+                temp_history = self.ad.get_history(
+                    entity_id=temp_sensor,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                
+                # get_history returns [[{state, last_changed, ...}, ...]]
+                if temp_history and len(temp_history) > 0:
+                    for state_obj in temp_history[0]:
+                        try:
+                            temp_value = float(state_obj["state"])
+                            temperature_data.append({
+                                "time": state_obj["last_changed"],
+                                "value": temp_value
+                            })
+                        except (ValueError, KeyError):
+                            continue
+            
+            # Setpoint history
+            if self.ad.entity_exists(target_sensor):
+                setpoint_history = self.ad.get_history(
+                    entity_id=target_sensor,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                
+                if setpoint_history and len(setpoint_history) > 0:
+                    for state_obj in setpoint_history[0]:
+                        try:
+                            setpoint_value = float(state_obj["state"])
+                            setpoint_data.append({
+                                "time": state_obj["last_changed"],
+                                "value": setpoint_value
+                            })
+                        except (ValueError, KeyError):
+                            continue
+            
+            # Calling for heat - extract from pyheat_status sensor
+            # sensor.pyheat_status has attribute "rooms_calling_for_heat": ["pete", "lounge"]
+            if self.ad.entity_exists(status_sensor):
+                status_history = self.ad.get_history(
+                    entity_id=status_sensor,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                
+                if status_history and len(status_history) > 0:
+                    calling_start = None
+                    
+                    for state_obj in status_history[0]:
+                        try:
+                            attrs = state_obj.get("attributes", {})
+                            rooms_calling = attrs.get("rooms_calling_for_heat", [])
+                            is_calling = room_id in rooms_calling
+                            timestamp = state_obj["last_changed"]
+                            
+                            if is_calling and calling_start is None:
+                                calling_start = timestamp
+                            elif not is_calling and calling_start is not None:
+                                calling_ranges.append([calling_start, timestamp])
+                                calling_start = None
+                        except (KeyError, TypeError):
+                            continue
+                    
+                    # If still calling at end
+                    if calling_start is not None:
+                        calling_ranges.append([calling_start, end_time.isoformat()])
+            
+            return {
+                "temperature": temperature_data,
+                "setpoint": setpoint_data,
+                "calling_for_heat": calling_ranges
+            }, 200
+            
+        except Exception as e:
+            self.ad.log(f"get_history API error: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+            return {"success": False, "error": str(e)}, 500
+
 
