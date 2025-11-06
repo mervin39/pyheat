@@ -1,5 +1,34 @@
 # PyHeat Changelog
 
+## 2025-11-06: Recent Period Support 🚀
+
+### Feature: Dynamic "Recent" Time Periods for History API
+**Status:** ADDED ✅  
+**Location:** `api_handler.py` - `api_get_history()` method  
+
+**Feature:**
+Added support for flexible "recent" time periods in the history API, allowing pyheat-web to request data from the last X hours.
+
+**New Period Format:**
+- `recent_1h` - Last 1 hour
+- `recent_2h` - Last 2 hours
+- `recent_3h` - Last 3 hours
+- ... up to `recent_12h` - Last 12 hours
+
+**Implementation:**
+- Parses `recent_Xh` format from period parameter
+- Extracts hour count and validates range (1-12 hours)
+- Calculates start_time as `now - timedelta(hours=X)`
+- Returns same data format as existing "today"/"yesterday" periods
+
+**Benefits:**
+- Enables granular recent data views in pyheat-web
+- Progressive time windows (1h, 2h, 3h...) for debugging
+- More flexible than fixed daily periods
+- Maintains backward compatibility with existing periods
+
+---
+
 ## 2025-11-06: History API Fix 🐛
 
 ### Bug Fix: Calling-for-Heat History Data
