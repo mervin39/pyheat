@@ -340,6 +340,23 @@ class APIHandler:
                                     # Regular override - show absolute target
                                     status_text = f"override({override_target:.1f}) {total_minutes}m"
                 
+                # Get actual valve position from TRV feedback sensor
+                actual_valve_percent = 0
+                room_cfg = self.service_handler.config.rooms.get(room_id, {})
+                if room_cfg:
+                    fb_valve_entity = room_cfg.get('trv', {}).get('fb_valve')
+                    if fb_valve_entity and self.ad.entity_exists(fb_valve_entity):
+                        try:
+                            fb_state = self.ad.get_state(fb_valve_entity)
+                            if fb_state and fb_state not in ['unknown', 'unavailable']:
+                                actual_valve_percent = int(float(fb_state))
+                        except (ValueError, TypeError):
+                            # Fall back to commanded valve percent
+                            actual_valve_percent = room_data.get("valve_percent", 0)
+                    else:
+                        # No feedback sensor, use commanded percent
+                        actual_valve_percent = room_data.get("valve_percent", 0)
+                
                 # Build combined room status
                 room_status = {
                     "id": room_id,
@@ -348,7 +365,7 @@ class APIHandler:
                     "target": room_data.get("target"),
                     "mode": room_data.get("mode", "off"),
                     "calling_for_heat": room_data.get("calling_for_heat", False),
-                    "valve_percent": room_data.get("valve_percent", 0),
+                    "valve_percent": actual_valve_percent,
                     "is_stale": room_data.get("is_stale", True),
                     "status_text": status_text,
                     "manual_setpoint": manual_setpoint,
