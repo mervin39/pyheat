@@ -479,6 +479,7 @@ class ServiceHandler:
         
         Args:
             schedule (dict): Complete schedules.yaml contents (required)
+                Expected format: {"rooms": [{"id": "...", "default_target": ..., "week": {...}}, ...]}
             
         Returns:
             Dict with success, rooms_saved, total_blocks, room_ids
@@ -497,11 +498,25 @@ class ServiceHandler:
         self.ad.log("pyheat.replace_schedules: processing request")
         
         try:
-            # Validate schedule structure
+            # Handle two possible formats:
+            # 1. {"rooms": [...]} - from pyheat-web (preferred)
+            # 2. {"room_id": {...}, ...} - legacy format
+            
+            if 'rooms' in schedule and isinstance(schedule['rooms'], list):
+                # Format 1: Already has 'rooms' list
+                rooms_list = schedule['rooms']
+            else:
+                # Format 2: Dict keyed by room_id - convert to list
+                rooms_list = list(schedule.values())
+            
+            # Validate schedule structure and count blocks
             total_blocks = 0
-            for room_id, room_schedule in schedule.items():
-                if 'week' in room_schedule and isinstance(room_schedule['week'], dict):
-                    for day, blocks in room_schedule['week'].items():
+            room_ids = []
+            for room_data in rooms_list:
+                if 'id' in room_data:
+                    room_ids.append(room_data['id'])
+                if 'week' in room_data and isinstance(room_data['week'], dict):
+                    for day, blocks in room_data['week'].items():
                         if isinstance(blocks, list):
                             total_blocks += len(blocks)
             
@@ -510,8 +525,8 @@ class ServiceHandler:
             config_dir = os.path.join(app_dir, "config")
             schedules_file = os.path.join(config_dir, "schedules.yaml")
             
-            # Save as 'rooms' key structure to match format
-            schedules_data = {'rooms': list(schedule.values())}
+            # Save with 'rooms' list structure
+            schedules_data = {'rooms': rooms_list}
             
             with open(schedules_file, 'w') as f:
                 yaml.dump(schedules_data, f, default_flow_style=False, sort_keys=False)
@@ -525,9 +540,9 @@ class ServiceHandler:
             
             result = {
                 "success": True,
-                "rooms_saved": len(schedule),
+                "rooms_saved": len(rooms_list),
                 "total_blocks": total_blocks,
-                "room_ids": list(schedule.keys())
+                "room_ids": room_ids
             }
             self.ad.log(f"Schedules replaced: {result}")
             return result
