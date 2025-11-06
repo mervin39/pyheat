@@ -1,5 +1,50 @@
 # PyHeat Changelog
 
+## 2025-11-06: Appdaemon API Integration 🔌
+
+### Feature: HTTP API Endpoints for External Access
+**Status:** COMPLETE ✅  
+**Location:** `api_handler.py` (new file, 200+ lines)  
+**Purpose:** Enable pyheat-web to communicate with pyheat running in Appdaemon
+
+**Background:**
+- Pyscript could create Home Assistant services (`pyheat.*`)
+- Appdaemon's `register_service()` creates internal services only
+- These are NOT exposed as HA services - only callable within Appdaemon
+- Solution: Use `register_endpoint()` to create HTTP API endpoints
+
+**Implementation:**
+- Created `APIHandler` class in `api_handler.py`
+- Registers HTTP endpoints at `/api/appdaemon/{endpoint_name}`
+- Bridges HTTP requests to existing service handlers
+- Returns JSON responses with proper error handling
+
+**Available Endpoints:**
+- `pyheat_override` - Set absolute temperature override
+- `pyheat_boost` - Apply delta boost to target
+- `pyheat_cancel_override` - Cancel active override/boost
+- `pyheat_set_mode` - Set room mode (auto/manual/off)
+- `pyheat_set_default_target` - Update default target temp
+- `pyheat_get_schedules` - Retrieve current schedules
+- `pyheat_get_rooms` - Get rooms configuration
+- `pyheat_replace_schedules` - Replace entire schedule atomically
+- `pyheat_reload_config` - Reload configuration files
+
+**Integration:**
+- Updated `app.py` to initialize and register APIHandler
+- No changes to existing service handlers
+- Both Appdaemon services AND HTTP endpoints available
+- Appdaemon runs on port 5050 (default)
+
+**Client Changes (pyheat-web):**
+- Created `appdaemon_client.py` - HTTP client for Appdaemon API
+- Updated `service_adapter.py` - Uses AppdaemonClient instead of HA services
+- Updated `schedule_manager.py` - Fetches schedules from Appdaemon
+- Added `appdaemon_url` config setting
+- Maintains same external interface - no breaking changes to pyheat-web API
+
+---
+
 ## 2025-11-05: Debug Monitoring Tool 🔧
 
 ### New Feature: Debug Monitor for System Testing
