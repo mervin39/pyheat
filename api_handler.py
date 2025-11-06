@@ -407,18 +407,29 @@ class APIHandler:
             if not room_id:
                 return {"success": False, "error": "room parameter required"}, 400
             
-            if period not in ["today", "yesterday"]:
-                return {"success": False, "error": "period must be 'today' or 'yesterday'"}, 400
-            
             # Calculate time range
             now = datetime.now(timezone.utc)
-            if period == "today":
+            
+            # Check for recent_Xh format (e.g., "recent_1h", "recent_3h")
+            if period.startswith("recent_"):
+                try:
+                    hours_str = period.replace("recent_", "").replace("h", "")
+                    hours = int(hours_str)
+                    if hours < 1 or hours > 12:
+                        return {"success": False, "error": "recent hours must be between 1 and 12"}, 400
+                    start_time = now - timedelta(hours=hours)
+                    end_time = now
+                except ValueError:
+                    return {"success": False, "error": "invalid recent period format"}, 400
+            elif period == "today":
                 start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
                 end_time = now
-            else:  # yesterday
+            elif period == "yesterday":
                 yesterday = now - timedelta(days=1)
                 start_time = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
                 end_time = start_time + timedelta(days=1)
+            else:
+                return {"success": False, "error": "period must be 'today', 'yesterday', or 'recent_Xh'"}, 400
             
             # Build entity IDs for this room
             temp_sensor = f"sensor.pyheat_{room_id}_temperature"
