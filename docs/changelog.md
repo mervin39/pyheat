@@ -1,5 +1,47 @@
 # PyHeat Changelog
 
+## 2025-11-06: Override Status Display Fix 🐛
+
+### Bug Fix: Stale Override Status After Timer Expiration
+**Status:** FIXED ✅  
+**Location:** `app.py` - `room_timer_changed()` method  
+**Issue:** Room status showed "(override)" even after timer expired naturally
+
+**Problem:**
+When an override/boost timer finished naturally (expired), the system would:
+1. ✅ Clear the override target (`input_number.pyheat_{room}_override_target`)
+2. ✅ Trigger recompute
+3. ❌ **NOT clear the override type** from `input_text.pyheat_override_types`
+
+This caused the status sensor to continue showing "auto (override)" because:
+- `StatusPublisher._get_override_type()` checked the override types entity
+- The stale entry remained: `{"pete": {"type": "override"}}`
+- Status text generation included "(override)" based on this stale data
+
+**Root Cause:**
+The `room_timer_changed()` callback only cleared override type when `svc_cancel_override` was explicitly called, not when timers expired naturally.
+
+**Solution:**
+Added call to `self.service_handler._set_override_type(room_id, "none")` in the timer expiration handler:
+```python
+elif old in ["active", "paused"] and new == "idle":
+    self.log(f"Room '{room_id}' override expired")
+    # Clear the override target
+    target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
+    if self.entity_exists(target_entity):
+        self.call_service("input_number/set_value",
+                        entity_id=target_entity, value=0)
+    # Clear the override type to ensure status is updated
+    self.service_handler._set_override_type(room_id, "none")  # ← NEW
+```
+
+**Result:**
+- Override type is now cleared when timer expires naturally
+- Status sensors correctly show "auto" after override finishes
+- Consistent behavior between manual cancellation and natural expiration
+
+---
+
 ## 2025-11-06: Recent Period Support 🚀
 
 ### Feature: Dynamic "Recent" Time Periods for History API

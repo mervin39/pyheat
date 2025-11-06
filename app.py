@@ -197,6 +197,8 @@ class PyHeat(hass.Hass):
                     # Set to sentinel value (entity min is 5, so 0 indicates cleared)
                     self.call_service("input_number/set_value",
                                     entity_id=target_entity, value=0)
+                # Clear the override type to ensure status is updated
+                self.service_handler._set_override_type(room_id, "none")
             self.trigger_recompute(f"room_{room_id}_timer_changed")
 
     def sensor_changed(self, entity, attribute, old, new, kwargs):
