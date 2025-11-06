@@ -31,6 +31,7 @@ from pyheat.room_controller import RoomController
 from pyheat.boiler_controller import BoilerController
 from pyheat.status_publisher import StatusPublisher
 from pyheat.service_handler import ServiceHandler
+from pyheat.api_handler import APIHandler
 import pyheat.constants as C
 
 
@@ -57,6 +58,7 @@ class PyHeat(hass.Hass):
         self.boiler = BoilerController(self, self.config)
         self.status = StatusPublisher(self, self.config)
         self.services = ServiceHandler(self, self.config)
+        self.api = APIHandler(self, self.services)
         
         # Timing and state tracking
         self.last_recompute = None
@@ -101,6 +103,9 @@ class PyHeat(hass.Hass):
         
         # Register service handlers (pass scheduler for boost service)
         self.services.register_all(self.trigger_recompute, self.scheduler)
+        
+        # Register HTTP API endpoints for external access (e.g., pyheat-web)
+        self.api.register_all()
         
         # Log startup summary
         self.log(f"PyHeat initialized successfully")

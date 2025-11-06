@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-service_handler.py - Home Assistant service handlers
+service_handler.py - Service registration and callbacks
 
 Responsibilities:
-- Register PyHeat services
-- Handle service calls (override, boost, cancel, set_mode, reload, etc.)
-- Validate service parameters
+- Register Appdaemon services for pyheat
+- Handle service calls with validation
+- Bridge service calls to internal logic
 """
 
-from typing import Any, Dict, Callable
 from datetime import datetime
+from typing import Dict, Any, Optional, Callable
 import os
 import yaml
+import json
 import pyheat.constants as C
 
 
@@ -29,6 +30,59 @@ class ServiceHandler:
         self.config = config
         self.trigger_recompute_callback = None  # Set by main app
         self.scheduler_ref = None  # Set by main app for boost service
+    
+    def _get_override_types(self) -> Dict[str, Any]:
+        """Get override types dict from helper entity.
+        
+        Returns:
+            Dict mapping room_id to override info:
+            - For boost: {"type": "boost", "delta": 2.0}
+            - For override: {"type": "override"}
+            - For none: {"type": "none"} or just "none"
+        """
+        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
+            return {}
+        
+        try:
+            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
+            if value and value != "":
+                return json.loads(value)
+            return {}
+        except (json.JSONDecodeError, TypeError) as e:
+            self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
+            return {}
+    
+    def _set_override_type(self, room_id: str, override_type: str, delta: float = None) -> None:
+        """Set override type for a room.
+        
+        Args:
+            room_id: Room identifier
+            override_type: "none", "boost", or "override"
+            delta: For boost type, the temperature delta
+        """
+        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
+            self.ad.log(f"Override types entity {C.HELPER_OVERRIDE_TYPES} does not exist", level="WARNING")
+            return
+        
+        try:
+            override_types = self._get_override_types()
+            
+            # Store boost with delta, others as simple string
+            if override_type == "boost" and delta is not None:
+                override_types[room_id] = {"type": "boost", "delta": delta}
+            elif override_type == "none":
+                override_types[room_id] = "none"
+            else:
+                override_types[room_id] = {"type": override_type}
+            
+            value_json = json.dumps(override_types)
+            self.ad.call_service("input_text/set_value",
+                                entity_id=C.HELPER_OVERRIDE_TYPES,
+                                value=value_json)
+            self.ad.log(f"Set override type for {room_id}: {override_type}" + 
+                       (f" (delta: {delta})" if delta is not None else ""), level="DEBUG")
+        except Exception as e:
+            self.ad.log(f"Failed to set override type for {room_id}: {e}", level="WARNING")
         
     def register_all(self, trigger_recompute_cb: Callable, scheduler_ref=None) -> None:
         """Register all PyHeat services.
@@ -50,6 +104,7 @@ class ServiceHandler:
         self.ad.register_service("pyheat/get_schedules", self.svc_get_schedules)
         self.ad.register_service("pyheat/get_rooms", self.svc_get_rooms)
         self.ad.register_service("pyheat/replace_schedules", self.svc_replace_schedules)
+        self.ad.register_service("pyheat/get_status", self.svc_get_status)
         
         self.ad.log("Registered PyHeat services")
         
@@ -112,6 +167,9 @@ class ServiceHandler:
             if self.ad.entity_exists(timer_entity):
                 duration = f"{minutes * 60}"  # Convert to seconds
                 self.ad.call_service("timer/start", entity_id=timer_entity, duration=duration)
+            
+            # Track override type
+            self._set_override_type(room, "override")
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
@@ -205,6 +263,9 @@ class ServiceHandler:
                 duration = f"{minutes * 60}"  # Convert to seconds
                 self.ad.call_service("timer/start", entity_id=timer_entity, duration=duration)
             
+            # Track override type as boost with delta
+            self._set_override_type(room, "boost", delta=delta)
+            
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
                 self.ad.run_in(lambda kwargs: self.trigger_recompute_callback("boost_service"), 1)
@@ -240,6 +301,9 @@ class ServiceHandler:
             timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room)
             if self.ad.entity_exists(timer_entity):
                 self.ad.call_service("timer/cancel", entity_id=timer_entity)
+            
+            # Clear override type
+            self._set_override_type(room, "none")
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
@@ -415,6 +479,7 @@ class ServiceHandler:
         
         Args:
             schedule (dict): Complete schedules.yaml contents (required)
+                Expected format: {"rooms": [{"id": "...", "default_target": ..., "week": {...}}, ...]}
             
         Returns:
             Dict with success, rooms_saved, total_blocks, room_ids
@@ -433,11 +498,25 @@ class ServiceHandler:
         self.ad.log("pyheat.replace_schedules: processing request")
         
         try:
-            # Validate schedule structure
+            # Handle two possible formats:
+            # 1. {"rooms": [...]} - from pyheat-web (preferred)
+            # 2. {"room_id": {...}, ...} - legacy format
+            
+            if 'rooms' in schedule and isinstance(schedule['rooms'], list):
+                # Format 1: Already has 'rooms' list
+                rooms_list = schedule['rooms']
+            else:
+                # Format 2: Dict keyed by room_id - convert to list
+                rooms_list = list(schedule.values())
+            
+            # Validate schedule structure and count blocks
             total_blocks = 0
-            for room_id, room_schedule in schedule.items():
-                if 'week' in room_schedule and isinstance(room_schedule['week'], dict):
-                    for day, blocks in room_schedule['week'].items():
+            room_ids = []
+            for room_data in rooms_list:
+                if 'id' in room_data:
+                    room_ids.append(room_data['id'])
+                if 'week' in room_data and isinstance(room_data['week'], dict):
+                    for day, blocks in room_data['week'].items():
                         if isinstance(blocks, list):
                             total_blocks += len(blocks)
             
@@ -446,8 +525,8 @@ class ServiceHandler:
             config_dir = os.path.join(app_dir, "config")
             schedules_file = os.path.join(config_dir, "schedules.yaml")
             
-            # Save as 'rooms' key structure to match format
-            schedules_data = {'rooms': list(schedule.values())}
+            # Save with 'rooms' list structure
+            schedules_data = {'rooms': rooms_list}
             
             with open(schedules_file, 'w') as f:
                 yaml.dump(schedules_data, f, default_flow_style=False, sort_keys=False)
@@ -461,14 +540,119 @@ class ServiceHandler:
             
             result = {
                 "success": True,
-                "rooms_saved": len(schedule),
+                "rooms_saved": len(rooms_list),
                 "total_blocks": total_blocks,
-                "room_ids": list(schedule.keys())
+                "room_ids": room_ids
             }
             self.ad.log(f"Schedules replaced: {result}")
             return result
         
         except Exception as e:
             self.ad.log(f"pyheat.replace_schedules failed: {e}", level="ERROR")
+            return {"success": False, "error": str(e)}
+    
+    def svc_get_status(self, namespace, domain, service, kwargs):
+        """Service: pyheat.get_status - Get current system and room status.
+        
+        Returns complete status including room temperatures, targets, modes,
+        valve positions, boiler state, etc. This eliminates the need for
+        pyheat-web to read individual HA entities.
+        
+        Returns:
+            {
+                "rooms": [
+                    {
+                        "id": str,
+                        "name": str,
+                        "temp": float or null,
+                        "target": float or null,
+                        "mode": str,
+                        "calling_for_heat": bool,
+                        "valve_percent": int,
+                        "is_stale": bool,
+                        "status_text": str,
+                        "manual_setpoint": float or null,
+                        "valve_feedback_consistent": bool or null
+                    },
+                    ...
+                ],
+                "system": {
+                    "master_enabled": bool,
+                    "holiday_mode": bool,
+                    "any_call_for_heat": bool,
+                    "boiler_state": str,
+                    "last_recompute": str (ISO datetime)
+                }
+            }
+        """
+        try:
+            # Get main status entity which has comprehensive attributes
+            status_state = self.ad.get_state(C.STATUS_ENTITY, attribute="all")
+            if not status_state:
+                return {"success": False, "error": "Status entity not available"}
+            
+            status_attrs = status_state.get("attributes", {})
+            rooms_data = status_attrs.get("rooms", {})
+            
+            # Build rooms list with additional details
+            rooms = []
+            for room_id, room_data in rooms_data.items():
+                room_cfg = self.config.rooms.get(room_id, {})
+                
+                # Get manual setpoint from input_number entity
+                manual_setpoint_entity = f"input_number.pyheat_{room_id}_manual_setpoint"
+                manual_setpoint = None
+                if self.ad.entity_exists(manual_setpoint_entity):
+                    manual_setpoint_str = self.ad.get_state(manual_setpoint_entity)
+                    if manual_setpoint_str not in [None, "unknown", "unavailable"]:
+                        try:
+                            manual_setpoint = float(manual_setpoint_str)
+                        except (ValueError, TypeError):
+                            pass
+                
+                # Get valve feedback consistency if available
+                valve_fb_consistent = None
+                fb_valve_entity_id = f"binary_sensor.pyheat_{room_id}_valve_feedback_consistent"
+                if self.ad.entity_exists(fb_valve_entity_id):
+                    fb_state = self.ad.get_state(fb_valve_entity_id)
+                    valve_fb_consistent = (fb_state == "on") if fb_state else None
+                
+                # Build combined room status
+                room_status = {
+                    "id": room_id,
+                    "name": room_cfg.get('name', room_id.replace("_", " ").title()),
+                    "temp": room_data.get("temperature"),
+                    "target": room_data.get("target"),
+                    "mode": room_data.get("mode", "off"),
+                    "calling_for_heat": room_data.get("calling_for_heat", False),
+                    "valve_percent": room_data.get("valve_percent", 0),
+                    "is_stale": room_data.get("is_stale", True),
+                    "status_text": self.ad.get_state(f"sensor.pyheat_{room_id}_state") or "unknown",
+                    "manual_setpoint": manual_setpoint,
+                    "valve_feedback_consistent": valve_fb_consistent
+                }
+                rooms.append(room_status)
+            
+            # Build system status
+            master_enabled = self.ad.get_state(C.HELPER_MASTER_ENABLE) == "on" if self.ad.entity_exists(C.HELPER_MASTER_ENABLE) else True
+            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on" if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE) else False
+            
+            system = {
+                "master_enabled": master_enabled,
+                "holiday_mode": holiday_mode,
+                "any_call_for_heat": status_attrs.get("any_call_for_heat", False),
+                "boiler_state": status_attrs.get("boiler_state", "unknown"),
+                "last_recompute": status_attrs.get("last_recompute")
+            }
+            
+            return {
+                "rooms": rooms,
+                "system": system
+            }
+            
+        except Exception as e:
+            self.ad.log(f"pyheat.get_status failed: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}
 

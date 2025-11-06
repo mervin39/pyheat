@@ -10,6 +10,7 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Dict, List, Any
+import json
 import pyheat.constants as C
 
 
@@ -25,6 +26,37 @@ class StatusPublisher:
         """
         self.ad = ad
         self.config = config
+    
+    def _get_override_type(self, room_id: str) -> str:
+        """Get override type for a room.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            "none", "boost", or "override"
+        """
+        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
+            return "none"
+        
+        try:
+            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
+            if value and value != "":
+                override_types = json.loads(value)
+                info = override_types.get(room_id)
+                
+                if info is None:
+                    return "none"
+                elif isinstance(info, str):
+                    return info
+                elif isinstance(info, dict):
+                    return info.get("type", "none")
+                else:
+                    return "none"
+            return "none"
+        except (json.JSONDecodeError, TypeError) as e:
+            self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
+            return "none"
         
     def publish_system_status(self, any_calling: bool, active_rooms: List[str],
                              room_data: Dict, boiler_state: str, boiler_reason: str,
@@ -117,8 +149,14 @@ class StatusPublisher:
         # State sensor
         state_entity = f"sensor.pyheat_{room_id}_state"
         state_str = data['mode']
-        if data['mode'] == 'auto' and data.get('calling', False):
+        
+        # Check for override/boost
+        override_type = self._get_override_type(room_id)
+        if override_type != "none":
+            state_str = f"{state_str} ({override_type})"
+        elif data['mode'] == 'auto' and data.get('calling', False):
             state_str = f"heating ({data.get('valve_percent', 0)}%)"
+            
         self.ad.set_state(state_entity, state=state_str, 
                      attributes={'friendly_name': f"{room_name} State"}, replace=True)
         

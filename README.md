@@ -205,15 +205,73 @@ The app logs:
 - Per-room sensor entities (temperature, target, valve_percent, calling_for_heat)
 - Configuration loading and validation
 - Callback registration for all state changes
-- Service handlers (registered but not yet callable from HA)
+- **HTTP API endpoints** for external access (pyheat-web integration)
 - Debug monitoring tool for system testing
 
-### 🚧 Pending
-- Make service handlers callable from Home Assistant (currently only registered within AppDaemon)
-- Enhanced error handling for edge cases
-- Comprehensive integration testing suite
+## HTTP API Endpoints
 
-See `docs/TODO.md` for detailed roadmap and completed items.
+PyHeat exposes HTTP API endpoints via AppDaemon's `register_endpoint()` for external control and monitoring:
+
+**Base URL**: `http://<appdaemon-host>:5050/api/appdaemon/`
+
+### Available Endpoints
+
+- **`pyheat_override`** - Set absolute temperature override
+  ```json
+  POST /api/appdaemon/pyheat_override
+  {"room": "lounge", "target": 21.0, "minutes": 60}
+  ```
+
+- **`pyheat_boost`** - Apply delta boost to current target
+  ```json
+  POST /api/appdaemon/pyheat_boost
+  {"room": "lounge", "delta": 2.0, "minutes": 45}
+  ```
+
+- **`pyheat_cancel_override`** - Cancel active override/boost
+  ```json
+  POST /api/appdaemon/pyheat_cancel_override
+  {"room": "lounge"}
+  ```
+
+- **`pyheat_set_mode`** - Set room operating mode
+  ```json
+  POST /api/appdaemon/pyheat_set_mode
+  {"room": "lounge", "mode": "auto"}
+  // mode: "auto", "manual", "off"
+  // optional: "manual_setpoint": 20.0 for manual mode
+  ```
+
+- **`pyheat_get_status`** - Get complete system and room status
+  ```json
+  POST /api/appdaemon/pyheat_get_status
+  {}
+  // Returns: {rooms: [...], system: {...}}
+  ```
+
+- **`pyheat_get_schedules`** - Get current schedules
+  ```json
+  POST /api/appdaemon/pyheat_get_schedules
+  {}
+  // Returns: {rooms: [{id, default_target, week: {...}}, ...]}
+  ```
+
+- **`pyheat_replace_schedules`** - Update schedules (used by pyheat-web)
+  ```json
+  POST /api/appdaemon/pyheat_replace_schedules
+  {"schedule": {"rooms": [...]}}
+  // Atomically replaces schedules.yaml
+  ```
+
+- **`pyheat_reload_config`** - Reload configuration from YAML files
+  ```json
+  POST /api/appdaemon/pyheat_reload_config
+  {}
+  ```
+
+All endpoints return JSON with `{"success": true/false, ...}` format.
+
+See `api_handler.py` for implementation details and response formats.
 
 ## Troubleshooting
 
@@ -237,6 +295,22 @@ See `docs/TODO.md` for detailed roadmap and completed items.
 - Check that at least one room is calling for heat
 - Verify boiler actor entity exists
 
+### API endpoints not working
+- Verify AppDaemon is running and accessible on port 5050
+- Check logs for endpoint registration messages
+- Ensure JSON body is properly formatted
+- Note: Endpoints are synchronous, not async
+
+## Integration with pyheat-web
+
+PyHeat can be controlled via the [pyheat-web](https://github.com/yourusername/pyheat-web) mobile-first web interface:
+- Real-time status monitoring via WebSocket
+- Room control (boost, override, mode switching)
+- Visual schedule editor with drag-and-drop
+- Secure token custody (HA token never exposed to browser)
+
+See pyheat-web documentation for setup instructions.
+
 ## Migration from PyScript
 
 This is a complete rewrite of the original PyScript implementation. Key differences:
@@ -245,12 +319,13 @@ This is a complete rewrite of the original PyScript implementation. Key differen
 - **State management**: AppDaemon's persistent state vs PyScript's stateless
 - **Entity control**: `call_service()` vs direct state manipulation
 - **Imports**: Proper Python package structure
+- **API access**: HTTP endpoints via `register_endpoint()` (new in AppDaemon version)
 
 Configuration files (`rooms.yaml`, `schedules.yaml`) are compatible between versions.
 
 ## Contributing
 
-See `docs/changelog.md` for recent changes and `docs/todo.md` for planned work.
+See `docs/changelog.md` for recent changes and `docs/TODO.md` for planned work.
 
 ## License
 
@@ -259,3 +334,4 @@ See `docs/changelog.md` for recent changes and `docs/todo.md` for planned work.
 ## Authors
 
 Originally implemented in PyScript, migrated to AppDaemon in November 2025.
+HTTP API endpoints and pyheat-web integration added November 2025.

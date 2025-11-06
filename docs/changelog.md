@@ -1,5 +1,149 @@
 # PyHeat Changelog
 
+## 2025-11-06: Schedule Save Bug Fix 🐛
+
+### Bug Fix: Schedule Corruption on Save
+**Status:** FIXED ✅  
+**Location:** `service_handler.py` - `svc_replace_schedules()` method  
+**Commit:** 83f873d
+
+**Problem:**
+When pyheat-web tried to save schedule changes, the YAML file was corrupted with double-nested list structure:
+```yaml
+rooms:
+- - id: pete    # WRONG - double dash/nesting
+```
+
+This caused appdaemon to return empty rooms array, making the schedule page show "No Schedules Configured".
+
+**Root Cause:**
+- pyheat-web sends: `{"schedule": {"rooms": [...]}}`
+- service_handler was treating it as dict keyed by room_id: `{"room_id": {...}}`
+- Code did: `schedules_data = {'rooms': list(schedule.values())}`
+- `schedule.values()` was already a list, wrapping in `list()` created double-nesting
+
+**Fix:**
+Updated `svc_replace_schedules()` to handle both formats:
+1. `{"rooms": [...]}` - from pyheat-web (preferred) - extract directly
+2. `{"room_id": {...}}` - legacy format - convert to list
+
+Now correctly saves with single-level structure:
+```yaml
+rooms:
+- id: pete      # CORRECT - single dash
+  default_target: 14.0
+  week:
+    mon:
+    - start: '06:30'
+```
+
+**Testing:**
+- ✅ Direct API test with curl - saves correctly
+- ✅ YAML structure validated - no double-nesting
+- ✅ Appdaemon returns all 6 rooms after save
+- Ready for pyheat-web UI testing
+
+**Related Changes:**
+- Removed unnecessary `./schedules.yaml:/app/schedules.yaml` volume mount from pyheat-web docker-compose.yml (commit 85186f6)
+- Establishes appdaemon as single source of truth for schedules
+- pyheat-web now only reads from API, doesn't need local file
+
+---
+
+## 2025-11-06: Appdaemon API Integration 🔌
+
+### Feature: HTTP API Endpoints for External Access
+**Status:** COMPLETE ✅  
+**Location:** `api_handler.py` (new file, 200+ lines)  
+**Purpose:** Enable pyheat-web to communicate with pyheat running in Appdaemon
+
+**Background:**
+- Pyscript could create Home Assistant services (`pyheat.*`)
+- Appdaemon's `register_service()` creates internal services only
+- These are NOT exposed as HA services - only callable within Appdaemon
+- Solution: Use `register_endpoint()` to create HTTP API endpoints
+
+**Implementation:**
+- Created `APIHandler` class in `api_handler.py`
+- Registers HTTP endpoints at `/api/appdaemon/{endpoint_name}`
+- Bridges HTTP requests to existing service handlers
+- Returns JSON responses with proper error handling
+- **Fixed:** API endpoints are synchronous (not async) to avoid asyncio.Task issues with get_state()
+- **Fixed:** JSON request body is passed as first parameter (namespace), not nested in data dict
+
+**Available Endpoints:**
+- `pyheat_override` - Set absolute temperature override ✅ TESTED & WORKING
+- `pyheat_boost` - Apply delta boost to target ✅ TESTED & WORKING
+- `pyheat_cancel_override` - Cancel active override/boost ✅ TESTED & WORKING
+- `pyheat_set_mode` - Set room mode (auto/manual/off) ✅ TESTED & WORKING
+- `pyheat_set_default_target` - Update default target temp
+- `pyheat_get_schedules` - Retrieve current schedules
+- `pyheat_get_rooms` - Get rooms configuration
+- `pyheat_replace_schedules` - Replace entire schedule atomically
+- `pyheat_reload_config` - Reload configuration files
+- `pyheat_get_status` - Get complete system status (rooms + system state)
+
+**Integration:**
+- Updated `app.py` to initialize and register APIHandler
+- No changes to existing service handlers
+- Both Appdaemon services AND HTTP endpoints available
+- Appdaemon runs on port 5050 (default)
+
+**Client Changes (pyheat-web):**
+- Created `appdaemon_client.py` - HTTP client for Appdaemon API
+- Updated `service_adapter.py` - Uses AppdaemonClient instead of HA services
+- Updated `schedule_manager.py` - Fetches schedules from Appdaemon
+- Added `appdaemon_url` config setting
+- **Phase 2:** Removed ALL Home Assistant direct dependencies from pyheat-web
+  - Replaced HARestClient/HAWebSocketClient with periodic polling (2s interval)
+  - Removed token vault (no HA authentication needed)
+  - Single API architecture: pyheat-web → Appdaemon only
+  - Simplified configuration with fewer environment variables
+  - Updated docker-compose files to remove HA credentials
+
+**Result:** Simplified architecture with single API endpoint, no dual HA+Appdaemon dependencies. All control operations working correctly.
+
+### Feature: Override Type Tracking for UI Display
+**Status:** COMPLETE ✅  
+**Location:** `service_handler.py`, `api_handler.py`, `status_publisher.py`, `constants.py`  
+**Purpose:** Enable pyheat-web to distinguish between boost and override in UI
+
+**Background:**
+- Boost and override use same timer/target entities
+- No way to tell if active timer is boost or override
+- UI needs format like "boost(+2.0) 60m" vs "override(21.0) 45m"
+
+**Implementation:**
+- Created `input_text.pyheat_override_types` entity (already in pyheat_package.yaml)
+- Stores JSON dict mapping room_id to override info:
+  - Boost: `{"type": "boost", "delta": 2.0}`
+  - Override: `{"type": "override"}`
+  - None: `"none"`
+- Added helper methods in `service_handler.py`:
+  - `_get_override_types()` - reads JSON dict from entity
+  - `_set_override_type(room, type, delta)` - updates dict and saves
+- Service handlers track override type:
+  - `svc_boost()` sets type="boost" with delta
+  - `svc_override()` sets type="override"
+  - `svc_cancel_override()` sets type="none"
+- `status_publisher.py` includes override type in state sensor
+- `api_handler.py` formats status_text with correct boost delta
+
+**Testing:**
+- ✅ Boost: `curl -X POST .../pyheat_boost -d '{"room": "pete", "delta": 2.0, "minutes": 60}'`
+  - Returns: `{"success": true, "room": "pete", "delta": 2.0, "boost_target": 18.0, "minutes": 60}`
+  - Status: `"status_text": "boost(+2.0) 60m"`
+- ✅ Override: `curl -X POST .../pyheat_override -d '{"room": "games", "target": 21.0, "minutes": 45}'`
+  - Returns: `{"success": true, "room": "games", "target": 21.0, "minutes": 45}`
+  - Status: `"status_text": "override(21.0) 45m"`
+- ✅ Cancel: `curl -X POST .../pyheat_cancel_override -d '{"room": "pete"}'`
+  - Returns: `{"success": true, "room": "pete"}`
+  - Override types updated correctly
+
+**Result:** pyheat-web can now properly display boost vs override status with correct formatting.
+
+---
+
 ## 2025-11-05: Debug Monitoring Tool 🔧
 
 ### New Feature: Debug Monitor for System Testing

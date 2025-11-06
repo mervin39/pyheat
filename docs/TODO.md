@@ -1,9 +1,9 @@
 # PyHeat Implementation TODO
 
-## Status: Full Boiler State Machine Implemented ✅
+## Status: Production-Ready with HTTP API ✅
 
-**Last Updated**: 2025-11-04  
-**Current Phase**: Production-Ready Heating Control with Advanced Boiler Management
+**Last Updated**: 2025-11-06  
+**Current Phase**: Complete Heating Control with External API Integration
 
 ---
 
@@ -97,7 +97,33 @@
     - [x] `sensor.pyheat_<room>_valve_percent` - Valve opening (0-100) ✅
     - [x] `binary_sensor.pyheat_<room>_calling_for_heat` - Heat demand (on/off) ✅
 
-### Phase 3: Testing & Verification
+### Phase 3: HTTP API Integration ✅
+- [x] **API Handler Module** (`api_handler.py`)
+  - [x] Register HTTP endpoints via AppDaemon's `register_endpoint()`
+  - [x] Bridge HTTP requests to service handlers
+  - [x] JSON request/response handling
+  - [x] Synchronous endpoint implementation (avoid asyncio.Task issues)
+  - [x] Proper parameter extraction from namespace
+
+- [x] **Control Endpoints**
+  - [x] `pyheat_override` - Set absolute temperature override ✅
+  - [x] `pyheat_boost` - Apply delta boost to target ✅
+  - [x] `pyheat_cancel_override` - Cancel active override/boost ✅
+  - [x] `pyheat_set_mode` - Set room mode (auto/manual/off) ✅
+
+- [x] **Status Endpoints**
+  - [x] `pyheat_get_status` - Complete system and room status ✅
+  - [x] `pyheat_get_schedules` - Current schedule configuration ✅
+  - [x] Override type tracking with delta storage ✅
+  - [x] Override end time (ISO 8601 timestamps) for countdown timers ✅
+
+- [x] **Schedule Management**
+  - [x] `pyheat_replace_schedules` - Atomic schedule update ✅
+  - [x] `pyheat_reload_config` - Reload from YAML files ✅
+  - [x] Handle both legacy and pyheat-web schedule formats ✅
+  - [x] Fix double-nested list corruption bug ✅
+
+### Phase 4: Testing & Verification
 - [x] **Initial Testing** - COMPLETE ✅
   - [x] App loads and initializes successfully
   - [x] Configuration loading works
