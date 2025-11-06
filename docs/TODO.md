@@ -179,7 +179,7 @@
 
 ## In Progress / Next Steps 🚧
 
-### Next Priority: Service Handler Integration (~2-3 hours)
+### Next Priority: Service Handler Integration
 
 Make service handlers callable from Home Assistant. Currently they're registered within AppDaemon but don't appear as HA services.
 
@@ -200,7 +200,7 @@ Make service handlers callable from Home Assistant. Currently they're registered
 
 ## Deferred / Future Enhancements 📋
 
-### Service Handlers (~5-8 hours) - IMPLEMENTED BUT NOT INTEGRATED ⚠️
+### Service Handlers - IMPLEMENTED BUT NOT INTEGRATED ⚠️
 **Status:** All service handlers implemented and registered with AppDaemon, but not yet callable from Home Assistant. Services are registered internally via `register_service()` but don't appear as HA services. Need to investigate proper AppDaemon->HA service registration method.
 
 **Implemented Services:**
@@ -216,19 +216,55 @@ Make service handlers callable from Home Assistant. Currently they're registered
 
 **TODO:** Make services callable from Home Assistant (currently only registered within AppDaemon)
 
-### Enhanced Features
-- [ ] **Advanced Error Handling** (~2-3 hours)
+### Enhanced Features (Inspired by PyScript Version)
+
+- [ ] **Persistent Notification System**
+  - [ ] Create notification manager for critical/serious errors
+  - [ ] Spam prevention by tracking active notifications
+  - [ ] Auto-dismiss when issues resolve
+  - [ ] Severity levels (INFO, WARNING, ERROR, CRITICAL)
+  - [ ] Category-based notifications (boiler, TRV, sensor, config, system)
+  - [ ] User-friendly notifications with emoji indicators
+  - **Note:** PyScript version has full `notifications.py` module - we may implement differently for AppDaemon
+
+- [ ] **Enhanced Watchdog and Auto-Recovery**
+  - [ ] 1-minute watchdog cron for stuck state detection
+  - [ ] Monitor prolonged PENDING_ON or INTERLOCK_BLOCKED states
+  - [ ] Auto-recovery from anomalous states
+  - [ ] Critical notifications for prolonged issues
+  - [ ] Emergency safety valve monitoring
+  - **Note:** Some safety features exist; this would enhance them
+
+- [ ] **REST API Documentation**
+  - [ ] Complete curl examples for all services
+  - [ ] `?return_response=true` usage patterns for AppDaemon
+  - [ ] Reading configuration via state attributes
+  - [ ] Service response structures with JSON examples
+  - [ ] Integration guide for external applications
+  - **Note:** PyScript version has extensive REST API docs - adapt for AppDaemon
+
+- [ ] **Advanced Error Handling**
   - [ ] Graceful degradation when entities missing
   - [ ] Invalid state value handling
   - [ ] Configuration validation on load
   - [ ] Service call failure recovery
   - [ ] Persistent error logging
 
-- [ ] **State Persistence** (~1-2 hours)
-  - [ ] Restore override/boost from timer states on startup
-  - [ ] Pump overrun valve positions via input_text helper
-  - [ ] Last commanded valve positions
-  - [ ] Boiler state machine state restoration
+- [ ] **Enhanced State Persistence**
+  - [ ] Verify override/boost restoration from timer states works correctly
+  - [ ] Document pump overrun valve position persistence
+  - [ ] Verify last commanded valve positions tracking
+  - [ ] Document boiler state machine state restoration
+  - [ ] Add comprehensive state restoration logging
+  - **Note:** Basic persistence exists; this would document and enhance it
+
+- [ ] **Architectural Specification Document**
+  - [ ] Domain objects and contracts
+  - [ ] Event flow and data flow diagrams
+  - [ ] File-by-file responsibilities
+  - [ ] State model and precedence rules
+  - [ ] Startup behavior specifications
+  - **Note:** PyScript has detailed `pyheat-spec.md` - useful for future maintainers
 
 ### Testing & Validation
 - [ ] **Comprehensive Integration Tests**
@@ -267,31 +303,6 @@ Make service handlers callable from Home Assistant. Currently they're registered
 **None!** All discovered issues have been resolved. System is production-ready.
 
 ---
-
-## Development Estimates
-
-### Time Investment So Far: ~42-48 hours
-- Foundation & structure: 4 hours
-- Core heating logic: 8 hours
-- TRV setpoint locking refactor: 3 hours
-- Initial testing & debugging: 3-4 hours
-- Full boiler state machine: 4-5 hours
-- Valve band control with hysteresis: 3-4 hours
-- Per-room entity publishing fixes: 2-3 hours
-- TRV setpoint correction (35°C fix): 1-2 hours
-- Modular architecture refactor: 6-8 hours
-- Bug fixes and sensor entity fix: 2-3 hours
-- Debug monitoring tool: 2-3 hours
-- Documentation updates: 2-3 hours
-
-### Remaining Work Estimates (Optional Enhancements)
-- **Service handler integration**: 2-3 hours
-- **Enhanced error handling**: 1-2 hours
-- **Comprehensive testing suite**: 2-3 hours
-- **Total remaining**: ~5-8 hours
-
-### Total Project: ~47-56 hours
-Complete recreation of the PyScript implementation with significant improvements and feature parity achieved.
 
 ---
 
