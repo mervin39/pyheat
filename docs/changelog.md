@@ -22,9 +22,9 @@
 - **Fixed:** JSON request body is passed as first parameter (namespace), not nested in data dict
 
 **Available Endpoints:**
-- `pyheat_override` - Set absolute temperature override
+- `pyheat_override` - Set absolute temperature override ✅ TESTED & WORKING
 - `pyheat_boost` - Apply delta boost to target ✅ TESTED & WORKING
-- `pyheat_cancel_override` - Cancel active override/boost
+- `pyheat_cancel_override` - Cancel active override/boost ✅ TESTED & WORKING
 - `pyheat_set_mode` - Set room mode (auto/manual/off) ✅ TESTED & WORKING
 - `pyheat_set_default_target` - Update default target temp
 - `pyheat_get_schedules` - Retrieve current schedules
@@ -52,6 +52,45 @@
   - Updated docker-compose files to remove HA credentials
 
 **Result:** Simplified architecture with single API endpoint, no dual HA+Appdaemon dependencies. All control operations working correctly.
+
+### Feature: Override Type Tracking for UI Display
+**Status:** COMPLETE ✅  
+**Location:** `service_handler.py`, `api_handler.py`, `status_publisher.py`, `constants.py`  
+**Purpose:** Enable pyheat-web to distinguish between boost and override in UI
+
+**Background:**
+- Boost and override use same timer/target entities
+- No way to tell if active timer is boost or override
+- UI needs format like "boost(+2.0) 60m" vs "override(21.0) 45m"
+
+**Implementation:**
+- Created `input_text.pyheat_override_types` entity (already in pyheat_package.yaml)
+- Stores JSON dict mapping room_id to override info:
+  - Boost: `{"type": "boost", "delta": 2.0}`
+  - Override: `{"type": "override"}`
+  - None: `"none"`
+- Added helper methods in `service_handler.py`:
+  - `_get_override_types()` - reads JSON dict from entity
+  - `_set_override_type(room, type, delta)` - updates dict and saves
+- Service handlers track override type:
+  - `svc_boost()` sets type="boost" with delta
+  - `svc_override()` sets type="override"
+  - `svc_cancel_override()` sets type="none"
+- `status_publisher.py` includes override type in state sensor
+- `api_handler.py` formats status_text with correct boost delta
+
+**Testing:**
+- ✅ Boost: `curl -X POST .../pyheat_boost -d '{"room": "pete", "delta": 2.0, "minutes": 60}'`
+  - Returns: `{"success": true, "room": "pete", "delta": 2.0, "boost_target": 18.0, "minutes": 60}`
+  - Status: `"status_text": "boost(+2.0) 60m"`
+- ✅ Override: `curl -X POST .../pyheat_override -d '{"room": "games", "target": 21.0, "minutes": 45}'`
+  - Returns: `{"success": true, "room": "games", "target": 21.0, "minutes": 45}`
+  - Status: `"status_text": "override(21.0) 45m"`
+- ✅ Cancel: `curl -X POST .../pyheat_cancel_override -d '{"room": "pete"}'`
+  - Returns: `{"success": true, "room": "pete"}`
+  - Override types updated correctly
+
+**Result:** pyheat-web can now properly display boost vs override status with correct formatting.
 
 ---
 
