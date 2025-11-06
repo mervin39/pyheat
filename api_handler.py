@@ -52,6 +52,7 @@ class APIHandler:
             Tuple of (response_dict, status_code)
         """
         try:
+            # Service handlers are synchronous
             result = callback("api", "pyheat", "api", request_body)
             
             if isinstance(result, dict):
@@ -65,9 +66,11 @@ class APIHandler:
                 
         except Exception as e:
             self.ad.log(f"API request error: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
     
-    async def api_override(self, namespace, data: Dict[str, Any]) -> tuple:
+    def api_override(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_override
         
         Sets absolute target override for a room.
@@ -78,10 +81,11 @@ class APIHandler:
             "minutes": int
         }
         """
-        request_body = data.get("body", {})
+        # In Appdaemon, the JSON body is passed as the first parameter (namespace)
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_override, request_body)
     
-    async def api_boost(self, namespace, data: Dict[str, Any]) -> tuple:
+    def api_boost(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_boost
         
         Applies delta boost to current target.
@@ -92,10 +96,11 @@ class APIHandler:
             "minutes": int
         }
         """
-        request_body = data.get("body", {})
+        # In Appdaemon, the JSON body is passed as the first parameter (namespace)
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_boost, request_body)
     
-    async def api_cancel_override(self, namespace, data: Dict[str, Any]) -> tuple:
+    def api_cancel_override(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_cancel_override
         
         Cancels active override/boost.
@@ -104,10 +109,10 @@ class APIHandler:
             "room": str
         }
         """
-        request_body = data.get("body", {})
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_cancel_override, request_body)
     
-    async def api_set_mode(self, namespace, data: Dict[str, Any]) -> tuple:
+    def api_set_mode(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_set_mode
         
         Sets room operating mode.
@@ -117,10 +122,10 @@ class APIHandler:
             "mode": str  # "auto", "manual", or "off"
         }
         """
-        request_body = data.get("body", {})
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_set_mode, request_body)
     
-    async def api_set_default_target(self, namespace, data: Dict[str, Any]) -> tuple:
+    def api_set_default_target(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_set_default_target
         
         Updates room's default target temperature in schedules.yaml.
@@ -130,20 +135,20 @@ class APIHandler:
             "target": float
         }
         """
-        request_body = data.get("body", {})
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_set_default_target, request_body)
     
-    async def api_reload_config(self, data: Dict[str, Any]) -> tuple:
+    def api_reload_config(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_reload_config
         
         Reloads PyHeat configuration from files.
         
         Request body: {} (empty)
         """
-        request_body = data.get("body", {})
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_reload_config, request_body)
     
-    async def api_get_schedules(self, namespace, data: Dict[str, Any]) -> tuple:
+    def api_get_schedules(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: GET/POST /api/appdaemon/pyheat_get_schedules
         
         Gets current schedules configuration.
@@ -151,7 +156,7 @@ class APIHandler:
         Request body: {} (empty)
         Returns: Complete schedules.yaml contents
         """
-        request_body = data.get("body", {})
+        request_body = namespace if isinstance(namespace, dict) else {}
         try:
             result = self.service_handler.svc_get_schedules("api", "pyheat", "get_schedules", request_body)
             
@@ -173,7 +178,7 @@ class APIHandler:
             self.ad.log(f"get_schedules API error: {e}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
     
-    async def api_get_rooms(self, data: Dict[str, Any]) -> tuple:
+    def api_get_rooms(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: GET/POST /api/appdaemon/pyheat_get_rooms
         
         Gets current rooms configuration.
@@ -181,10 +186,10 @@ class APIHandler:
         Request body: {} (empty)
         Returns: Complete rooms.yaml contents
         """
-        request_body = data.get("body", {})
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_get_rooms, request_body)
     
-    async def api_replace_schedules(self, data: Dict[str, Any]) -> tuple:
+    def api_replace_schedules(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_replace_schedules
         
         Atomically replaces entire schedules.yaml.
@@ -199,10 +204,10 @@ class APIHandler:
             }
         }
         """
-        request_body = data.get("body", {})
+        request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_replace_schedules, request_body)
     
-    async def api_get_status(self, namespace, data: Dict[str, Any]) -> tuple:
+    def api_get_status(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: GET/POST /api/appdaemon/pyheat_get_status
         
         Gets complete system and room status directly from pyheat.
@@ -218,7 +223,7 @@ class APIHandler:
             # Get main status entity which has comprehensive attributes
             import pyheat.constants as C
             
-            status_state = await self.ad.get_state(C.STATUS_ENTITY, attribute="all")
+            status_state = self.ad.get_state(C.STATUS_ENTITY, attribute="all")
             if not status_state:
                 return {"success": False, "error": "Status entity not available"}, 500
             
@@ -233,8 +238,8 @@ class APIHandler:
                 # Get manual setpoint from input_number entity
                 manual_setpoint_entity = f"input_number.pyheat_{room_id}_manual_setpoint"
                 manual_setpoint = None
-                if await self.ad.entity_exists(manual_setpoint_entity):
-                    manual_setpoint_str = await self.ad.get_state(manual_setpoint_entity)
+                if self.ad.entity_exists(manual_setpoint_entity):
+                    manual_setpoint_str = self.ad.get_state(manual_setpoint_entity)
                     if manual_setpoint_str not in [None, "unknown", "unavailable"]:
                         try:
                             manual_setpoint = float(manual_setpoint_str)
@@ -244,8 +249,8 @@ class APIHandler:
                 # Get valve feedback consistency if available
                 valve_fb_consistent = None
                 fb_valve_entity_id = f"binary_sensor.pyheat_{room_id}_valve_feedback_consistent"
-                if await self.ad.entity_exists(fb_valve_entity_id):
-                    fb_state = await self.ad.get_state(fb_valve_entity_id)
+                if self.ad.entity_exists(fb_valve_entity_id):
+                    fb_state = self.ad.get_state(fb_valve_entity_id)
                     valve_fb_consistent = (fb_state == "on") if fb_state else None
                 
                 # Build combined room status
@@ -258,15 +263,15 @@ class APIHandler:
                     "calling_for_heat": room_data.get("calling_for_heat", False),
                     "valve_percent": room_data.get("valve_percent", 0),
                     "is_stale": room_data.get("is_stale", True),
-                    "status_text": await self.ad.get_state(f"sensor.pyheat_{room_id}_state") or "unknown",
+                    "status_text": self.ad.get_state(f"sensor.pyheat_{room_id}_state") or "unknown",
                     "manual_setpoint": manual_setpoint,
                     "valve_feedback_consistent": valve_fb_consistent
                 }
                 rooms.append(room_status)
             
             # Build system status
-            master_enabled = await self.ad.get_state(C.HELPER_MASTER_ENABLE) == "on" if await self.ad.entity_exists(C.HELPER_MASTER_ENABLE) else True
-            holiday_mode = await self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on" if await self.ad.entity_exists(C.HELPER_HOLIDAY_MODE) else False
+            master_enabled = self.ad.get_state(C.HELPER_MASTER_ENABLE) == "on" if self.ad.entity_exists(C.HELPER_MASTER_ENABLE) else True
+            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on" if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE) else False
             
             system = {
                 "master_enabled": master_enabled,
