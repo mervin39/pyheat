@@ -1,5 +1,55 @@
 # PyHeat Changelog
 
+## 2025-11-06: Schedule Save Bug Fix 🐛
+
+### Bug Fix: Schedule Corruption on Save
+**Status:** FIXED ✅  
+**Location:** `service_handler.py` - `svc_replace_schedules()` method  
+**Commit:** 83f873d
+
+**Problem:**
+When pyheat-web tried to save schedule changes, the YAML file was corrupted with double-nested list structure:
+```yaml
+rooms:
+- - id: pete    # WRONG - double dash/nesting
+```
+
+This caused appdaemon to return empty rooms array, making the schedule page show "No Schedules Configured".
+
+**Root Cause:**
+- pyheat-web sends: `{"schedule": {"rooms": [...]}}`
+- service_handler was treating it as dict keyed by room_id: `{"room_id": {...}}`
+- Code did: `schedules_data = {'rooms': list(schedule.values())}`
+- `schedule.values()` was already a list, wrapping in `list()` created double-nesting
+
+**Fix:**
+Updated `svc_replace_schedules()` to handle both formats:
+1. `{"rooms": [...]}` - from pyheat-web (preferred) - extract directly
+2. `{"room_id": {...}}` - legacy format - convert to list
+
+Now correctly saves with single-level structure:
+```yaml
+rooms:
+- id: pete      # CORRECT - single dash
+  default_target: 14.0
+  week:
+    mon:
+    - start: '06:30'
+```
+
+**Testing:**
+- ✅ Direct API test with curl - saves correctly
+- ✅ YAML structure validated - no double-nesting
+- ✅ Appdaemon returns all 6 rooms after save
+- Ready for pyheat-web UI testing
+
+**Related Changes:**
+- Removed unnecessary `./schedules.yaml:/app/schedules.yaml` volume mount from pyheat-web docker-compose.yml (commit 85186f6)
+- Establishes appdaemon as single source of truth for schedules
+- pyheat-web now only reads from API, doesn't need local file
+
+---
+
 ## 2025-11-06: Appdaemon API Integration 🔌
 
 ### Feature: HTTP API Endpoints for External Access
