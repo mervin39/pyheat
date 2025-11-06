@@ -423,7 +423,6 @@ class APIHandler:
             # Build entity IDs for this room
             temp_sensor = f"sensor.pyheat_{room_id}_temperature"
             target_sensor = f"sensor.pyheat_{room_id}_target"
-            status_sensor = "sensor.pyheat_status"
             
             # Fetch history using AppDaemon's get_history
             # get_history(entity_id, start_time=None, end_time=None)
@@ -470,34 +469,35 @@ class APIHandler:
                         except (ValueError, KeyError):
                             continue
             
-            # Calling for heat - extract from pyheat_status sensor
-            # sensor.pyheat_status has attribute "rooms_calling_for_heat": ["pete", "lounge"]
-            if self.ad.entity_exists(status_sensor):
-                status_history = self.ad.get_history(
-                    entity_id=status_sensor,
+            # Calling for heat - use the dedicated binary sensor for this room
+            calling_sensor = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
+            if self.ad.entity_exists(calling_sensor):
+                calling_history = self.ad.get_history(
+                    entity_id=calling_sensor,
                     start_time=start_time,
                     end_time=end_time
                 )
                 
-                if status_history and len(status_history) > 0:
+                if calling_history and len(calling_history) > 0:
                     calling_start = None
                     
-                    for state_obj in status_history[0]:
+                    for state_obj in calling_history[0]:
                         try:
-                            attrs = state_obj.get("attributes", {})
-                            rooms_calling = attrs.get("rooms_calling_for_heat", [])
-                            is_calling = room_id in rooms_calling
+                            # Binary sensor states are "on" or "off"
+                            is_calling = state_obj.get("state") == "on"
                             timestamp = state_obj["last_changed"]
                             
                             if is_calling and calling_start is None:
+                                # Start of a calling period
                                 calling_start = timestamp
                             elif not is_calling and calling_start is not None:
+                                # End of a calling period
                                 calling_ranges.append([calling_start, timestamp])
                                 calling_start = None
                         except (KeyError, TypeError):
                             continue
                     
-                    # If still calling at end
+                    # If still calling at end of period
                     if calling_start is not None:
                         calling_ranges.append([calling_start, end_time.isoformat()])
             

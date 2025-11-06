@@ -1,5 +1,47 @@
 # PyHeat Changelog
 
+## 2025-11-06: History API Fix 🐛
+
+### Bug Fix: Calling-for-Heat History Data
+**Status:** FIXED ✅  
+**Location:** `api_handler.py` - `api_get_history()` method  
+
+**Problem:**
+The historical temperature chart in pyheat-web was not showing the calling-for-heat shaded areas beneath the graph.
+
+**Root Cause:**
+The `api_get_history` endpoint was trying to extract calling-for-heat data from `sensor.pyheat_status` attributes (`rooms_calling_for_heat` list). This approach was unreliable because:
+- The status sensor only updates when recompute runs
+- It doesn't capture all state transitions accurately
+- Extracting time ranges from attribute changes is error-prone
+
+**Fix:**
+Changed to use the dedicated binary sensor `binary_sensor.pyheat_{room_id}_calling_for_heat`:
+- This sensor is published by `status_publisher.py` for each room
+- State changes ("on"/"off") directly provide accurate time-based ranges
+- Cleaner, more reliable data extraction
+
+**Code Changes:**
+```python
+# OLD: Extract from status sensor attributes
+if self.ad.entity_exists(status_sensor):
+    status_history = self.ad.get_history(...)
+    # Complex attribute parsing...
+
+# NEW: Use dedicated binary sensor
+calling_sensor = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
+if self.ad.entity_exists(calling_sensor):
+    calling_history = self.ad.get_history(calling_sensor, ...)
+    # Simple state checking: "on" or "off"
+```
+
+**Testing:**
+- Binary sensors are already being published by `status_publisher.py`
+- History API endpoint now returns accurate calling-for-heat time ranges
+- Frontend chart can now properly shade calling periods
+
+---
+
 ## 2025-11-06: Schedule Save Bug Fix 🐛
 
 ### Bug Fix: Schedule Corruption on Save
