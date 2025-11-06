@@ -50,6 +50,7 @@ class ServiceHandler:
         self.ad.register_service("pyheat/get_schedules", self.svc_get_schedules)
         self.ad.register_service("pyheat/get_rooms", self.svc_get_rooms)
         self.ad.register_service("pyheat/replace_schedules", self.svc_replace_schedules)
+        self.ad.register_service("pyheat/get_status", self.svc_get_status)
         
         self.ad.log("Registered PyHeat services")
         
@@ -470,5 +471,110 @@ class ServiceHandler:
         
         except Exception as e:
             self.ad.log(f"pyheat.replace_schedules failed: {e}", level="ERROR")
+            return {"success": False, "error": str(e)}
+    
+    def svc_get_status(self, namespace, domain, service, kwargs):
+        """Service: pyheat.get_status - Get current system and room status.
+        
+        Returns complete status including room temperatures, targets, modes,
+        valve positions, boiler state, etc. This eliminates the need for
+        pyheat-web to read individual HA entities.
+        
+        Returns:
+            {
+                "rooms": [
+                    {
+                        "id": str,
+                        "name": str,
+                        "temp": float or null,
+                        "target": float or null,
+                        "mode": str,
+                        "calling_for_heat": bool,
+                        "valve_percent": int,
+                        "is_stale": bool,
+                        "status_text": str,
+                        "manual_setpoint": float or null,
+                        "valve_feedback_consistent": bool or null
+                    },
+                    ...
+                ],
+                "system": {
+                    "master_enabled": bool,
+                    "holiday_mode": bool,
+                    "any_call_for_heat": bool,
+                    "boiler_state": str,
+                    "last_recompute": str (ISO datetime)
+                }
+            }
+        """
+        try:
+            # Get main status entity which has comprehensive attributes
+            status_state = self.ad.get_state(C.STATUS_ENTITY, attribute="all")
+            if not status_state:
+                return {"success": False, "error": "Status entity not available"}
+            
+            status_attrs = status_state.get("attributes", {})
+            rooms_data = status_attrs.get("rooms", {})
+            
+            # Build rooms list with additional details
+            rooms = []
+            for room_id, room_data in rooms_data.items():
+                room_cfg = self.config.rooms.get(room_id, {})
+                
+                # Get manual setpoint from input_number entity
+                manual_setpoint_entity = f"input_number.pyheat_{room_id}_manual_setpoint"
+                manual_setpoint = None
+                if self.ad.entity_exists(manual_setpoint_entity):
+                    manual_setpoint_str = self.ad.get_state(manual_setpoint_entity)
+                    if manual_setpoint_str not in [None, "unknown", "unavailable"]:
+                        try:
+                            manual_setpoint = float(manual_setpoint_str)
+                        except (ValueError, TypeError):
+                            pass
+                
+                # Get valve feedback consistency if available
+                valve_fb_consistent = None
+                fb_valve_entity_id = f"binary_sensor.pyheat_{room_id}_valve_feedback_consistent"
+                if self.ad.entity_exists(fb_valve_entity_id):
+                    fb_state = self.ad.get_state(fb_valve_entity_id)
+                    valve_fb_consistent = (fb_state == "on") if fb_state else None
+                
+                # Build combined room status
+                room_status = {
+                    "id": room_id,
+                    "name": room_cfg.get('name', room_id.replace("_", " ").title()),
+                    "temp": room_data.get("temperature"),
+                    "target": room_data.get("target"),
+                    "mode": room_data.get("mode", "off"),
+                    "calling_for_heat": room_data.get("calling_for_heat", False),
+                    "valve_percent": room_data.get("valve_percent", 0),
+                    "is_stale": room_data.get("is_stale", True),
+                    "status_text": self.ad.get_state(f"sensor.pyheat_{room_id}_state") or "unknown",
+                    "manual_setpoint": manual_setpoint,
+                    "valve_feedback_consistent": valve_fb_consistent
+                }
+                rooms.append(room_status)
+            
+            # Build system status
+            master_enabled = self.ad.get_state(C.HELPER_MASTER_ENABLE) == "on" if self.ad.entity_exists(C.HELPER_MASTER_ENABLE) else True
+            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on" if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE) else False
+            
+            system = {
+                "master_enabled": master_enabled,
+                "holiday_mode": holiday_mode,
+                "any_call_for_heat": status_attrs.get("any_call_for_heat", False),
+                "boiler_state": status_attrs.get("boiler_state", "unknown"),
+                "last_recompute": status_attrs.get("last_recompute")
+            }
+            
+            return {
+                "rooms": rooms,
+                "system": system
+            }
+            
+        except Exception as e:
+            self.ad.log(f"pyheat.get_status failed: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}
 
