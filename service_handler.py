@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-service_handler.py - Home Assistant service handlers
+service_handler.py - Service registration and callbacks
 
 Responsibilities:
-- Register PyHeat services
-- Handle service calls (override, boost, cancel, set_mode, reload, etc.)
-- Validate service parameters
+- Register Appdaemon services for pyheat
+- Handle service calls with validation
+- Bridge service calls to internal logic
 """
 
-from typing import Any, Dict, Callable
 from datetime import datetime
+from typing import Dict, Any, Optional, Callable
 import os
 import yaml
+import json
 import pyheat.constants as C
 
 
@@ -29,6 +30,46 @@ class ServiceHandler:
         self.config = config
         self.trigger_recompute_callback = None  # Set by main app
         self.scheduler_ref = None  # Set by main app for boost service
+    
+    def _get_override_types(self) -> Dict[str, str]:
+        """Get override types dict from helper entity.
+        
+        Returns:
+            Dict mapping room_id to override type ("none", "boost", "override")
+        """
+        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
+            return {}
+        
+        try:
+            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
+            if value and value != "":
+                return json.loads(value)
+            return {}
+        except (json.JSONDecodeError, TypeError) as e:
+            self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
+            return {}
+    
+    def _set_override_type(self, room_id: str, override_type: str) -> None:
+        """Set override type for a room.
+        
+        Args:
+            room_id: Room identifier
+            override_type: "none", "boost", or "override"
+        """
+        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
+            self.ad.log(f"Override types entity {C.HELPER_OVERRIDE_TYPES} does not exist", level="WARNING")
+            return
+        
+        try:
+            override_types = self._get_override_types()
+            override_types[room_id] = override_type
+            value_json = json.dumps(override_types)
+            self.ad.call_service("input_text/set_value",
+                                entity_id=C.HELPER_OVERRIDE_TYPES,
+                                value=value_json)
+            self.ad.log(f"Set override type for {room_id}: {override_type}", level="DEBUG")
+        except Exception as e:
+            self.ad.log(f"Failed to set override type for {room_id}: {e}", level="WARNING")
         
     def register_all(self, trigger_recompute_cb: Callable, scheduler_ref=None) -> None:
         """Register all PyHeat services.
@@ -113,6 +154,9 @@ class ServiceHandler:
             if self.ad.entity_exists(timer_entity):
                 duration = f"{minutes * 60}"  # Convert to seconds
                 self.ad.call_service("timer/start", entity_id=timer_entity, duration=duration)
+            
+            # Track override type
+            self._set_override_type(room, "override")
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
@@ -206,6 +250,9 @@ class ServiceHandler:
                 duration = f"{minutes * 60}"  # Convert to seconds
                 self.ad.call_service("timer/start", entity_id=timer_entity, duration=duration)
             
+            # Track override type as boost
+            self._set_override_type(room, "boost")
+            
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
                 self.ad.run_in(lambda kwargs: self.trigger_recompute_callback("boost_service"), 1)
@@ -241,6 +288,9 @@ class ServiceHandler:
             timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room)
             if self.ad.entity_exists(timer_entity):
                 self.ad.call_service("timer/cancel", entity_id=timer_entity)
+            
+            # Clear override type
+            self._set_override_type(room, "none")
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:

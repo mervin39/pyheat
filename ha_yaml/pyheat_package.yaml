@@ -254,6 +254,11 @@ input_text:
     initial: ""
     max: 255
 
+  pyheat_override_types:
+    name: "PyHeat Override Types"
+    initial: ""
+    max: 255
+
 # ---------------------------------------------------------------------------
 # MQTT sensors (TRV feedback) - these are important for valve feedback
 # The state_topic values below match the Zigbee2MQTT topics used in the

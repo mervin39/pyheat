@@ -185,6 +185,9 @@ HELPER_ROOM_OVERRIDE_TARGET = "input_number.pyheat_{room}_override_target"
 HELPER_PUMP_OVERRUN_TIMER = "timer.pyheat_boiler_pump_overrun_timer"
 HELPER_PUMP_OVERRUN_VALVES = "input_text.pyheat_pump_overrun_valves"
 
+# Override type tracking (JSON dict: {"room_id": "none|boost|override"})
+HELPER_OVERRIDE_TYPES = "input_text.pyheat_override_types"
+
 # Boiler anti-cycling timers (event-driven using timer helpers)
 HELPER_BOILER_MIN_ON_TIMER = "timer.pyheat_boiler_min_on_timer"
 HELPER_BOILER_MIN_OFF_TIMER = "timer.pyheat_boiler_min_off_timer"

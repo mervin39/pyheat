@@ -11,6 +11,7 @@ Responsibilities:
 
 import json
 from typing import Any, Dict
+import pyheat.constants as C
 
 class APIHandler:
     """Handles HTTP API endpoints for external access to PyHeat services."""
@@ -24,6 +25,28 @@ class APIHandler:
         """
         self.ad = ad
         self.service_handler = service_handler
+    
+    def _get_override_type(self, room_id: str) -> str:
+        """Get override type for a room.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            "none", "boost", or "override"
+        """
+        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
+            return "none"
+        
+        try:
+            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
+            if value and value != "":
+                override_types = json.loads(value)
+                return override_types.get(room_id, "none")
+            return "none"
+        except (json.JSONDecodeError, TypeError) as e:
+            self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
+            return "none"
         
     def register_all(self) -> None:
         """Register all HTTP API endpoints."""
@@ -253,6 +276,56 @@ class APIHandler:
                     fb_state = self.ad.get_state(fb_valve_entity_id)
                     valve_fb_consistent = (fb_state == "on") if fb_state else None
                 
+                # Get base status text
+                base_status_text = self.ad.get_state(f"sensor.pyheat_{room_id}_state") or "unknown"
+                
+                # Check for active override/boost timer and enhance status_text
+                timer_entity = f"timer.pyheat_{room_id}_override"
+                status_text = base_status_text
+                
+                if self.ad.entity_exists(timer_entity):
+                    timer_state = self.ad.get_state(timer_entity)
+                    if timer_state == "active":
+                        # Timer is active - get remaining time and override details
+                        timer_attrs = self.ad.get_state(timer_entity, attribute="all")
+                        if timer_attrs and "attributes" in timer_attrs:
+                            remaining_str = timer_attrs["attributes"].get("remaining")
+                            if remaining_str:
+                                # Parse remaining time (format: "H:MM:SS" or "M:SS")
+                                parts = remaining_str.split(":")
+                                if len(parts) == 3:  # H:MM:SS
+                                    hours, minutes, seconds = map(int, parts)
+                                    total_minutes = hours * 60 + minutes + (1 if seconds > 0 else 0)
+                                elif len(parts) == 2:  # MM:SS or M:SS
+                                    minutes, seconds = map(int, parts)
+                                    total_minutes = minutes + (1 if seconds > 0 else 0)
+                                else:
+                                    total_minutes = 0
+                                
+                                # Get override target
+                                override_target_entity = f"input_number.pyheat_{room_id}_override_target"
+                                override_target = None
+                                if self.ad.entity_exists(override_target_entity):
+                                    override_target_str = self.ad.get_state(override_target_entity)
+                                    if override_target_str not in [None, "unknown", "unavailable"]:
+                                        try:
+                                            override_target = float(override_target_str)
+                                        except (ValueError, TypeError):
+                                            pass
+                                
+                                # Get override type from centralized entity
+                                override_type = self._get_override_type(room_id)
+                                
+                                # Build enhanced status text
+                                if override_type == "boost" and override_target is not None:
+                                    # For boost, calculate delta from scheduled target (not current override target)
+                                    # We need the scheduled target that would apply without the override
+                                    # For now, we'll show the boost target directly
+                                    status_text = f"boost(+{override_target:.1f}) {total_minutes}m"
+                                elif override_type == "override" and override_target is not None:
+                                    # Regular override - show absolute target
+                                    status_text = f"override({override_target:.1f}) {total_minutes}m"
+                
                 # Build combined room status
                 room_status = {
                     "id": room_id,
@@ -263,7 +336,7 @@ class APIHandler:
                     "calling_for_heat": room_data.get("calling_for_heat", False),
                     "valve_percent": room_data.get("valve_percent", 0),
                     "is_stale": room_data.get("is_stale", True),
-                    "status_text": self.ad.get_state(f"sensor.pyheat_{room_id}_state") or "unknown",
+                    "status_text": status_text,
                     "manual_setpoint": manual_setpoint,
                     "valve_feedback_consistent": valve_fb_consistent
                 }
