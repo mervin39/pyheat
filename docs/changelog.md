@@ -29,6 +29,7 @@
 - `pyheat_get_rooms` - Get rooms configuration
 - `pyheat_replace_schedules` - Replace entire schedule atomically
 - `pyheat_reload_config` - Reload configuration files
+- `pyheat_get_status` - Get complete system status (rooms + system state)
 
 **Integration:**
 - Updated `app.py` to initialize and register APIHandler
@@ -41,7 +42,14 @@
 - Updated `service_adapter.py` - Uses AppdaemonClient instead of HA services
 - Updated `schedule_manager.py` - Fetches schedules from Appdaemon
 - Added `appdaemon_url` config setting
-- Maintains same external interface - no breaking changes to pyheat-web API
+- **Phase 2:** Removed ALL Home Assistant direct dependencies from pyheat-web
+  - Replaced HARestClient/HAWebSocketClient with periodic polling (2s interval)
+  - Removed token vault (no HA authentication needed)
+  - Single API architecture: pyheat-web → Appdaemon only
+  - Simplified configuration with fewer environment variables
+  - Updated docker-compose files to remove HA credentials
+
+**Result:** Simplified architecture with single API endpoint, no dual HA+Appdaemon dependencies
 
 ---
 
