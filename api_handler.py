@@ -26,27 +26,38 @@ class APIHandler:
         self.ad = ad
         self.service_handler = service_handler
     
-    def _get_override_type(self, room_id: str) -> str:
-        """Get override type for a room.
+    def _get_override_type(self, room_id: str) -> tuple:
+        """Get override type and info for a room.
         
         Args:
             room_id: Room identifier
             
         Returns:
-            "none", "boost", or "override"
+            Tuple of (type_str, delta) where:
+            - type_str is "none", "boost", or "override"
+            - delta is the boost delta (float) or None
         """
         if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
-            return "none"
+            return ("none", None)
         
         try:
             value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
             if value and value != "":
                 override_types = json.loads(value)
-                return override_types.get(room_id, "none")
-            return "none"
+                info = override_types.get(room_id)
+                
+                if info is None:
+                    return ("none", None)
+                elif isinstance(info, str):
+                    return (info, None)
+                elif isinstance(info, dict):
+                    return (info.get("type", "none"), info.get("delta"))
+                else:
+                    return ("none", None)
+            return ("none", None)
         except (json.JSONDecodeError, TypeError) as e:
             self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
-            return "none"
+            return ("none", None)
         
     def register_all(self) -> None:
         """Register all HTTP API endpoints."""
@@ -313,15 +324,13 @@ class APIHandler:
                                         except (ValueError, TypeError):
                                             pass
                                 
-                                # Get override type from centralized entity
-                                override_type = self._get_override_type(room_id)
+                                # Get override type and delta from centralized entity
+                                override_type, boost_delta = self._get_override_type(room_id)
                                 
                                 # Build enhanced status text
-                                if override_type == "boost" and override_target is not None:
-                                    # For boost, calculate delta from scheduled target (not current override target)
-                                    # We need the scheduled target that would apply without the override
-                                    # For now, we'll show the boost target directly
-                                    status_text = f"boost(+{override_target:.1f}) {total_minutes}m"
+                                if override_type == "boost" and boost_delta is not None:
+                                    # For boost, show the stored delta
+                                    status_text = f"boost({boost_delta:+.1f}) {total_minutes}m"
                                 elif override_type == "override" and override_target is not None:
                                     # Regular override - show absolute target
                                     status_text = f"override({override_target:.1f}) {total_minutes}m"

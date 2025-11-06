@@ -31,11 +31,14 @@ class ServiceHandler:
         self.trigger_recompute_callback = None  # Set by main app
         self.scheduler_ref = None  # Set by main app for boost service
     
-    def _get_override_types(self) -> Dict[str, str]:
+    def _get_override_types(self) -> Dict[str, Any]:
         """Get override types dict from helper entity.
         
         Returns:
-            Dict mapping room_id to override type ("none", "boost", "override")
+            Dict mapping room_id to override info:
+            - For boost: {"type": "boost", "delta": 2.0}
+            - For override: {"type": "override"}
+            - For none: {"type": "none"} or just "none"
         """
         if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
             return {}
@@ -49,12 +52,13 @@ class ServiceHandler:
             self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
             return {}
     
-    def _set_override_type(self, room_id: str, override_type: str) -> None:
+    def _set_override_type(self, room_id: str, override_type: str, delta: float = None) -> None:
         """Set override type for a room.
         
         Args:
             room_id: Room identifier
             override_type: "none", "boost", or "override"
+            delta: For boost type, the temperature delta
         """
         if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
             self.ad.log(f"Override types entity {C.HELPER_OVERRIDE_TYPES} does not exist", level="WARNING")
@@ -62,12 +66,21 @@ class ServiceHandler:
         
         try:
             override_types = self._get_override_types()
-            override_types[room_id] = override_type
+            
+            # Store boost with delta, others as simple string
+            if override_type == "boost" and delta is not None:
+                override_types[room_id] = {"type": "boost", "delta": delta}
+            elif override_type == "none":
+                override_types[room_id] = "none"
+            else:
+                override_types[room_id] = {"type": override_type}
+            
             value_json = json.dumps(override_types)
             self.ad.call_service("input_text/set_value",
                                 entity_id=C.HELPER_OVERRIDE_TYPES,
                                 value=value_json)
-            self.ad.log(f"Set override type for {room_id}: {override_type}", level="DEBUG")
+            self.ad.log(f"Set override type for {room_id}: {override_type}" + 
+                       (f" (delta: {delta})" if delta is not None else ""), level="DEBUG")
         except Exception as e:
             self.ad.log(f"Failed to set override type for {room_id}: {e}", level="WARNING")
         
@@ -250,8 +263,8 @@ class ServiceHandler:
                 duration = f"{minutes * 60}"  # Convert to seconds
                 self.ad.call_service("timer/start", entity_id=timer_entity, duration=duration)
             
-            # Track override type as boost
-            self._set_override_type(room, "boost")
+            # Track override type as boost with delta
+            self._set_override_type(room, "boost", delta=delta)
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:

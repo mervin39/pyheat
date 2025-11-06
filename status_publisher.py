@@ -43,7 +43,16 @@ class StatusPublisher:
             value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
             if value and value != "":
                 override_types = json.loads(value)
-                return override_types.get(room_id, "none")
+                info = override_types.get(room_id)
+                
+                if info is None:
+                    return "none"
+                elif isinstance(info, str):
+                    return info
+                elif isinstance(info, dict):
+                    return info.get("type", "none")
+                else:
+                    return "none"
             return "none"
         except (json.JSONDecodeError, TypeError) as e:
             self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
