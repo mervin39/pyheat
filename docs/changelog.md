@@ -18,12 +18,14 @@
 - Registers HTTP endpoints at `/api/appdaemon/{endpoint_name}`
 - Bridges HTTP requests to existing service handlers
 - Returns JSON responses with proper error handling
+- **Fixed:** API endpoints are synchronous (not async) to avoid asyncio.Task issues with get_state()
+- **Fixed:** JSON request body is passed as first parameter (namespace), not nested in data dict
 
 **Available Endpoints:**
 - `pyheat_override` - Set absolute temperature override
-- `pyheat_boost` - Apply delta boost to target
+- `pyheat_boost` - Apply delta boost to target ✅ TESTED & WORKING
 - `pyheat_cancel_override` - Cancel active override/boost
-- `pyheat_set_mode` - Set room mode (auto/manual/off)
+- `pyheat_set_mode` - Set room mode (auto/manual/off) ✅ TESTED & WORKING
 - `pyheat_set_default_target` - Update default target temp
 - `pyheat_get_schedules` - Retrieve current schedules
 - `pyheat_get_rooms` - Get rooms configuration
@@ -49,7 +51,7 @@
   - Simplified configuration with fewer environment variables
   - Updated docker-compose files to remove HA credentials
 
-**Result:** Simplified architecture with single API endpoint, no dual HA+Appdaemon dependencies
+**Result:** Simplified architecture with single API endpoint, no dual HA+Appdaemon dependencies. All control operations working correctly.
 
 ---
 
