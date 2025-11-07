@@ -1,5 +1,73 @@
 # PyHeat Changelog
 
+## 2025-11-07: Redesigned Status Format with Static Times and Forever Detection 🎯
+
+### Enhancement: Comprehensive Status Text Formatting System
+**Status:** COMPLETED ✅  
+**Location:** `status_publisher.py`, `scheduler.py`, `api_handler.py`, `STATUS_FORMAT_SPEC.md`  
+**Commits:** 86e455f, 80c88d2
+
+**Problem:**
+Previous status formatting was inconsistent and lacked important context. Status calculations ran every 60s for all rooms (performance concern), and time displays needed better structure for dual output (HA entities with times, web API with live countdown).
+
+**Solution - New Status Format Specification:**
+
+Created comprehensive `STATUS_FORMAT_SPEC.md` defining exact formats for all modes:
+
+**Auto Mode (no boost/override):**
+- With next change: `"Auto: 15.0° until 16:00 on today (19.0°)"` (HA) / `"Auto: 15.0°"` (web)
+- Forever (no blocks): `"Auto: 14.0° forever"` (both HA and web)
+- Shows next schedule block temperature and time
+
+**Boost:**
+- `"Boost +2.0°: 19.0° → 21.0°. Until 17:45"` (HA) / `"Boost +2.0°: 19.0° → 21.0°"` (web)
+- Shows delta, scheduled temp, boosted temp, static end time
+
+**Override:**
+- `"Override: 12.0° → 21.0°. Until 17:43"` (HA) / `"Override: 12.0° → 21.0°"` (web)
+- Shows scheduled temp, override target, static end time
+
+**Manual Mode:**
+- `"Manual: 19.5°"`
+
+**Off Mode:**
+- `"Heating Off"`
+
+**Implementation:**
+
+**AppDaemon (`status_publisher.py`):**
+- Rewrote `_format_status_text()` with new format specification
+- Added `_check_if_forever()`: Detects schedules with no blocks on any day
+- Changed from "XXm left" to static "Until HH:MM" format
+- Extracts end_time from ISO timestamp in override_info
+- Determines day name ("today" or specific weekday) for auto mode
+- Removed `_format_time_remaining()` method (no longer needed)
+
+**AppDaemon (`scheduler.py`):**
+- Enhanced `get_next_schedule_change()` to detect gaps between blocks
+- Returns default_target when gap exists (block doesn't start immediately after current ends)
+- Handles end-of-day transitions correctly
+- Checks if currently in block vs in gap for proper next event detection
+
+**AppDaemon (`api_handler.py`):**
+- Added `_strip_time_from_status()` method with regex patterns:
+  - Strips ` until \d{2}:\d{2} on \w+day \([\d.]+°\)` from Auto mode
+  - Strips `\. Until \d{2}:\d{2}` from Override/Boost
+- Applied to formatted_status in `api_get_status()` before sending to web
+- HA entities keep full format with times, web gets stripped version
+
+**Performance Optimization:**
+- Static "until/Until HH:MM" calculated once per 60s recompute
+- No dynamic time formatting on every request
+- Client appends live countdown from override_end_time (see pyheat-web changelog)
+
+**Verification:**
+- HA entities: `sensor.pyheat_lounge_state` shows "Auto: 15.0° until 16:00 on today (19.0°)"
+- Web API: `/api/status` shows "Auto: 15.0°" (time stripped)
+- HA entities: `sensor.pyheat_office_state` shows "Override: 12.0° → 21.0°. Until 17:43"
+- Web API: `/api/status` shows "Override: 12.0° → 21.0°" (time stripped)
+- Forever detection: Rooms with no schedule blocks show "Auto: T° forever"
+
 ## 2025-11-07: Complete Server-Side Status Formatting with Schedule Info 🎨
 
 ### Enhancement: Comprehensive Status Text Formatting in AppDaemon
