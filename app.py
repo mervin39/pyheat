@@ -57,6 +57,7 @@ class PyHeat(hass.Hass):
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config)
         self.status = StatusPublisher(self, self.config)
+        self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.services = ServiceHandler(self, self.config)
         self.api = APIHandler(self, self.services)
         

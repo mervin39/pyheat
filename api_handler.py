@@ -288,8 +288,13 @@ class APIHandler:
                     fb_state = self.ad.get_state(fb_valve_entity_id)
                     valve_fb_consistent = (fb_state == "on") if fb_state else None
                 
-                # Get base status text
-                base_status_text = self.ad.get_state(f"sensor.pyheat_{room_id}_state") or "unknown"
+                # Get base status text and state entity attributes
+                state_entity_id = f"sensor.pyheat_{room_id}_state"
+                base_status_text = self.ad.get_state(state_entity_id) or "unknown"
+                
+                # Get state entity attributes for server-formatted status and metadata
+                state_entity_full = self.ad.get_state(state_entity_id, attribute="all")
+                state_attrs = state_entity_full.get("attributes", {}) if state_entity_full else {}
                 
                 # Check for active override/boost timer and enhance status_text
                 timer_entity = f"timer.pyheat_{room_id}_override"
@@ -368,9 +373,17 @@ class APIHandler:
                     "valve_percent": actual_valve_percent,
                     "is_stale": room_data.get("is_stale", True),
                     "status_text": status_text,
+                    "formatted_status": state_attrs.get("formatted_status"),  # NEW: Server-side formatted status
                     "manual_setpoint": manual_setpoint,
                     "valve_feedback_consistent": valve_fb_consistent,
-                    "override_end_time": override_end_time  # ISO 8601 timestamp or null
+                    "override_end_time": override_end_time,  # ISO 8601 timestamp or null
+                    # NEW: Additional override/boost metadata from state entity
+                    "override_type": state_attrs.get("override_type"),
+                    "override_remaining_minutes": state_attrs.get("override_remaining_minutes"),
+                    "override_target": state_attrs.get("override_target"),
+                    "boost_delta": state_attrs.get("boost_delta"),
+                    "boosted_target": state_attrs.get("boosted_target"),
+                    "scheduled_temp": state_attrs.get("scheduled_temp")
                 }
                 rooms.append(room_status)
             
