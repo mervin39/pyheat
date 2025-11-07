@@ -1,9 +1,63 @@
 # PyHeat Changelog
 
-## 2025-11-07: Server-Side Status Formatting 🎨
+## 2025-11-07: Complete Server-Side Status Formatting with Schedule Info 🎨
 
-### Enhancement: Move Status Text Formatting to AppDaemon
+### Enhancement: Comprehensive Status Text Formatting in AppDaemon
 **Status:** COMPLETED ✅  
+**Location:** `status_publisher.py`, `scheduler.py`, `api_handler.py`, pyheat-web client/server  
+
+**Problem:**
+Initial implementation showed "Heating up", "Cooling down" status text that never existed in the original client-side formatting. Auto mode without boost/override should show schedule information like "Auto: 18.0° → 20.0° at 19:00", not heating state.
+
+**Solution - Final Status Format:**
+
+**Auto Mode (no boost/override):**
+- With schedule change coming: `"Auto: 14.0° → 12.0° at 16:00"`
+- No schedule change or same temp: `"Auto: 14.0°"`
+
+**Boost:**
+- With schedule context: `"Boost +2.0°: 18.0° → 20.0°. 3h left"`
+- Without schedule: `"Boost +2.0°. 45m left"`
+
+**Override:**
+- With schedule context: `"Override: 12.0° → 21.0°. 2h 30m left"`
+- Without schedule: `"Override: 21.0°. 1h left"`
+
+**Manual Mode:**
+- `"Manual: 19.5°"`
+
+**Off Mode:**
+- `"Heating off"`
+
+**Implementation:**
+
+**AppDaemon (`scheduler.py`):**
+- Added `get_next_schedule_change(room_id, now, holiday_mode)`: Returns tuple of (time_string, target_temp) for next schedule change
+- Looks ahead to find next block with different temperature
+- Checks tomorrow if no more blocks today
+
+**AppDaemon (`status_publisher.py`):**
+- Enhanced `_format_status_text()` to show schedule information for auto mode
+- Fixed `scheduled_temp` calculation using correct `get_scheduled_target()` method
+- Auto mode now queries next schedule change and shows: "Auto: current → next at HH:MM"
+- Only shows schedule change if next temp differs from current by >0.1°
+- Added holiday_mode check for scheduled temp calculation
+
+**pyheat-web (client):**
+- Removed all client-side schedule formatting fallback logic
+- Simplified `displayStatusText` to just use server `formatted_status`
+- Removed dependency on `formatAutoScheduleStatus()` utility
+- Applied to both `room-card.tsx` and `embed-room-card.tsx`
+
+**Result:**
+All status text is now calculated entirely server-side in AppDaemon and sent as `formatted_status` attribute. Client simply displays the pre-formatted text. No more race conditions, no more client-side formatting logic, consistent status display across all interfaces.
+
+---
+
+## 2025-11-07: Initial Server-Side Status Formatting Implementation
+
+### Enhancement: Move Status Text Formatting to AppDaemon (Initial Version)
+**Status:** SUPERSEDED (see above for final implementation)
 **Location:** `status_publisher.py`, `api_handler.py`, pyheat-web client/server  
 **Issue:** Brief flash of unformatted status text like "auto (boost)" before client-side formatting applied
 
