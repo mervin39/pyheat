@@ -26,6 +26,32 @@ class APIHandler:
         self.ad = ad
         self.service_handler = service_handler
     
+    def _strip_time_from_status(self, status: str) -> str:
+        """Strip time information from formatted_status for pyheat-web.
+        
+        Removes:
+        - " until HH:MM on Day (T°)" → just keep "Auto: T°"
+        - ". Until HH:MM" → remove completely
+        
+        Args:
+            status: Formatted status string from status_publisher
+            
+        Returns:
+            Status with times stripped for web display
+        """
+        if not status:
+            return status
+        
+        import re
+        
+        # Strip " until HH:MM on $DAY (T°)" from Auto mode
+        status = re.sub(r' until \d{2}:\d{2} on \w+day \([\d.]+°\)', '', status)
+        
+        # Strip ". Until HH:MM" from Override/Boost
+        status = re.sub(r'\. Until \d{2}:\d{2}', '', status)
+        
+        return status
+    
     def _get_override_type(self, room_id: str) -> tuple:
         """Get override type and info for a room.
         
@@ -373,7 +399,7 @@ class APIHandler:
                     "valve_percent": actual_valve_percent,
                     "is_stale": room_data.get("is_stale", True),
                     "status_text": status_text,
-                    "formatted_status": state_attrs.get("formatted_status"),  # NEW: Server-side formatted status
+                    "formatted_status": self._strip_time_from_status(state_attrs.get("formatted_status")),  # Strip times for web
                     "manual_setpoint": manual_setpoint,
                     "valve_feedback_consistent": valve_fb_consistent,
                     "override_end_time": override_end_time,  # ISO 8601 timestamp or null

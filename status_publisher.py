@@ -120,25 +120,42 @@ class StatusPublisher:
             self.ad.log(f"Failed to parse override info for {room_id}: {e}", level="WARNING")
             return result
     
-    def _format_time_remaining(self, minutes: int) -> str:
-        """Format remaining time as human-readable string.
+    def _check_if_forever(self, room_id: str) -> bool:
+        """Check if schedule is set to run forever (no blocks on any day).
         
         Args:
-            minutes: Total minutes
+            room_id: Room identifier
             
         Returns:
-            Formatted string like "45m", "2h", "4h 30m"
+            True if all days have no schedule blocks
         """
-        if minutes < 60:
-            return f"{minutes}m"
-        hours = minutes // 60
-        mins = minutes % 60
-        if mins == 0:
-            return f"{hours}h"
-        return f"{hours}h {mins}m"
+        if not hasattr(self, 'scheduler_ref') or not self.scheduler_ref:
+            return False
+        
+        schedule = self.scheduler_ref.config.schedules.get(room_id)
+        if not schedule:
+            return True  # No schedule = forever
+        
+        week_schedule = schedule.get('week', {})
+        day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        
+        # Check if all days have empty blocks
+        for day in day_names:
+            blocks = week_schedule.get(day, [])
+            if blocks:  # If any day has blocks, not forever
+                return False
+        
+        return True
     
     def _format_status_text(self, room_id: str, data: Dict, override_info: Dict, scheduled_temp: float = None) -> str:
         """Format human-readable status text for a room.
+        
+        Implements STATUS_FORMAT_SPEC.md formats:
+        - Auto: "Auto: T° until HH:MM on $DAY (S°)" or "Auto: T° forever"
+        - Boost: "Boost +D°: T° → S°. Until HH:MM"
+        - Override: "Override: T° → S°. Until HH:MM"
+        - Manual: "Manual: T°"
+        - Off: "Heating Off"
         
         Args:
             room_id: Room identifier
@@ -155,27 +172,44 @@ class StatusPublisher:
         # Handle boost
         if override_type == 'boost':
             delta = override_info.get('delta', 0)
-            remaining = override_info.get('remaining_minutes', 0)
-            time_str = self._format_time_remaining(remaining)
+            sign = '+' if delta > 0 else ''
+            
+            # Get Until time from override end_time
+            end_time_str = "Until ??:??"
+            if 'end_time' in override_info:
+                try:
+                    from datetime import datetime
+                    end_dt = datetime.fromisoformat(override_info['end_time'].replace('Z', '+00:00'))
+                    end_time_str = f"Until {end_dt.strftime('%H:%M')}"
+                except Exception as e:
+                    self.ad.log(f"Error formatting boost end time for {room_id}: {e}", level="WARNING")
             
             if scheduled_temp is not None:
                 boosted_temp = scheduled_temp + delta
-                sign = '+' if delta > 0 else ''
-                return f"Boost {sign}{delta:.1f}°: {scheduled_temp:.1f}° → {boosted_temp:.1f}°. {time_str} left"
+                return f"Boost {sign}{delta:.1f}°: {scheduled_temp:.1f}° → {boosted_temp:.1f}°. {end_time_str}"
             else:
-                sign = '+' if delta > 0 else ''
-                return f"Boost {sign}{delta:.1f}°. {time_str} left"
+                # Fallback if we don't have scheduled_temp
+                current_target = data.get('target', 20)
+                return f"Boost {sign}{delta:.1f}°: {current_target:.1f}°. {end_time_str}"
         
         # Handle override
         if override_type == 'override':
-            target = override_info.get('target', data.get('target', 20))
-            remaining = override_info.get('remaining_minutes', 0)
-            time_str = self._format_time_remaining(remaining)
+            override_target = override_info.get('target', data.get('target', 20))
+            
+            # Get Until time from override end_time
+            end_time_str = "Until ??:??"
+            if 'end_time' in override_info:
+                try:
+                    from datetime import datetime
+                    end_dt = datetime.fromisoformat(override_info['end_time'].replace('Z', '+00:00'))
+                    end_time_str = f"Until {end_dt.strftime('%H:%M')}"
+                except Exception as e:
+                    self.ad.log(f"Error formatting override end time for {room_id}: {e}", level="WARNING")
             
             if scheduled_temp is not None:
-                return f"Override: {scheduled_temp:.1f}° → {target:.1f}°. {time_str} left"
+                return f"Override: {scheduled_temp:.1f}° → {override_target:.1f}°. {end_time_str}"
             else:
-                return f"Override: {target:.1f}°. {time_str} left"
+                return f"Override: {override_target:.1f}°. {end_time_str}"
         
         # Handle manual mode
         if mode == 'manual':
@@ -184,27 +218,57 @@ class StatusPublisher:
         
         # Handle off mode
         if mode == 'off':
-            return 'Heating off'
+            return 'Heating Off'
         
         # Handle auto mode (no boost/override)
         if mode == 'auto':
             target = data.get('target')
             
+            if target is None:
+                return 'Auto: ??°'
+            
+            # Check if schedule is forever
+            if self._check_if_forever(room_id):
+                return f"Auto: {target:.1f}° forever"
+            
             # Get next schedule change
-            if hasattr(self, 'scheduler_ref') and self.scheduler_ref and scheduled_temp is not None:
+            if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
                 from datetime import datetime
                 now = datetime.now()
-                next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, False)
+                
+                # Get holiday mode
+                holiday_mode = False
+                if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                    holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+                
+                next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
                 
                 if next_change:
                     next_time, next_temp = next_change
-                    # Only show if next temp is different from current scheduled temp
-                    if abs(next_temp - scheduled_temp) > 0.1:
-                        return f"Auto: {scheduled_temp:.1f}° → {next_temp:.1f}° at {next_time}"
+                    
+                    # Determine day name
+                    day_name = "today"
+                    # Parse next_time to determine if it's today or tomorrow
+                    try:
+                        next_hour, next_min = map(int, next_time.split(':'))
+                        now_hour = now.hour
+                        now_min = now.minute
+                        
+                        # If next_time is earlier than now, must be tomorrow
+                        if next_hour < now_hour or (next_hour == now_hour and next_min <= now_min):
+                            day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                            tomorrow_idx = (now.weekday() + 1) % 7
+                            day_name = day_names_display[tomorrow_idx]
+                    except Exception as e:
+                        self.ad.log(f"Error parsing next time for {room_id}: {e}", level="WARNING")
+                    
+                    return f"Auto: {target:.1f}° until {next_time} on {day_name} ({next_temp:.1f}°)"
+                else:
+                    # No next change found - treat as forever
+                    return f"Auto: {target:.1f}° forever"
             
-            # Fallback: just show current target
-            if target is not None:
-                return f"Auto: {target:.1f}°"
+            # Fallback: no scheduler available
+            return f"Auto: {target:.1f}°"
         
         return 'Unknown'
         

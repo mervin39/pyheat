@@ -137,6 +137,8 @@ class Scheduler:
     def get_next_schedule_change(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[tuple[str, float]]:
         """Get the next schedule change time and target temperature.
         
+        Enhanced to detect gaps between blocks and return default_target for gap starts.
+        
         Args:
             room_id: Room identifier
             now: Current datetime
@@ -160,22 +162,78 @@ class Scheduler:
         
         # Current time
         current_time = now.strftime("%H:%M")
+        default_target = schedule.get('default_target')
         
-        # Find next block starting after current time
+        # Check if we're currently in a block
+        in_block = False
+        current_block_end = None
         for block in blocks:
             start_time = block['start']
-            if start_time > current_time:
-                return (start_time, block['target'])
+            end_time = block.get('end', '23:59')
+            
+            if end_time == '23:59':
+                end_time = '24:00'
+            
+            if start_time <= current_time < end_time:
+                in_block = True
+                current_block_end = end_time
+                break
         
-        # No more blocks today - check tomorrow
-        tomorrow_idx = (now.weekday() + 1) % 7
-        tomorrow_name = day_names[tomorrow_idx]
-        tomorrow_blocks = week_schedule.get(tomorrow_name, [])
+        # Find next event
+        if in_block:
+            # Currently in block - next event is end of this block OR start of next block
+            # Look for next block after current block end
+            next_block_start = None
+            next_block_target = None
+            
+            for block in blocks:
+                start_time = block['start']
+                if start_time >= current_block_end:
+                    next_block_start = start_time
+                    next_block_target = block['target']
+                    break
+            
+            # Check if there's a gap
+            if next_block_start is None or next_block_start > current_block_end:
+                # Gap exists - next change is to default_target at current_block_end
+                if current_block_end == '24:00':
+                    # End of day - check tomorrow for next block
+                    tomorrow_idx = (now.weekday() + 1) % 7
+                    tomorrow_name = day_names[tomorrow_idx]
+                    tomorrow_blocks = week_schedule.get(tomorrow_name, [])
+                    
+                    if tomorrow_blocks:
+                        first_block = tomorrow_blocks[0]
+                        # If tomorrow's first block doesn't start at 00:00, return default at 00:00
+                        if first_block['start'] != '00:00':
+                            return ('00:00', default_target)
+                        else:
+                            return (first_block['start'], first_block['target'])
+                    else:
+                        # Tomorrow has no blocks - stays at default
+                        return None
+                else:
+                    # Gap today - return default_target at block end
+                    return (current_block_end, default_target)
+            else:
+                # Next block starts immediately after current - return that
+                return (next_block_start, next_block_target)
+        else:
+            # Currently NOT in block (in gap or no blocks) - find next block start
+            for block in blocks:
+                start_time = block['start']
+                if start_time > current_time:
+                    return (start_time, block['target'])
+            
+            # No more blocks today - check tomorrow
+            tomorrow_idx = (now.weekday() + 1) % 7
+            tomorrow_name = day_names[tomorrow_idx]
+            tomorrow_blocks = week_schedule.get(tomorrow_name, [])
+            
+            if tomorrow_blocks:
+                # Return first block of tomorrow
+                first_block = tomorrow_blocks[0]
+                return (first_block['start'], first_block['target'])
         
-        if tomorrow_blocks:
-            # Return first block of tomorrow
-            first_block = tomorrow_blocks[0]
-            return (first_block['start'], first_block['target'])
-        
-        # No blocks tomorrow either, return None
+        # No next change found
         return None
