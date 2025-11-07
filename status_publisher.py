@@ -133,7 +133,12 @@ class StatusPublisher:
         if data['temp'] is not None:
             self.ad.set_state(temp_entity, 
                          state=round(data['temp'], precision),
-                         attributes={'unit_of_measurement': '°C', 'is_stale': data['is_stale']})
+                         attributes={
+                             'unit_of_measurement': '°C',
+                             'device_class': 'temperature',
+                             'state_class': 'measurement',
+                             'is_stale': data['is_stale']
+                         })
         else:
             self.ad.set_state(temp_entity, state="unavailable")
         
@@ -142,7 +147,11 @@ class StatusPublisher:
         if data['target'] is not None:
             self.ad.set_state(target_entity, 
                          state=round(data['target'], precision),
-                         attributes={'unit_of_measurement': '°C'})
+                         attributes={
+                             'unit_of_measurement': '°C',
+                             'device_class': 'temperature',
+                             'state_class': 'measurement'
+                         })
         else:
             self.ad.set_state(target_entity, state="unavailable")
         

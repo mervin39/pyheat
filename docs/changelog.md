@@ -1,5 +1,57 @@
 # PyHeat Changelog
 
+## 2025-11-07: Add State Class to Temperature Sensors 🌡️
+
+### Fix: Missing state_class Attribute for Long-Term Statistics
+**Status:** FIXED ✅  
+**Location:** `status_publisher.py::publish_room_entities()` - Lines 132-156  
+**Issue:** Home Assistant warning about missing state class, cannot track long-term statistics
+
+**Problem:**
+Home Assistant displayed warnings for all pyheat temperature and target sensors:
+```
+The entity no longer has a state class
+
+We have generated statistics for 'pyheat pete temperature' (sensor.pyheat_pete_temperature) 
+in the past, but it no longer has a state class, therefore, we cannot track long term 
+statistics for it anymore.
+```
+
+This was repeated for all `sensor.pyheat_<room>_temperature` and `sensor.pyheat_<room>_target` sensors.
+
+**Root Cause:**
+The `publish_room_entities()` method was only setting `unit_of_measurement` for temperature and target sensors. Home Assistant requires `state_class` and `device_class` attributes for temperature sensors to:
+1. Enable long-term statistics tracking
+2. Properly categorize the sensor in the UI
+3. Allow historical data analysis
+
+**Solution:**
+Added the missing attributes to both temperature and target sensor publications:
+```python
+attributes={
+    'unit_of_measurement': '°C',
+    'device_class': 'temperature',      # NEW: Classifies as temperature sensor
+    'state_class': 'measurement',        # NEW: Enables long-term statistics
+    'is_stale': data['is_stale']        # (temp sensor only)
+}
+```
+
+**Changes:**
+- Temperature sensor (line 135-140): Added `device_class: 'temperature'` and `state_class: 'measurement'`
+- Target sensor (line 145-151): Added `device_class: 'temperature'` and `state_class: 'measurement'`
+
+**Impact:**
+- Home Assistant will now track long-term statistics for all pyheat temperature and target sensors
+- Warnings removed from Home Assistant settings
+- Historical temperature data can be analyzed in Home Assistant's history/statistics views
+- Consistent with the monolithic version which already had these attributes
+
+**Reference:**
+Home Assistant State Class documentation: https://developers.home-assistant.io/docs/core/entity/sensor/#available-state-classes
+- `measurement`: For values that can be used for statistics (temperature, power, etc.)
+
+---
+
 ## 2025-11-06: Override Status Display Fix 🐛
 
 ### Bug Fix: Stale Override Status After Timer Expiration
