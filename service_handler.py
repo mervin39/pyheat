@@ -321,9 +321,11 @@ class ServiceHandler:
         Args:
             room (str): Room ID (required)
             mode (str): Mode to set - "auto", "manual", or "off" (required)
+            manual_setpoint (float): Manual setpoint temperature (optional, for manual mode)
         """
         room = kwargs.get('room')
         mode = kwargs.get('mode')
+        manual_setpoint = kwargs.get('manual_setpoint')
         
         # Validate required arguments
         if room is None:
@@ -345,9 +347,20 @@ class ServiceHandler:
             self.ad.log(f"pyheat.set_mode: room '{room}' not found", level="ERROR")
             return {"success": False, "error": f"room '{room}' not found"}
         
-        self.ad.log(f"pyheat.set_mode: room={room}, mode={mode}")
+        self.ad.log(f"pyheat.set_mode: room={room}, mode={mode}, manual_setpoint={manual_setpoint}")
         
         try:
+            # If manual_setpoint provided, set it first (before changing mode)
+            if manual_setpoint is not None and mode == "manual":
+                manual_setpoint_entity = C.HELPER_ROOM_MANUAL_SETPOINT.format(room=room)
+                if self.ad.entity_exists(manual_setpoint_entity):
+                    self.ad.call_service(
+                        "input_number/set_value",
+                        entity_id=manual_setpoint_entity,
+                        value=manual_setpoint
+                    )
+                    self.ad.log(f"Set {manual_setpoint_entity} to {manual_setpoint}°C")
+            
             # Set mode via helper
             mode_entity = C.HELPER_ROOM_MODE.format(room=room)
             if self.ad.entity_exists(mode_entity):
