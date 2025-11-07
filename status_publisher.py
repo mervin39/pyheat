@@ -180,37 +180,31 @@ class StatusPublisher:
         # Handle manual mode
         if mode == 'manual':
             manual_setpoint = data.get('manual_setpoint', data.get('target', 0))
-            temp = data.get('temp')
-            if temp is not None and manual_setpoint is not None:
-                if temp < manual_setpoint - 0.3:
-                    return 'Heating up'
-                elif temp > manual_setpoint + 0.3:
-                    return 'Cooling down'
-                else:
-                    return 'At target temperature'
             return f'Manual: {manual_setpoint:.1f}°'
         
         # Handle off mode
         if mode == 'off':
             return 'Heating off'
         
-        # Handle auto mode
+        # Handle auto mode (no boost/override)
         if mode == 'auto':
-            temp = data.get('temp')
             target = data.get('target')
             
-            if temp is None or target is None:
-                return 'Sensor issue'
+            # Get next schedule change
+            if hasattr(self, 'scheduler_ref') and self.scheduler_ref and scheduled_temp is not None:
+                from datetime import datetime
+                now = datetime.now()
+                next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, False)
+                
+                if next_change:
+                    next_time, next_temp = next_change
+                    # Only show if next temp is different from current scheduled temp
+                    if abs(next_temp - scheduled_temp) > 0.1:
+                        return f"Auto: {scheduled_temp:.1f}° → {next_temp:.1f}° at {next_time}"
             
-            if data.get('calling', False):
-                valve = data.get('valve_percent', 0)
-                return f'Heating ({valve}%)'
-            elif temp < target - 0.1:
-                return 'Heating up'
-            elif temp > target + 0.1:
-                return 'Cooling down'
-            else:
-                return 'At target temperature'
+            # Fallback: just show current target
+            if target is not None:
+                return f"Auto: {target:.1f}°"
         
         return 'Unknown'
         
@@ -322,9 +316,13 @@ class StatusPublisher:
         scheduled_temp = None
         if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
             try:
-                scheduled_temp = self.scheduler_ref.get_current_target(room_id, now)
-            except:
-                pass
+                # Get holiday mode
+                holiday_mode = False
+                if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                    holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+                scheduled_temp = self.scheduler_ref.get_scheduled_target(room_id, now, holiday_mode)
+            except Exception as e:
+                self.ad.log(f"Error getting scheduled temp for {room_id}: {e}", level="WARNING")
         
         # Format state string based on mode (legacy for backward compatibility)
         if data['mode'] == 'manual':

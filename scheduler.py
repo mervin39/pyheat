@@ -133,3 +133,49 @@ class Scheduler:
         
         # No active block → return default
         return schedule.get('default_target')
+    
+    def get_next_schedule_change(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[tuple[str, float]]:
+        """Get the next schedule change time and target temperature.
+        
+        Args:
+            room_id: Room identifier
+            now: Current datetime
+            holiday_mode: Whether holiday mode is active
+            
+        Returns:
+            Tuple of (time_string, target_temp) for next change, or None if no schedule
+            time_string format: "HH:MM" (24-hour)
+        """
+        schedule = self.config.schedules.get(room_id)
+        if not schedule or holiday_mode:
+            return None
+        
+        # Get day of week (0=Monday, 6=Sunday)
+        day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        day_name = day_names[now.weekday()]
+        
+        # Get blocks for today
+        week_schedule = schedule.get('week', {})
+        blocks = week_schedule.get(day_name, [])
+        
+        # Current time
+        current_time = now.strftime("%H:%M")
+        
+        # Find next block starting after current time
+        for block in blocks:
+            start_time = block['start']
+            if start_time > current_time:
+                return (start_time, block['target'])
+        
+        # No more blocks today - check tomorrow
+        tomorrow_idx = (now.weekday() + 1) % 7
+        tomorrow_name = day_names[tomorrow_idx]
+        tomorrow_blocks = week_schedule.get(tomorrow_name, [])
+        
+        if tomorrow_blocks:
+            # Return first block of tomorrow
+            first_block = tomorrow_blocks[0]
+            return (first_block['start'], first_block['target'])
+        
+        # No blocks tomorrow either, return None
+        return None
