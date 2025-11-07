@@ -1,5 +1,79 @@
 # PyHeat Changelog
 
+## 2025-11-07: Server-Side Status Formatting 🎨
+
+### Enhancement: Move Status Text Formatting to AppDaemon
+**Status:** COMPLETED ✅  
+**Location:** `status_publisher.py`, `api_handler.py`, pyheat-web client/server  
+**Issue:** Brief flash of unformatted status text like "auto (boost)" before client-side formatting applied
+
+**Problem:**
+The pyheat-web UI displayed a brief flicker of unformatted status text (e.g., "auto (boost)", "override(21.0) 300m") when:
+1. WebSocket receives entity state update from Home Assistant
+2. React component re-renders with raw state
+3. Client-side `formatStatusText()` function processes and reformats
+4. Component re-renders again with formatted text
+
+This created a race condition visible to users as a brief flash of technical status codes.
+
+**Root Cause:**
+Status formatting was performed client-side in pyheat-web, requiring two render cycles:
+- Initial render with raw status from AppDaemon: "boost(+2.0) 180m"
+- Second render after formatting: "Boost +2.0°: 18.0° → 20.0°. 3h left"
+
+**Solution:**
+Moved all status formatting logic to AppDaemon's `status_publisher.py`, eliminating client-side race condition by providing pre-formatted text in entity attributes.
+
+**Changes:**
+
+**AppDaemon (`status_publisher.py`):**
+- Added `_format_time_remaining(minutes)`: Formats minutes as "45m", "2h", "4h 30m"
+- Added enhanced `_get_override_info(room_id)`: Extracts full boost/override details including end_time, remaining_minutes, delta, target
+- Added `_format_status_text(room_id, data, now)`: Generates human-readable status like "Boost +2.0°: 18.0° → 20.0°. 5h left" or "Override: 21.0°. 3h 40m left"
+- Modified `publish_room_entities()`: Adds comprehensive attributes to `sensor.pyheat_{room}_state`:
+  - `formatted_status`: Human-readable status text (NEW)
+  - `override_type`: "none", "boost", or "override" (NEW)
+  - `override_end_time`: ISO timestamp (NEW)
+  - `override_remaining_minutes`: Integer minutes remaining (NEW)
+  - `boost_delta`: Temperature delta for boost (NEW)
+  - `boosted_target`: Calculated boosted temperature (NEW)
+  - `override_target`: Target temperature for override (NEW)
+  - `scheduled_temp`: Currently scheduled temperature from schedule (NEW)
+- Wired `scheduler` reference into `StatusPublisher` for scheduled_temp calculation
+
+**AppDaemon (`api_handler.py`):**
+- Updated `api_get_status()` to extract and pass through new attributes from state entity
+- Ensures formatted_status and metadata available to pyheat-web API
+
+**pyheat-web (client):**
+- Updated `RoomStatus` type definition to include new attributes
+- Modified `room-card.tsx` to use `formatted_status` directly
+- Removed `formatStatusText` call (function kept in utils.ts for backward compatibility)
+- Client now displays pre-formatted status immediately on first render
+
+**pyheat-web (server):**
+- Updated `RoomStatus` model with new optional fields
+- Modified `ha_client.py` to extract formatted_status and metadata from state entity attributes
+
+**Example Output:**
+- Simple status: "Cooling down", "Heating up", "At target temperature"
+- Boost: "Boost +2.0°: 18.0° → 20.0°. 5h left"
+- Override: "Override: 21.0°. 3h 40m left"
+- Schedule preview: "Next: 18.0° at 19:00"
+
+**Benefits:**
+- ✅ Eliminates visual flicker of unformatted text
+- ✅ Single source of truth for status display logic
+- ✅ Reduces client-side processing overhead
+- ✅ Structured metadata available for future UI enhancements
+- ✅ Live countdown still works (client replaces time portion dynamically)
+
+**Commits:**
+- AppDaemon: `0456d0a` "Add server-side status formatting to eliminate client-side race condition"
+- pyheat-web: `b0b1b78` "Update pyheat-web to use server-side formatted status"
+
+---
+
 ## 2025-11-07: Add State Class to Temperature Sensors 🌡️
 
 ### Fix: Missing state_class Attribute for Long-Term Statistics
