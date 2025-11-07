@@ -100,6 +100,16 @@ class RoomController:
         # Get target
         target = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
         
+        # Get manual setpoint for status display
+        manual_setpoint = None
+        if room_mode == 'manual':
+            manual_setpoint_entity = C.HELPER_ROOM_MANUAL_SETPOINT.format(room=room_id)
+            if self.ad.entity_exists(manual_setpoint_entity):
+                try:
+                    manual_setpoint = float(self.ad.get_state(manual_setpoint_entity))
+                except (ValueError, TypeError):
+                    pass
+        
         # Initialize result
         result = {
             'temp': temp,
@@ -109,6 +119,7 @@ class RoomController:
             'calling': False,
             'valve_percent': 0,
             'error': None,
+            'manual_setpoint': manual_setpoint,
         }
         
         # If no target or no temp (and not manual), can't heat

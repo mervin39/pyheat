@@ -148,7 +148,18 @@ class StatusPublisher:
         
         # State sensor
         state_entity = f"sensor.pyheat_{room_id}_state"
-        state_str = data['mode']
+        
+        # Format state string based on mode
+        if data['mode'] == 'manual':
+            # Format: "manual(X)" where X is the manual setpoint
+            manual_setpoint = data.get('manual_setpoint')
+            if manual_setpoint is not None:
+                state_str = f"manual({manual_setpoint})"
+            else:
+                # Fallback to target if manual_setpoint not available
+                state_str = f"manual({data.get('target', 0)})"
+        else:
+            state_str = data['mode']
         
         # Check for override/boost
         override_type = self._get_override_type(room_id)
