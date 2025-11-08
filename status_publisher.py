@@ -248,13 +248,14 @@ class StatusPublisher:
                     
                     # Determine day name based on day_offset
                     if day_offset == 0:
-                        day_name = "today"
+                        # Today - no day name needed
+                        return f"Auto: {target:.1f}° until {next_time} ({next_temp:.1f}°)"
                     else:
+                        # Future day - include day name
                         day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
                         future_day_idx = (now.weekday() + day_offset) % 7
                         day_name = day_names_display[future_day_idx]
-                    
-                    return f"Auto: {target:.1f}° until {next_time} on {day_name} ({next_temp:.1f}°)"
+                        return f"Auto: {target:.1f}° until {next_time} on {day_name} ({next_temp:.1f}°)"
                 else:
                     # No next change found - treat as forever
                     return f"Auto: {target:.1f}° forever"
