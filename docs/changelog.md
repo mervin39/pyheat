@@ -2275,3 +2275,37 @@ See `docs/TODO.md` for detailed task tracking. Immediate priorities:
 - [AppDaemon Documentation](https://appdaemon.readthedocs.io/)
 - [Home Assistant API](https://www.home-assistant.io/developers/rest_api/)
 - Original PyScript: `/home/pete/tmp/pyheat_pyscript/`
+
+---
+
+## 2025-11-08: Fixed API Handler Regex to Strip All Time Patterns 🔧
+
+### Bug Fix: Web UI Now Shows Correct Stripped Status
+**Status:** FIXED ✅  
+**Location:** `api_handler.py` - `_strip_time_from_status()`
+
+**Problem:**
+The regex pattern in `_strip_time_from_status()` only matched day names ending in "day" (Monday, Friday, etc.) and didn't handle today's changes that have no day name. This caused incomplete stripping of time information.
+
+**Examples:**
+- `"Auto: 14.0° until 19:00 on Sunday (18.0°)"` → Stripped correctly to `"Auto: 14.0°"` ✅
+- `"Auto: 18.0° until 16:00 (19.0°)"` → Was NOT being stripped ❌ → Now strips to `"Auto: 18.0°"` ✅
+
+**Solution:**
+Updated regex patterns:
+1. `r' until \d{2}:\d{2} on \w+ \([\d.]+°\)'` - Matches any day name (not just ones ending in "day")
+2. `r' until \d{2}:\d{2} \([\d.]+°\)'` - NEW: Matches today's changes (no day name)
+3. `r'\. Until \d{2}:\d{2}'` - Matches Override/Boost times
+
+**Verification:**
+All status formats now strip correctly:
+- ✅ `"Auto: 14.0° until 19:00 on Sunday (18.0°)"` → `"Auto: 14.0°"`
+- ✅ `"Auto: 18.0° until 16:00 (19.0°)"` → `"Auto: 18.0°"`
+- ✅ `"Auto: 12.0° forever"` → `"Auto: 12.0° forever"` (unchanged)
+- ✅ `"Override: 14.0° → 21.0°. Until 17:30"` → `"Override: 14.0° → 21.0°"`
+- ✅ `"Boost +2.0°: 18.0° → 20.0°. Until 19:00"` → `"Boost +2.0°: 18.0° → 20.0°"`
+
+**Note:** Per STATUS_FORMAT_SPEC.md design:
+- Home Assistant entities show full status with times
+- Web UI shows status WITHOUT times (as designed)
+- Web UI appends live countdown for overrides/boosts
