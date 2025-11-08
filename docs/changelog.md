@@ -1,5 +1,62 @@
 # PyHeat Changelog
 
+## 2025-11-08: Fixed Next Schedule Change Detection (Second Pass) 🔧
+
+### Bug Fix: get_next_schedule_change() Now Searches Full Week and Returns Day Offset
+**Status:** FIXED ✅  
+**Location:** `scheduler.py` - `get_next_schedule_change()`, `status_publisher.py` - `_format_status_text()`
+
+**Problem:**
+The first fix correctly implemented same-temperature skipping, but had two issues:
+1. Only checked tomorrow - if next change was multiple days away, would return None ("forever")
+2. Didn't indicate which day the change occurs on - status_publisher guessed wrong day name
+
+**Example (Games Room on Saturday):**
+- Saturday 12:29: In gap at 14.0° (default)
+- Sunday-Thursday: No blocks (stays at 14.0°)
+- Friday 07:00: First block at 10.0° (actual change!)
+
+Previous fix showed: `"Auto: 14.0° forever"` ❌  
+After partial fix: `"Auto: 14.0° until 07:00 on Sunday (10.0°)"` ❌ (wrong day)  
+Now shows: `"Auto: 14.0° until 07:00 on Friday (10.0°)"` ✅
+
+**Solution:**
+1. **Rewrote scanning algorithm** to loop through all 7 days
+2. **Added day_offset to return value** - now returns `(time, temp, day_offset)`
+3. **Updated status_publisher** to calculate correct day name from day_offset
+
+**Key Changes:**
+
+**scheduler.py:**
+- Return type: `Optional[tuple[str, float]]` → `Optional[tuple[str, float, int]]`
+- Added `day_offset` parameter (0 = today, 1 = tomorrow, etc.)
+- Loop through 8 days (full week + 1 for wraparound)
+- Track `scanning_target` as we progress through days
+- Properly update scanning_target based on block end times and gaps
+- Return day_offset with each result
+
+**status_publisher.py:**
+- Unpack 3 values from `get_next_schedule_change()`: time, temp, day_offset
+- Calculate day name: "today" if offset=0, else actual weekday name
+- Removed incorrect logic that guessed day based on time comparison
+
+**Algorithm Overview:**
+```python
+scanning_target = current_target
+for day_offset in range(8):
+    # For today: check from current time
+    # For future: check from 00:00
+    # Update scanning_target as we encounter blocks/gaps
+    # Return (time, temp, day_offset) when temp changes
+```
+
+**Impact:**
+- Fixes incorrect "forever" display when next change is multiple days away
+- Displays correct day name for changes beyond tomorrow
+- Properly handles weekly schedules with sparse blocks (e.g., only Friday/Saturday blocks)
+
+---
+
 ## 2025-11-08: Fixed Next Schedule Change Detection to Skip Same-Temperature Blocks 🔧
 
 ### Bug Fix: Status Shows Wrong Next Schedule Change Time

@@ -244,23 +244,15 @@ class StatusPublisher:
                 next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
                 
                 if next_change:
-                    next_time, next_temp = next_change
+                    next_time, next_temp, day_offset = next_change
                     
-                    # Determine day name
-                    day_name = "today"
-                    # Parse next_time to determine if it's today or tomorrow
-                    try:
-                        next_hour, next_min = map(int, next_time.split(':'))
-                        now_hour = now.hour
-                        now_min = now.minute
-                        
-                        # If next_time is earlier than now, must be tomorrow
-                        if next_hour < now_hour or (next_hour == now_hour and next_min <= now_min):
-                            day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                            tomorrow_idx = (now.weekday() + 1) % 7
-                            day_name = day_names_display[tomorrow_idx]
-                    except Exception as e:
-                        self.ad.log(f"Error parsing next time for {room_id}: {e}", level="WARNING")
+                    # Determine day name based on day_offset
+                    if day_offset == 0:
+                        day_name = "today"
+                    else:
+                        day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                        future_day_idx = (now.weekday() + day_offset) % 7
+                        day_name = day_names_display[future_day_idx]
                     
                     return f"Auto: {target:.1f}° until {next_time} on {day_name} ({next_temp:.1f}°)"
                 else:
