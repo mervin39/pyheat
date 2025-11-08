@@ -1,14 +1,14 @@
 # Status Text Formatting Specification
 
-**Date**: 2025-11-07  
+**Date**: 2025-11-08 (Updated)  
 **Purpose**: Define the exact format for `formatted_status` text displayed in pyheat-web UI and Home Assistant entities.
 
 ## Design Principles
 
 1. **Server-side formatting**: All status text formatting happens in AppDaemon (status_publisher.py)
-2. **Static times to HA**: Home Assistant entities receive static "until HH:MM" times
-3. **No times to web**: pyheat-web API receives status without time portion
-4. **Client adds countdown**: Web UI appends live countdown from `override_end_time`
+2. **Auto mode shows times**: Both HA and Web show full status with "until HH:MM on Day (T°)"
+3. **Override/Boost strip times**: Web receives without ". Until HH:MM" and adds live countdown
+4. **Client adds countdown**: Web UI appends live countdown from `override_end_time` for Override/Boost only
 
 ## Status Formats
 
@@ -105,17 +105,16 @@
 
 ### API Handler (api_handler.py)
 
-1. **Strip time patterns for web**: Remove ` until \d{2}:\d{2}` and `\. Until \d{2}:\d{2}`
-2. **Keep for HA queries**: Direct entity reads preserve full format
-3. **Result**: Web receives status without time portion
+1. **Auto mode**: Keep full status with times (same as HA)
+2. **Override/Boost**: Strip `. Until \d{2}:\d{2}` only
+3. **Result**: Web receives Auto with times, Override/Boost without times
 
 ### Client (room-card.tsx, embed-room-card.tsx)
 
-1. **Receive**: `formatted_status` without time from API
-2. **Check**: If `override_end_time` exists
-3. **Calculate**: Live countdown from `override_end_time`
-4. **Append**: `. {countdown} left` to `formatted_status`
-5. **Update**: Every second for smooth countdown
+1. **Auto mode**: Display `formatted_status` as-is (includes time and next temp)
+2. **Override/Boost**: Add live countdown from `override_end_time`
+3. **Append**: `. {countdown} left` to Override/Boost status
+4. **Update**: Every second for smooth countdown
 
 ### Forever Detection Algorithm
 

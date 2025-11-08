@@ -1,3 +1,43 @@
+
+---
+
+## 2025-11-08: Changed Web UI to Show Full Auto Mode Status 📱
+
+### Design Change: Web Now Shows Same Status as Home Assistant for Auto Mode
+**Status:** IMPLEMENTED ✅  
+**Location:** `api_handler.py` - `_strip_time_from_status()`, `STATUS_FORMAT_SPEC.md`
+
+**Change:**
+Updated pyheat-web to display the same detailed status for Auto mode as Home Assistant, showing when the next schedule change occurs and what temperature it will change to.
+
+**Before:**
+- Auto mode: `"Auto: 14.0°"` (time info stripped)
+- Override: `"Override: 14.0° → 21.0°"` (time stripped, countdown added by client)
+- Boost: `"Boost +2.0°: 18.0° → 20.0°"` (time stripped, countdown added by client)
+
+**After:**
+- Auto mode: `"Auto: 14.0° until 07:00 on Friday (10.0°)"` (full info shown)
+- Override: `"Override: 14.0° → 21.0°"` (unchanged - countdown added by client)
+- Boost: `"Boost +2.0°: 18.0° → 20.0°"` (unchanged - countdown added by client)
+
+**Rationale:**
+- Auto mode changes are scheduled events (not temporary overrides)
+- Users benefit from seeing when next change occurs and what temperature
+- Provides same information consistency between HA and Web UI
+- Override/Boost still show live countdowns (temporary actions)
+
+**Implementation:**
+- Modified `_strip_time_from_status()` to only strip `. Until HH:MM` pattern
+- Auto mode patterns (`until HH:MM on Day (T°)`) now pass through unchanged
+- Updated STATUS_FORMAT_SPEC.md to reflect new design
+
+**Examples:**
+- Pete: `"Auto: 14.0° until 19:00 on Sunday (18.0°)"` ✅
+- Lounge: `"Auto: 18.0° until 16:00 (19.0°)"` ✅
+- Games: `"Auto: 14.0° until 07:00 on Friday (10.0°)"` ✅
+- Bathroom: `"Auto: 12.0° forever"` ✅
+- Override: `"Override: 14.0° → 21.0°"` + live countdown ✅
+- Boost: `"Boost +1.0°: 18.0° → 19.0°"` + live countdown ✅
 # PyHeat Changelog
 
 ## 2025-11-08: Fixed Next Schedule Change Detection (Second Pass) 🔧
