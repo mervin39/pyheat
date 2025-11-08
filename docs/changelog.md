@@ -10,6 +10,7 @@
 The first fix correctly implemented same-temperature skipping, but had two issues:
 1. Only checked tomorrow - if next change was multiple days away, would return None ("forever")
 2. Didn't indicate which day the change occurs on - status_publisher guessed wrong day name
+3. Status format included "on today" which violates the spec
 
 **Example (Games Room on Saturday):**
 - Saturday 12:29: In gap at 14.0° (default)
@@ -24,6 +25,7 @@ Now shows: `"Auto: 14.0° until 07:00 on Friday (10.0°)"` ✅
 1. **Rewrote scanning algorithm** to loop through all 7 days
 2. **Added day_offset to return value** - now returns `(time, temp, day_offset)`
 3. **Updated status_publisher** to calculate correct day name from day_offset
+4. **Fixed status format** - removed "on today" for same-day changes per spec
 
 **Key Changes:**
 
@@ -37,7 +39,9 @@ Now shows: `"Auto: 14.0° until 07:00 on Friday (10.0°)"` ✅
 
 **status_publisher.py:**
 - Unpack 3 values from `get_next_schedule_change()`: time, temp, day_offset
-- Calculate day name: "today" if offset=0, else actual weekday name
+- If day_offset == 0: Format as `"Auto: T° until HH:MM (S°)"` (no day name)
+- If day_offset > 0: Format as `"Auto: T° until HH:MM on Day (S°)"` (with day name)
+- Calculate correct day name using: `(now.weekday() + day_offset) % 7`
 - Removed incorrect logic that guessed day based on time comparison
 
 **Algorithm Overview:**
@@ -50,10 +54,19 @@ for day_offset in range(8):
     # Return (time, temp, day_offset) when temp changes
 ```
 
+**Verification (Saturday 12:35):**
+- ✅ Pete: `"Auto: 14.0° until 19:00 on Sunday (18.0°)"`
+- ✅ Lounge: `"Auto: 18.0° until 16:00 (19.0°)"` (no "on today")
+- ✅ Abby: `"Auto: 12.0° until 19:30 (17.0°)"` (no "on today")
+- ✅ Office: `"Auto: 12.0° until 07:00 on Monday (17.0°)"`
+- ✅ Games: `"Auto: 14.0° until 07:00 on Friday (10.0°)"` (was showing "forever")
+- ✅ Bathroom: `"Auto: 12.0° forever"` (no blocks defined)
+
 **Impact:**
 - Fixes incorrect "forever" display when next change is multiple days away
 - Displays correct day name for changes beyond tomorrow
 - Properly handles weekly schedules with sparse blocks (e.g., only Friday/Saturday blocks)
+- Matches STATUS_FORMAT_SPEC.md exactly
 
 ---
 
