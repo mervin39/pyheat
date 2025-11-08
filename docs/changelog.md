@@ -1,5 +1,55 @@
 # PyHeat Changelog
 
+## 2025-11-08: Fixed Next Schedule Change Detection to Skip Same-Temperature Blocks 🔧
+
+### Bug Fix: Status Shows Wrong Next Schedule Change Time
+**Status:** FIXED ✅  
+**Location:** `scheduler.py` - `get_next_schedule_change()`  
+**Issue Documented:** `BUG_SCHEDULE_NEXT_CHANGE.md`
+
+**Problem:**
+When a schedule block with no end time (runs until midnight) transitions to the next day's block starting at 00:00 with the **same temperature**, the status incorrectly showed the midnight transition as the "next change" even though the temperature didn't actually change until later.
+
+**Example:**
+- Friday 15:00 block at 12.0° (no end = until midnight)
+- Saturday 00:00-09:00 block at 12.0° (same temp)
+- Saturday 09:00+ default at 14.0° (actual change)
+
+Status showed: `"Auto: 12.0° until 00:00 on Saturday (12.0°)"` ❌  
+Should show: `"Auto: 12.0° until 09:00 on Saturday (14.0°)"` ✅
+
+**Root Cause:**
+`get_next_schedule_change()` found the next schedule block start time rather than the next actual temperature change. It didn't compare temperatures to determine if a change was meaningful.
+
+**Solution:**
+Completely rewrote `get_next_schedule_change()` to:
+1. Get current target temperature for comparison
+2. Skip blocks and gaps that have the same temperature as current
+3. Search through multiple blocks (including tomorrow) to find first actual temperature change
+4. Handle transitions across midnight correctly
+5. Consider gaps (default_target) as potential changes if temperature differs
+
+**Key Algorithm Changes:**
+- Added `current_target` tracking via `resolve_room_target()` call
+- When in a block: Compare subsequent blocks and gaps against `current_block_target`
+- When in a gap: Compare subsequent blocks against `default_target`
+- Cross-day logic: Check tomorrow's blocks if no change found today
+- Multi-block scanning: Continue through consecutive same-temp blocks
+
+**Test Cases Covered:**
+1. ✅ Same temp across midnight (Friday block → Saturday 00:00 same temp → Saturday 09:00 change)
+2. ✅ Different temp across midnight (immediate change at 00:00)
+3. ✅ Multiple consecutive same-temp blocks
+4. ✅ Gaps between blocks with same/different temps
+5. ✅ Forever detection still works (no changes exist)
+
+**Impact:**
+- Status text now accurately reflects when temperature will actually change
+- Eliminates confusing "until 00:00 (12.0°)" messages when temp continues unchanged
+- System behavior unchanged (was already correct, only status display affected)
+
+---
+
 ## 2025-11-07: Redesigned Status Format with Static Times and Forever Detection 🎯
 
 ### Enhancement: Comprehensive Status Text Formatting System

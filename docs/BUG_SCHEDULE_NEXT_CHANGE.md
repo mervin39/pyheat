@@ -1,7 +1,7 @@
 # Bug: Status Shows Wrong Next Schedule Change Time
 
 **Date Reported:** 2025-11-07  
-**Status:** Identified, Not Fixed  
+**Status:** FIXED ✅ (2025-11-08)  
 **Severity:** Low (cosmetic issue in status display)
 
 ## Issue Description
@@ -84,3 +84,34 @@ None needed - system functions correctly, just status text could be clearer.
 3. **Multiple same-temp blocks:** Three consecutive blocks with same temperature
 4. **Gap after midnight block:** Saturday 00:00-09:00 block → gap → next block at 15:00
 5. **Forever detection:** Should still work when no temp changes exist
+
+---
+
+## Fix Implementation (2025-11-08)
+
+### Solution Applied
+
+Completely rewrote `get_next_schedule_change()` in `scheduler.py` to find the next actual temperature change rather than just the next schedule block start.
+
+**Key Changes:**
+1. Added current target temperature tracking via `resolve_room_target()` call
+2. Compare each potential next event against current temperature
+3. Skip blocks and gaps that maintain the same temperature
+4. Search through tomorrow's schedule if no change found today
+5. Handle midnight transitions correctly by comparing temperatures
+
+**Algorithm Overview:**
+- **In a block:** Compare subsequent blocks/gaps against `current_block_target`
+- **In a gap:** Compare subsequent blocks against `default_target`
+- **Cross midnight:** Check tomorrow's blocks if needed
+- **Multi-block:** Continue scanning through consecutive same-temp blocks
+
+**Test Coverage:**
+All 5 test cases from the "Expected Fix" section are now handled correctly by the new implementation.
+
+**Files Modified:**
+- `/opt/appdata/appdaemon/conf/apps/pyheat/scheduler.py` - `get_next_schedule_change()` method
+- `/opt/appdata/appdaemon/conf/apps/pyheat/docs/changelog.md` - Documented the fix
+
+**Result:**
+Status text now correctly shows: `"Auto: 12.0° until 09:00 on Saturday (14.0°)"` instead of the incorrect `"Auto: 12.0° until 00:00 on Saturday (12.0°)"`
