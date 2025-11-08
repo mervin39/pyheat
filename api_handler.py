@@ -31,6 +31,7 @@ class APIHandler:
         
         Removes:
         - " until HH:MM on Day (T°)" → just keep "Auto: T°"
+        - " until HH:MM (T°)" → just keep "Auto: T°" (for today)
         - ". Until HH:MM" → remove completely
         
         Args:
@@ -44,8 +45,11 @@ class APIHandler:
         
         import re
         
-        # Strip " until HH:MM on $DAY (T°)" from Auto mode
-        status = re.sub(r' until \d{2}:\d{2} on \w+day \([\d.]+°\)', '', status)
+        # Strip " until HH:MM on $DAY (T°)" from Auto mode (future days)
+        status = re.sub(r' until \d{2}:\d{2} on \w+ \([\d.]+°\)', '', status)
+        
+        # Strip " until HH:MM (T°)" from Auto mode (today)
+        status = re.sub(r' until \d{2}:\d{2} \([\d.]+°\)', '', status)
         
         # Strip ". Until HH:MM" from Override/Boost
         status = re.sub(r'\. Until \d{2}:\d{2}', '', status)
