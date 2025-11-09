@@ -326,7 +326,15 @@ Make service handlers callable from Home Assistant. Currently they're registered
 
 ## Known Issues / Technical Debt 🐛
 
-**None!** All discovered issues have been resolved. System is production-ready.
+### Active Bugs
+
+1. **Override Hysteresis Trap** - Medium Priority
+   - **Issue**: Override set close to current temp may not trigger heating
+   - **Details**: See `docs/BUG_OVERRIDE_HYSTERESIS_TRAP.md`
+   - **Impact**: Override targets within 0.3°C of current temp are ignored if room was not previously calling
+   - **Workaround**: Set override targets at least 0.5°C above current temperature
+   - **Recommended Fix**: Track override activation and force fresh heating decision on first recompute
+   - **Affects**: `room_controller.py::compute_call_for_heat()`, `service_handler.py`
 
 ---
 
