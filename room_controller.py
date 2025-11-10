@@ -36,6 +36,7 @@ class RoomController:
         self.room_call_for_heat = {}  # {room_id: bool}
         self.room_current_band = {}  # {room_id: band_index}
         self.room_last_valve = {}  # {room_id: percent}
+        self.room_last_target = {}  # {room_id: float} - tracks previous target to detect changes
         
     def initialize_from_ha(self) -> None:
         """Initialize room state from current Home Assistant TRV positions.
@@ -44,6 +45,9 @@ class RoomController:
         If valve is open (>0%), assume room was calling for heat before restart.
         This prevents sudden valve closures when in hysteresis deadband on startup
         (prevents boiler running with all valves closed after AppDaemon restart).
+        
+        Also initialize room_last_target to current targets to prevent false
+        "target changed" detection on first recompute after restart.
         """
         for room_id, room_cfg in self.config.rooms.items():
             if room_cfg.get('disabled'):
@@ -64,6 +68,25 @@ class RoomController:
                         self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%", level="DEBUG")
             except (ValueError, TypeError) as e:
                 self.ad.log(f"Failed to initialize room {room_id} state: {e}", level="WARNING")
+            
+            # Initialize target tracking - get current target from scheduler
+            try:
+                now = datetime.now()
+                mode_entity = C.HELPER_ROOM_MODE.format(room=room_id)
+                room_mode = self.ad.get_state(mode_entity) if self.ad.entity_exists(mode_entity) else "auto"
+                room_mode = room_mode.lower() if room_mode else "auto"
+                
+                holiday_mode = False
+                if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                    holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+                
+                # Get current target (pass is_stale=False as placeholder, it won't affect target resolution)
+                current_target = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, False)
+                if current_target is not None:
+                    self.room_last_target[room_id] = current_target
+                    self.ad.log(f"Room {room_id}: Initialized target tracking at {current_target}°C", level="DEBUG")
+            except Exception as e:
+                self.ad.log(f"Failed to initialize target tracking for room {room_id}: {e}", level="WARNING")
         
     def compute_room(self, room_id: str, now: datetime) -> Dict:
         """Compute heating requirements for a room.
@@ -167,6 +190,10 @@ class RoomController:
     def compute_call_for_heat(self, room_id: str, target: float, temp: float) -> bool:
         """Determine if a room should call for heat using asymmetric hysteresis.
         
+        Hysteresis deadband logic is bypassed when the target temperature changes
+        (e.g., due to override, boost, schedule transition, or mode change).
+        This ensures immediate response to user actions and schedule changes.
+        
         Args:
             room_id: Room identifier
             target: Target temperature (C)
@@ -183,10 +210,26 @@ class RoomController:
         # Calculate error (positive = below target)
         error = target - temp
         
-        # Get previous state
+        # Get previous state and target
         prev_calling = self.room_call_for_heat.get(room_id, False)
+        prev_target = self.room_last_target.get(room_id)
         
-        # Apply asymmetric hysteresis
+        # Update target tracking
+        self.room_last_target[room_id] = target
+        
+        # Check if target has changed (with epsilon tolerance for floating-point comparison)
+        target_changed = (prev_target is None or 
+                         abs(target - prev_target) > C.TARGET_CHANGE_EPSILON)
+        
+        if target_changed:
+            # Target changed → bypass hysteresis deadband, make fresh decision
+            # Heat if we're meaningfully below target (use small threshold to avoid sensor noise)
+            if prev_target is not None:
+                self.ad.log(f"Room {room_id}: Target changed {prev_target:.1f}→{target:.1f}°C, "
+                           f"making fresh heating decision (error={error:.2f}°C)", level="DEBUG")
+            return error >= C.FRESH_DECISION_THRESHOLD
+        
+        # Target unchanged → use normal hysteresis logic
         if error >= on_delta:
             # Clearly below target → call for heat
             return True

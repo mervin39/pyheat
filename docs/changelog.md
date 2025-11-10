@@ -1,6 +1,65 @@
 
 # PyHeat Changelog
 
+## 2025-11-10: Fix Override Hysteresis Trap 🔧
+
+### Bug Fix: Bypass Hysteresis Deadband on Target Changes
+**Status:** COMPLETE ✅  
+**Issue:** BUG_OVERRIDE_HYSTERESIS_TRAP.md
+
+**Problem:**
+When an override was set with a target temperature only slightly above current temperature (within the 0.1-0.3°C hysteresis deadband), the room would fail to call for heat. The hysteresis logic maintained the previous "not calling" state, effectively ignoring the user's explicit heating request.
+
+**Example:** Room at 17.3°C with override set to 17.5°C (error = 0.2°C) would not heat because error was in deadband and previous state was "not calling".
+
+**Root Cause:**
+The `compute_call_for_heat()` method treated all calls identically, whether triggered by:
+- Temperature drift (where deadband memory prevents flapping)
+- User override/boost (explicit heating request)
+- Schedule transitions
+- Mode changes
+
+The system had no awareness of "fresh goal" vs "steady-state monitoring", causing explicit target changes to be subject to historical calling state.
+
+**Solution Implemented:**
+Target change detection with hysteresis bypass:
+
+1. Track previous target per room (`room_last_target`)
+2. On each compute cycle, compare current target to previous target
+3. If target has changed (> 0.01°C epsilon), bypass hysteresis deadband:
+   - Make fresh heating decision based only on current error
+   - Heat if error >= 0.05°C (prevents sensor noise triggering)
+4. If target unchanged, use normal hysteresis with deadband
+
+**Benefits:**
+- ✅ Overrides always respond immediately to user intent
+- ✅ Boosts work correctly for small temperature deltas
+- ✅ Manual mode setpoint changes are immediately effective
+- ✅ Schedule transitions guaranteed to respond
+- ✅ Hysteresis anti-flapping still active for temperature drift
+- ✅ No special-case logic for different change types
+
+**Changes:**
+- `constants.py`: Added `TARGET_CHANGE_EPSILON = 0.01` and `FRESH_DECISION_THRESHOLD = 0.05`
+- `room_controller.py`:
+  - Added `room_last_target` dict to track previous targets
+  - Enhanced `initialize_from_ha()` to initialize target tracking on startup
+  - Updated `compute_call_for_heat()` to detect target changes and bypass deadband
+  - Added debug logging for target changes
+
+**Mitigations:**
+- Epsilon tolerance (0.01°C) prevents floating-point comparison issues
+- Fresh decision threshold (0.05°C) prevents sensor noise from triggering heating
+- Initialization from current targets on startup prevents false "changed" detection on reboot
+- Debug logging aids troubleshooting of target transitions
+
+**Testing:**
+After deployment, verify:
+1. Room at 17.3°C, valve 0%, not calling
+2. Set override to 17.5°C (error = 0.2°C)
+3. Expected: `calling_for_heat` becomes True immediately
+4. Room starts heating to reach override target
+
 ## 2025-11-10: Vestigial State Constant Removal 🧹
 
 ### Code Cleanup: Remove Unused STATE_INTERLOCK_FAILED

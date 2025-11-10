@@ -792,20 +792,24 @@ Each room maintains stateful information used for hysteresis calculations:
 self.room_call_for_heat = {}   # {room_id: bool} - Current calling status
 self.room_current_band = {}    # {room_id: 0-3} - Current valve band
 self.room_last_valve = {}      # {room_id: 0-100} - Last commanded valve %
+self.room_last_target = {}     # {room_id: float} - Previous target for change detection
 ```
 
 **State Persistence:**
 - State survives across recompute cycles (essential for hysteresis)
-- Lost on AppDaemon restart, but restored from TRV valve positions
+- Lost on AppDaemon restart, but restored from TRV valve positions and current targets
 - Updated every recompute cycle (60s + event-driven)
 
 **Initialization on Restart:**
 
-Critical safety feature - on AppDaemon restart, rooms are initialized based on **current valve positions**:
+Critical safety feature - on AppDaemon restart, rooms are initialized based on **current valve positions** and **current targets**:
 
 ```python
 if fb_valve > 0:
     room_call_for_heat[room_id] = True  # Assume was calling
+
+# Initialize target tracking to prevent false "changed" on first recompute
+room_last_target[room_id] = current_target
 ```
 
 **Why This Matters:**
@@ -870,16 +874,31 @@ hysteresis:
   off_delta_c: 0.10   # Stop heating when 0.1°C below target
 ```
 
+**Target Change Detection:**
+The hysteresis deadband is **bypassed when the target temperature changes** (override, boost, schedule transition, or mode change). This ensures immediate response to user actions while preserving anti-flapping protection during temperature drift.
+
+```python
+# Constants for target change detection
+TARGET_CHANGE_EPSILON = 0.01°C      # Floating-point tolerance
+FRESH_DECISION_THRESHOLD = 0.05°C   # Min error to heat on target change
+```
+
 **Algorithm:**
 ```python
 error = target - temp  # Positive = below target
 
-if error >= on_delta:
-    return True         # Clearly below target → start calling
-elif error <= off_delta:
-    return False        # At or above target → stop calling
+# Check if target changed
+if abs(target - prev_target) > TARGET_CHANGE_EPSILON:
+    # Target changed → bypass deadband, make fresh decision
+    return error >= FRESH_DECISION_THRESHOLD
 else:
-    return prev_calling  # In deadband → maintain previous state
+    # Target unchanged → use normal hysteresis
+    if error >= on_delta:
+        return True         # Clearly below target → start calling
+    elif error <= off_delta:
+        return False        # At or above target → stop calling
+    else:
+        return prev_calling  # In deadband → maintain previous state
 ```
 
 **Graphical Representation:**
@@ -891,6 +910,7 @@ Temperature (relative to target)
            │  DEADBAND   │  (stop calling)     
     -0.1°C ├─────────────┤ ← off_delta         
            │  DEADBAND   │  (keep prev state)  
+           │             │  *BYPASSED if target changed*
     -0.3°C ├─────────────┤ ← on_delta          
            │             │  ON                  
     -1.0°C ─────────────────────────────────────
@@ -898,6 +918,7 @@ Temperature (relative to target)
 Transitions:
   • NOT calling + error ≥ 0.3°C → START calling
   • Calling + error ≤ 0.1°C → STOP calling  
+  • Target changed + error ≥ 0.05°C → START calling (bypass deadband)  
   • In deadband (0.1-0.3°C) → NO CHANGE
 ```
 

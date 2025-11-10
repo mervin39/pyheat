@@ -51,11 +51,18 @@ TIMEOUT_MIN_M = 1
 # - Stop calling when e ≤ off_delta_c (turn-off threshold)
 # - If off_delta_c < e < on_delta_c, keep previous call state (no flip)
 # - Must have: on_delta_c ≥ off_delta_c
+#
+# HOWEVER: Hysteresis deadband is bypassed when target changes.
+# This ensures user overrides/schedule changes respond immediately.
 
 HYSTERESIS_DEFAULT: Dict[str, float] = {
     "on_delta_c": 0.30,   # Start heating when 0.3°C below target
     "off_delta_c": 0.10,  # Stop heating when 0.1°C below target (near enough)
 }
+
+# Target change detection - bypass hysteresis when target changes
+TARGET_CHANGE_EPSILON = 0.01  # °C - target changes smaller than this are ignored (floating point tolerance)
+FRESH_DECISION_THRESHOLD = 0.05  # °C - when target changes, heat if error >= this (prevents noise-triggered heating)
 
 # ============================================================================
 # Smart TRV Control - Valve Bands

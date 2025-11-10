@@ -36,7 +36,7 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
 
 1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles and staleness detection
 2. **Target Resolution**: Precedence: Off → Manual → Override/Boost → Schedule → Default
-3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation
+3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override/boost response
 4. **Valve Control**: Stepped bands (0%, low%, mid%, max%) based on temperature error with multi-band jump optimization
 5. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 6. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun

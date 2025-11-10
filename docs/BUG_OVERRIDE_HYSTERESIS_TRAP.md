@@ -1,7 +1,18 @@
 # Bug: Override Hysteresis Trap
 
 ## Status
-**OPEN** - Documented 2025-11-09
+**RESOLVED** - Fixed 2025-11-10
+
+## Resolution
+Implemented target change detection with hysteresis bypass. When the target temperature changes (override, boost, schedule transition, or mode change), the hysteresis deadband is bypassed and a fresh heating decision is made based on the current error. This ensures all target changes respond immediately while preserving hysteresis anti-flapping for temperature drift.
+
+**Solution:** Track previous target per room. When `abs(target - prev_target) > 0.01°C`, bypass deadband and heat if error >= 0.05°C.
+
+**See:** `docs/changelog.md` - 2025-11-10: Fix Override Hysteresis Trap
+
+---
+
+## Original Issue Description
 
 ## Summary
 When an override is set with a target temperature only slightly above current temperature (within hysteresis deadband), the room may fail to call for heat even though it's below target.
