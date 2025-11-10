@@ -4,7 +4,7 @@
 ## 2025-11-10: Fix Auto Mode Status Formatting in API 🐛
 
 **Summary:**
-Fixed bug in API handler where Auto mode status was incorrectly stripped of time information. The regex pattern was matching " until HH:MM" in both Auto and Override modes, when it should only strip times from Override/Boost.
+Fixed bug in API handler where Auto mode status was incorrectly stripped of time information. The regex pattern was matching " until HH:MM" in both Auto and Override modes, when it should only strip times from Override.
 
 **Problem:**
 - API returned: `"Auto: 12.0° on Wednesday (17.0°)"` (missing "until 07:00")
@@ -17,17 +17,24 @@ Fixed bug in API handler where Auto mode status was incorrectly stripped of time
   - Override: `" until 22:39"` ✅ (should strip)
 
 **Solution:**
-- Changed regex to only strip when status starts with "Override:" or "Boost:"
+- Changed regex to only strip when status starts with "Override:"
 - Auto mode status now correctly includes time and day information
-- Override/Boost status correctly stripped for client-side countdown
+- Override status correctly stripped for client-side countdown
 
 **Files Modified:**
-- `api_handler.py` - Fixed `_strip_time_from_status()` to check status prefix
+- `api_handler.py` - Fixed `_strip_time_from_status()` to check status prefix, removed vestigial "Boost" reference
+- `docs/STATUS_FORMAT_SPEC.md` - Updated to reflect unified override system (removed Boost Mode section)
 
 **Testing:**
 - ✅ Auto mode: `"Auto: 12.0° until 07:00 on Wednesday (17.0°)"` - keeps time
 - ✅ Override: `"Override: 18.5° (+4.5°)"` - time stripped for countdown
 - ✅ Forever: `"Auto: 12.0° forever"` - correct format
+
+**Documentation Updates:**
+- Removed "Boost Mode" section from STATUS_FORMAT_SPEC.md (obsolete after unified override system)
+- Updated Override format to show actual implementation: `Override: S° (ΔD°)` not `T° → S°`
+- Clarified that delta is calculated on-the-fly from scheduled temp for display only
+- Updated all references to "Override/Boost" to just "Override"
 
 ---
 

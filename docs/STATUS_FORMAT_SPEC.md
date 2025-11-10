@@ -1,18 +1,18 @@
 # Status Text Formatting Specification
 
-**Date**: 2025-11-08 (Updated)  
+**Date**: 2025-11-10 (Updated)  
 **Purpose**: Define the exact format for `formatted_status` text displayed in pyheat-web UI and Home Assistant entities.
 
 ## Design Principles
 
 1. **Server-side formatting**: All status text formatting happens in AppDaemon (status_publisher.py)
 2. **Auto mode shows times**: Both HA and Web show full status with "until HH:MM on Day (T°)"
-3. **Override/Boost strip times**: Web receives without ". Until HH:MM" and adds live countdown
-4. **Client adds countdown**: Web UI appends live countdown from `override_end_time` for Override/Boost only
+3. **Override strips times**: Web receives without " until HH:MM" and adds live countdown
+4. **Client adds countdown**: Web UI appends live countdown from `override_end_time` for Override only
 
 ## Status Formats
 
-### Auto Mode (no boost/override)
+### Auto Mode (no override)
 
 #### With Schedule Change Coming
 **Format**: `Auto: T° until HH:MM on $DAY (S°)`
@@ -43,42 +43,32 @@
 
 ### Override Mode
 
-**HA Format**: `Override: T° → S°. Until HH:MM`  
-**Web Format**: `Override: T° → S°`  
-**Client Display**: `Override: T° → S°. 2h 29m left` (live countdown)
+**HA Format**: `Override: S° (ΔD°) until HH:MM`  
+**Web Format**: `Override: S° (ΔD°)`  
+**Client Display**: `Override: S° (ΔD°). 2h 29m left` (live countdown)
 
-- **T**: Current scheduled setpoint (may be default_target)
-- **S**: Override target temperature
+- **S**: Override target temperature (absolute)
+- **ΔD**: Delta from current scheduled temp (shown in parentheses with sign)
 - **HH:MM**: End time (24-hour format) - only in HA version
 - Client calculates countdown from `override_end_time` and appends
 
+**Note**: Since the unified override system (2025-11-10), there is no separate "boost" mode. All overrides store an absolute target temperature. The delta is calculated on-the-fly from the current scheduled temperature for display purposes only.
+
 **Examples**:
 - Scheduled: 14.0°, Override: 21.0°, ends 17:30  
-  - HA: `Override: 14.0° → 21.0°. Until 17:30`
-  - Web receives: `Override: 14.0° → 21.0°`
-  - Client shows: `Override: 14.0° → 21.0°. 2h 29m left`
+  - HA: `Override: 21.0° (+7.0°) until 17:30`
+  - Web receives: `Override: 21.0° (+7.0°)`
+  - Client shows: `Override: 21.0° (+7.0°). 2h 29m left`
 
-### Boost Mode
+- Scheduled: 18.0°, Override: 20.0°, ends 19:00  
+  - HA: `Override: 20.0° (+2.0°) until 19:00`
+  - Web receives: `Override: 20.0° (+2.0°)`
+  - Client shows: `Override: 20.0° (+2.0°). 3h 15m left`
 
-**HA Format**: `Boost +D°: T° → S°. Until HH:MM`  
-**Web Format**: `Boost +D°: T° → S°`  
-**Client Display**: `Boost +D°: T° → S°. 3h 15m left` (live countdown)
-
-- **D**: Temperature delta (with sign)
-- **T**: Current scheduled setpoint
-- **S**: Boosted temperature (T + D)
-- **HH:MM**: End time (24-hour format) - only in HA version
-
-**Examples**:
-- Scheduled: 18.0°, Boost: +2.0°, ends 19:00  
-  - HA: `Boost +2.0°: 18.0° → 20.0°. Until 19:00`
-  - Web receives: `Boost +2.0°: 18.0° → 20.0°`
-  - Client shows: `Boost +2.0°: 18.0° → 20.0°. 3h 15m left`
-
-- Scheduled: 14.0°, Boost: -1.0°, ends 21:30  
-  - HA: `Boost -1.0°: 14.0° → 13.0°. Until 21:30`
-  - Web receives: `Boost -1.0°: 14.0° → 13.0°`
-  - Client shows: `Boost -1.0°: 14.0° → 13.0°. 1h 5m left`
+- Scheduled: 14.0°, Override: 13.0°, ends 21:30  
+  - HA: `Override: 13.0° (-1.0°) until 21:30`
+  - Web receives: `Override: 13.0° (-1.0°)`
+  - Client shows: `Override: 13.0° (-1.0°). 1h 5m left`
 
 ### Manual Mode
 
@@ -107,13 +97,17 @@
 
 1. **Auto mode**: Keep full status with times (same as HA)
 2. **Override/Boost**: Strip `. Until \d{2}:\d{2}` only
-3. **Result**: Web receives Auto with times, Override/Boost without times
+### API Handler (api_handler.py)
+
+1. **Auto mode**: Keep full status with times (same as HA)
+2. **Override**: Strip " until HH:MM" only
+3. **Result**: Web receives Auto with times, Override without times
 
 ### Client (room-card.tsx, embed-room-card.tsx)
 
 1. **Auto mode**: Display `formatted_status` as-is (includes time and next temp)
-2. **Override/Boost**: Add live countdown from `override_end_time`
-3. **Append**: `. {countdown} left` to Override/Boost status
+2. **Override**: Add live countdown from `override_end_time`
+3. **Append**: `. {countdown} left` to Override status
 4. **Update**: Every second for smooth countdown
 
 ### Forever Detection Algorithm
@@ -153,12 +147,11 @@ else:
 - [ ] Auto mode with next change tomorrow
 - [ ] Auto mode with gap showing default_target
 - [ ] Auto mode with no schedule (forever)
-- [ ] Override mode with countdown
-- [ ] Boost mode positive delta with countdown
-- [ ] Boost mode negative delta with countdown
+- [ ] Override mode with countdown (positive delta)
+- [ ] Override mode with countdown (negative delta)
 - [ ] Manual mode
 - [ ] Off mode
-- [ ] HA entity shows "Until HH:MM"
+- [ ] HA entity shows " until HH:MM"
 - [ ] Web UI shows live countdown
 - [ ] Countdown updates every second
 - [ ] Countdown expires correctly
@@ -168,5 +161,5 @@ else:
 - Forever check is O(1): just check if week dict values are all empty
 - Next schedule lookup is O(n) where n = blocks in week (typically < 20)
 - Gap detection adds minimal overhead (one time comparison)
-- No time calculation on server (static "until HH:MM" only)
+- No time calculation on server (static " until HH:MM" only)
 - Client handles all live countdown logic
