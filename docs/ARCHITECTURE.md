@@ -411,8 +411,7 @@ The `Scheduler` class (`scheduler.py`) is responsible for determining target tem
 **Key Features:**
 - Weekly schedule blocks with start/end times per room
 - Default target for gaps between scheduled blocks
-- Override mode (absolute temperature)
-- Boost mode (delta from scheduled target)
+- Override mode with flexible parameters (absolute target OR relative delta, duration OR end time)
 - Holiday mode (energy-saving override)
 - Manual mode (constant user setpoint)
 - Next schedule change calculation with gap detection
@@ -2428,9 +2427,8 @@ ad.register_service("pyheat/boost", svc_boost)
 ```
 
 **Available Services:**
-- `appdaemon.pyheat_override` - Set absolute target override
-- `appdaemon.pyheat_boost` - Apply delta boost to scheduled target
-- `appdaemon.pyheat_cancel_override` - Cancel active override/boost
+- `appdaemon.pyheat_override` - Set temperature override (absolute target OR relative delta, duration OR end time)
+- `appdaemon.pyheat_cancel_override` - Cancel active override
 - `appdaemon.pyheat_set_mode` - Change room mode (auto/manual/off)
 - `appdaemon.pyheat_set_default_target` - Update schedule default target
 - `appdaemon.pyheat_reload_config` - Reload configuration files
@@ -2440,12 +2438,19 @@ ad.register_service("pyheat/boost", svc_boost)
 
 **Calling from Home Assistant:**
 ```yaml
-# In automation or script
+# Absolute target override for 2 hours
 service: appdaemon.pyheat_override
 data:
   room: pete
   target: 21.0
   minutes: 120
+
+# Relative delta override until 22:30
+service: appdaemon.pyheat_override
+data:
+  room: pete
+  delta: 2.0
+  end_time: "22:30"
 ```
 
 ### Service Handler Implementation
@@ -2467,9 +2472,8 @@ All endpoints are registered in `api_handler.py`:
 - **GET** `/api/appdaemon/pyheat_get_status` - System status (rooms, boiler, timers)
 - **GET** `/api/appdaemon/pyheat_get_history` - Historical data (if enabled)
 - **POST** `/api/appdaemon/pyheat_set_mode` - Change room mode
-- **POST** `/api/appdaemon/pyheat_override` - Set override target and duration
-- **POST** `/api/appdaemon/pyheat_boost` - Boost room by delta for duration
-- **POST** `/api/appdaemon/pyheat_cancel_override` - Cancel override/boost
+- **POST** `/api/appdaemon/pyheat_override` - Set override (target/delta, minutes/end_time)
+- **POST** `/api/appdaemon/pyheat_cancel_override` - Cancel override
 - **POST** `/api/appdaemon/pyheat_set_default_target` - Update default setpoint
 - **POST** `/api/appdaemon/pyheat_replace_schedules` - Update schedule data
 - **POST** `/api/appdaemon/pyheat_reload_config` - Reload YAML configurations
