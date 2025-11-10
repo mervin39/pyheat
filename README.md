@@ -10,7 +10,7 @@ PyHeat provides intelligent multi-room heating control with:
 - **Boiler management** with safety interlocks and anti-cycling
 - **Sensor fusion** with staleness detection
 - **Multiple control modes**: Auto (scheduled), Manual, and Off per room
-- **Override/boost** functionality with timers
+- **Override** functionality with flexible parameters (absolute/delta temp, duration/end time)
 - **Holiday mode** for energy savings
 
 ## Architecture
@@ -35,8 +35,8 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
 ### Heating Logic
 
 1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles and staleness detection
-2. **Target Resolution**: Precedence: Off → Manual → Override/Boost → Schedule → Default
-3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override/boost response
+2. **Target Resolution**: Precedence: Off → Manual → Override → Schedule → Default
+3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override response
 4. **Valve Control**: Stepped bands (0%, low%, mid%, max%) based on temperature error with multi-band jump optimization
 5. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 6. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
@@ -153,11 +153,32 @@ Set via `input_select.pyheat_{room}_mode`
 When in Manual mode, set temperature via:
 `input_number.pyheat_{room}_manual_setpoint`
 
-### Override/Boost
+### Override
 
-Temporarily override the schedule:
-1. Set target: `input_number.pyheat_{room}_override_target`
-2. Start timer: `timer.pyheat_{room}_override`
+Temporarily override the schedule with flexible parameters:
+- **Temperature mode**: Absolute target OR relative delta
+- **Duration mode**: Minutes OR end time (HH:MM)
+
+Uses entities:
+- `input_number.pyheat_{room}_override_target` - Stores calculated absolute target
+- `timer.pyheat_{room}_override` - Controls duration
+
+Call via service `appdaemon.pyheat_override` with parameters:
+```yaml
+# Absolute target for 2 hours
+service: appdaemon.pyheat_override
+data:
+  room: lounge
+  target: 21.0
+  minutes: 120
+
+# Delta from schedule until 22:30
+service: appdaemon.pyheat_override
+data:
+  room: lounge
+  delta: 2.0
+  end_time: "22:30"
+```
 
 When timer expires, room returns to scheduled target.
 
@@ -216,19 +237,18 @@ PyHeat exposes HTTP API endpoints via AppDaemon's `register_endpoint()` for exte
 
 ### Available Endpoints
 
-- **`pyheat_override`** - Set absolute temperature override
+- **`pyheat_override`** - Set temperature override with flexible parameters
   ```json
+  // Absolute target for 60 minutes
   POST /api/appdaemon/pyheat_override
   {"room": "lounge", "target": 21.0, "minutes": 60}
+  
+  // Delta from schedule until 22:30
+  POST /api/appdaemon/pyheat_override
+  {"room": "lounge", "delta": 2.0, "end_time": "22:30"}
   ```
 
-- **`pyheat_boost`** - Apply delta boost to current target
-  ```json
-  POST /api/appdaemon/pyheat_boost
-  {"room": "lounge", "delta": 2.0, "minutes": 45}
-  ```
-
-- **`pyheat_cancel_override`** - Cancel active override/boost
+- **`pyheat_cancel_override`** - Cancel active override
   ```json
   POST /api/appdaemon/pyheat_cancel_override
   {"room": "lounge"}
