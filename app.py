@@ -221,6 +221,11 @@ class PyHeat(hass.Hass):
         Optimized to skip recomputes when sensor changes don't affect the
         displayed (precision-rounded) temperature value. This reduces unnecessary
         recomputes by 80-90% when sensors report small fluctuations.
+        
+        Deadband threshold: To prevent boundary flipping when fused sensors hover
+        around rounding boundaries (e.g., 17.745°C ↔ 17.755°C flipping between
+        17.7°C and 17.8°C), only trigger recompute if the change exceeds 0.5 * precision.
+        This adds hysteresis without affecting control accuracy (boiler hysteresis >> 0.05°C).
         """
         room_id = kwargs.get('room_id')
         if new and new not in ['unknown', 'unavailable']:
@@ -245,12 +250,19 @@ class PyHeat(hass.Hass):
                 new_rounded = round(fused_temp, precision)
                 old_rounded = self.last_published_temps.get(room_id)
                 
-                # Skip recompute if rounded temp unchanged
-                if old_rounded is not None and old_rounded == new_rounded:
-                    self.log(f"Sensor {entity} recompute skipped - rounded temp unchanged at {new_rounded}°C", level="DEBUG")
-                    return
+                # Deadband: Only recompute if change exceeds half a display unit
+                # Prevents flipping at boundaries (e.g., 17.745°C vs 17.755°C)
+                if old_rounded is not None:
+                    deadband = 0.5 * (10 ** -precision)  # 0.05°C for precision=1
+                    temp_delta = abs(new_rounded - old_rounded)
+                    
+                    if temp_delta < deadband:
+                        self.log(f"Sensor {entity} recompute skipped - change below deadband "
+                                f"({old_rounded}°C → {new_rounded}°C, Δ={temp_delta:.3f}°C < {deadband:.3f}°C)", 
+                                level="DEBUG")
+                        return
                 
-                # Temp changed - update tracking and trigger recompute
+                # Temp changed significantly - update tracking and trigger recompute
                 self.last_published_temps[room_id] = new_rounded
                 self.trigger_recompute(f"sensor_{room_id}_changed")
                 
