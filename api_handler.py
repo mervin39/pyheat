@@ -30,22 +30,24 @@ class APIHandler:
         """Strip time information from formatted_status for pyheat-web.
         
         Auto mode: Keep full status with times (same as HA)
-        Override: Strip ". Until HH:MM" or " until HH:MM" (web will show live countdown)
+        Override/Boost: Strip " until HH:MM" only (web will show live countdown)
         
         Args:
             status: Formatted status string from status_publisher
             
         Returns:
-            Status with times stripped only for Override
+            Status with times stripped only for Override/Boost (not Auto)
         """
         if not status:
             return status
         
         import re
         
-        # Strip ". Until HH:MM" or " until HH:MM" from Override mode
-        # Auto mode keeps its full "until HH:MM on Day (T°)" format
-        status = re.sub(r'[\. ][Uu]ntil \d{2}:\d{2}', '', status)
+        # Strip " until HH:MM" from Override/Boost only
+        # Auto mode has different structure: "until HH:MM on Day (T°)" - won't match this pattern
+        # Override/Boost: "Override: T° (ΔD°) until HH:MM" - matches and strips
+        if status.startswith("Override:") or status.startswith("Boost"):
+            status = re.sub(r' until \d{2}:\d{2}', '', status)
         
         return status
         

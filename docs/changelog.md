@@ -1,6 +1,36 @@
 
 # PyHeat Changelog
 
+## 2025-11-10: Fix Auto Mode Status Formatting in API 🐛
+
+**Summary:**
+Fixed bug in API handler where Auto mode status was incorrectly stripped of time information. The regex pattern was matching " until HH:MM" in both Auto and Override modes, when it should only strip times from Override/Boost.
+
+**Problem:**
+- API returned: `"Auto: 12.0° on Wednesday (17.0°)"` (missing "until 07:00")
+- Should return: `"Auto: 12.0° until 07:00 on Wednesday (17.0°)"`
+- According to STATUS_FORMAT_SPEC.md, Auto mode should keep full status with times
+
+**Root Cause:**
+- `_strip_time_from_status()` regex `r'[\. ][Uu]ntil \d{2}:\d{2}'` matched both:
+  - Auto: `" until 07:00 on Wednesday"` ❌ (should NOT strip)
+  - Override: `" until 22:39"` ✅ (should strip)
+
+**Solution:**
+- Changed regex to only strip when status starts with "Override:" or "Boost:"
+- Auto mode status now correctly includes time and day information
+- Override/Boost status correctly stripped for client-side countdown
+
+**Files Modified:**
+- `api_handler.py` - Fixed `_strip_time_from_status()` to check status prefix
+
+**Testing:**
+- ✅ Auto mode: `"Auto: 12.0° until 07:00 on Wednesday (17.0°)"` - keeps time
+- ✅ Override: `"Override: 18.5° (+4.5°)"` - time stripped for countdown
+- ✅ Forever: `"Auto: 12.0° forever"` - correct format
+
+---
+
 ## 2025-11-10: Cleanup of Boost Terminology 🧹
 
 **Summary:**
