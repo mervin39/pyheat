@@ -152,7 +152,7 @@
 
 ### Phase 5: Full Boiler State Machine - COMPLETE ✅
 - [x] **Complete State Machine Implementation**
-  - [x] 7-state FSM with proper transitions
+  - [x] 6-state FSM with proper transitions
   - [x] Anti-cycling protection using timer helpers
   - [x] TRV interlock validation and feedback confirmation
   - [x] Valve override calculation for minimum flow requirements
@@ -188,33 +188,47 @@
 ### Phase 9: Modular Architecture Refactor - COMPLETE ✅
 - [x] **Code Organization and Maintainability**
   - [x] Split monolithic app.py (1900+ lines) into 10 specialized modules
-  - [x] boiler_controller.py - Isolated 7-state FSM logic (295 lines)
+  - [x] boiler_controller.py - Isolated 6-state FSM logic (620 lines)
   - [x] room_controller.py - Per-room heating control (180 lines)
   - [x] trv_controller.py - TRV command and setpoint management (175 lines)
   - [x] sensor_manager.py - Temperature sensor fusion (145 lines)
   - [x] scheduler.py - Schedule parsing and resolution (155 lines)
   - [x] service_handler.py - HA service implementations (245 lines)
   - [x] status_publisher.py - Entity creation and updates (160 lines)
-  - [x] config_loader.py - YAML validation and loading (125 lines)
+  - [x] config_loader.py - YAML validation and loading (170 lines)
+  - [x] api_handler.py - REST API endpoints (580 lines)
   - [x] All functionality verified after refactor
   - [x] Fixed sensor entity creation bug (HTTP 400 with numeric 0)
   - [x] Created debug_monitor.py tool for system testing (280 lines)
   - [x] Documentation cleanup and archiving
 
+### Phase 10: Documentation - COMPLETE ✅
+- [x] **Comprehensive Technical Documentation**
+  - [x] ARCHITECTURE.md - Complete system architecture with detailed algorithms
+  - [x] README.md - Installation, configuration, and usage guide
+  - [x] STATUS_FORMAT_SPEC.md - Status text formatting specification
+  - [x] TODO.md - Project tracking and implementation history
+  - [x] changelog.md - Detailed change tracking
+  - [x] BUG_OVERRIDE_HYSTERESIS_TRAP.md - Known issue documentation
+
+---
+
+## Current Status: Production-Ready ✅
+
+The system is fully functional and production-ready with:
+- ✅ Complete 6-state boiler FSM with safety interlocks
+- ✅ Multi-room heating control with individual schedules
+- ✅ TRV setpoint locking and valve control
+- ✅ Sensor fusion with staleness detection
+- ✅ AppDaemon service interface for Home Assistant
+- ✅ REST API for external applications (pyheat-web)
+- ✅ Comprehensive documentation
+
 ---
 
 ## In Progress / Next Steps 🚧
 
-### Next Priority: Service Handler Integration
-
-Make service handlers callable from Home Assistant. Currently they're registered within AppDaemon but don't appear as HA services.
-
-### Phase 8: Bug Fixes - COMPLETE ✅
-- [x] **Configuration and Emergency Valve Fixes**
-  - [x] Fixed boiler.yaml timer configuration (debug values removed)
-  - [x] Fixed emergency safety valve logic (exclude transition states)
-  - [x] Pump overrun live test successful (180s duration verified)
-  - [x] Emergency valve no longer triggers during PENDING_OFF/PUMP_OVERRUN
+**No active development in progress.** System is stable and feature-complete for current requirements.
 
 ---
 
@@ -226,21 +240,22 @@ Make service handlers callable from Home Assistant. Currently they're registered
 
 ## Deferred / Future Enhancements 📋
 
-### Service Handlers - IMPLEMENTED BUT NOT INTEGRATED ⚠️
-**Status:** All service handlers implemented and registered with AppDaemon, but not yet callable from Home Assistant. Services are registered internally via `register_service()` but don't appear as HA services. Need to investigate proper AppDaemon->HA service registration method.
+### AppDaemon Services - COMPLETE ✅
+**Status:** All service handlers implemented and registered with AppDaemon. Services are callable from Home Assistant via `appdaemon.pyheat_*` service calls.
 
-**Implemented Services:**
-- [x] `pyheat.override(room, target, minutes)` - Set temporary target ✅
-- [x] `pyheat.boost(room, delta, minutes)` - Boost by delta from current ✅
-- [x] `pyheat.cancel_override(room)` - Cancel active override ✅
-- [x] `pyheat.set_mode(room, mode)` - Change room mode programmatically ✅
-- [x] `pyheat.set_default_target(room, target)` - Update default target ✅
-- [x] `pyheat.reload_config()` - Reload YAML without restart ✅
-- [x] `pyheat.get_schedules()` - Get current schedules (returns dict) ✅
-- [x] `pyheat.get_rooms()` - Get current rooms (returns dict) ✅
-- [x] `pyheat.replace_schedules(schedule_dict)` - Atomically replace schedules ✅
+**Available Services:**
+- ✅ `appdaemon.pyheat_override` - Set temporary target
+- ✅ `appdaemon.pyheat_boost` - Boost by delta from current
+- ✅ `appdaemon.pyheat_cancel_override` - Cancel active override
+- ✅ `appdaemon.pyheat_set_mode` - Change room mode programmatically
+- ✅ `appdaemon.pyheat_set_default_target` - Update default target
+- ✅ `appdaemon.pyheat_reload_config` - Reload YAML without restart
+- ✅ `appdaemon.pyheat_get_schedules` - Get current schedules (returns dict)
+- ✅ `appdaemon.pyheat_get_rooms` - Get current rooms (returns dict)
+- ✅ `appdaemon.pyheat_replace_schedules` - Atomically replace schedules
 
-**TODO:** Make services callable from Home Assistant (currently only registered within AppDaemon)
+**REST API Endpoints:**
+All services also available via HTTP at `/api/appdaemon/pyheat_*` for external applications (pyheat-web).
 
 ### Enhanced Features (Inspired by PyScript Version)
 

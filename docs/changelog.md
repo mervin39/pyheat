@@ -1,4 +1,62 @@
 
+# PyHeat Changelog
+
+## 2025-11-10: Comprehensive Architecture Documentation 📚
+
+### Documentation: Complete System Architecture Guide
+**Status:** COMPLETE ✅  
+**Location:** `docs/ARCHITECTURE.md`, `README.md`, `docs/TODO.md`
+
+**Changes:**
+Created comprehensive technical architecture documentation covering all system components:
+
+**ARCHITECTURE.md - Complete System Documentation:**
+- High-level data flow with ASCII diagram showing full pipeline
+- Temperature sensing and fusion (sensor roles, averaging, staleness)
+- Scheduling system (7-level precedence hierarchy, override/boost)
+- Room control logic (asymmetric hysteresis, 4-band valve control)
+- TRV control (setpoint locking at 35°C, non-blocking commands)
+- Boiler control (6-state FSM with all transitions and safety interlocks)
+- AppDaemon service interface (service registration and calling)
+- REST API endpoints for external access
+- Status publication mechanisms
+- Configuration management (YAML files, validation, hot-reload)
+- Event-driven architecture (state listeners, time triggers)
+- Error handling and recovery (sensor failures, TRV issues, boiler safety)
+- Home Assistant integration (required entities, consumed services)
+
+**Documentation Cleanup:**
+- Removed Performance Considerations section (trivial for 60s interval system)
+- Removed Testing section (no comprehensive test infrastructure)
+- Removed Future Enhancements section (not architectural documentation)
+- Consolidated placeholder sections into concise, complete content
+- Added cross-references to related documentation files
+
+**Consistency Updates:**
+- Corrected boiler FSM state count: 6 states (not 7)
+- Updated README.md to match ARCHITECTURE.md terminology
+- Updated TODO.md to reflect completed service implementation
+- Clarified AppDaemon service registration vs Home Assistant services
+
+**Documentation Structure:**
+- 15 major sections covering all architectural aspects
+- Zero TODO markers remaining
+- Clear separation between detailed algorithms and supporting infrastructure
+- Comprehensive enough to understand entire system
+- Efficient enough to read in one sitting
+
+**Files Modified:**
+- `docs/ARCHITECTURE.md` - New comprehensive architecture guide
+- `README.md` - Fixed FSM state count, updated component descriptions
+- `docs/TODO.md` - Updated completion status, clarified service interface
+- `docs/changelog.md` - This entry
+
+**Rationale:**
+- Project complexity requires detailed technical documentation
+- New contributors need architectural overview
+- Debugging and maintenance easier with documented algorithms
+- Reference documentation for pyheat-web integration
+
 ---
 
 ## 2025-11-08: Changed Web UI to Show Full Auto Mode Status 📱

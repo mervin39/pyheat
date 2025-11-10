@@ -20,7 +20,7 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
 ### Key Components
 
 - **app.py** - Main AppDaemon application orchestration
-- **boiler_controller.py** - 7-state FSM boiler control with safety interlocks
+- **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
 - **room_controller.py** - Per-room heating logic and target resolution
 - **trv_controller.py** - TRV valve command and setpoint locking
 - **sensor_manager.py** - Temperature sensor fusion and staleness detection
@@ -39,7 +39,7 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
 3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation
 4. **Valve Control**: Stepped bands (0%, low%, mid%, max%) based on temperature error with multi-band jump optimization
 5. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
-6. **Boiler Control**: Full 7-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
+6. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
 
 ## Installation
 
@@ -198,7 +198,7 @@ The app logs:
 - Core heating logic (sensor fusion, target resolution, hysteresis)
 - Full modular architecture with 10 specialized modules
 - TRV control with setpoint locking (35°C), rate limiting, and feedback confirmation
-- Complete 7-state boiler FSM with anti-cycling protection
+- Complete 6-state boiler FSM with anti-cycling protection
 - TRV-open interlock validation and safety override
 - Pump overrun timer with valve position persistence
 - Status entity publishing with comprehensive diagnostics
