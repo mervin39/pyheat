@@ -27,7 +27,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  • Periodic timer (60s)          • Sensor state changes                      │
 │  • Room mode changes              • Manual setpoint changes                  │
-│  • Override/boost timers          • Service calls (API/HA)                   │
+│  • Override timers                • Service calls (API/HA)                   │
 │  • TRV feedback changes           • Config file modifications                │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
@@ -49,11 +49,10 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │  Determine target temperature using precedence hierarchy:                    │
 │    1. Off mode          → None (no heating)                                  │
 │    2. Manual mode       → manual_setpoint (user-set constant)                │
-│    3. Override active   → override_target (temporary absolute)               │
-│    4. Boost active      → scheduled_target + boost_delta (temporary)         │
-│    5. Schedule block    → block target for current time/day                  │
-│    6. Default           → default_target (outside schedule blocks)           │
-│    7. Holiday mode      → 15.0°C (energy saving)                             │
+│    3. Override active   → override_target (absolute temp, from target/delta) │
+│    4. Schedule block    → block target for current time/day                  │
+│    5. Default           → default_target (outside schedule blocks)           │
+│    6. Holiday mode      → 15.0°C (energy saving)                             │
 │  Return: target_temp (or None if off)                                        │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
@@ -154,9 +153,8 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │  Service calls (pyheat.*):          HTTP API (/api/appdaemon/pyheat_*):     │
 │    • set_room_mode                    • GET /pyheat_get_status               │
 │    • set_room_target                  • GET /pyheat_get_schedules            │
-│    • set_override                     • POST /pyheat_override                │
-│    • clear_override                   • POST /pyheat_boost                   │
-│    • set_boost                        • POST /pyheat_cancel_override         │
+│    • override                         • POST /pyheat_override                │
+│    • cancel_override                  • POST /pyheat_cancel_override         │
 │    • reload_schedules                 • POST /pyheat_replace_schedules       │
 │    • reload_rooms                     • POST /pyheat_set_mode                │
 │  All trigger recompute cycle          • Used by pyheat-web UI                │
@@ -464,30 +462,29 @@ The `resolve_room_target()` method implements a strict precedence hierarchy:
 Priority (highest to lowest):
 1. OFF mode          → None (no heating)
 2. MANUAL mode       → manual setpoint (ignores schedule/override)
-3. OVERRIDE active   → override target (absolute)
-4. BOOST active      → scheduled target + delta
-5. SCHEDULE block    → block target for current time
-6. DEFAULT           → default_target (gap between blocks)
-7. HOLIDAY mode      → 15.0°C (if no schedule/override/manual)
+3. OVERRIDE active   → override target (absolute, calculated from target or delta at creation)
+4. SCHEDULE block    → block target for current time
+5. DEFAULT           → default_target (gap between blocks)
+6. HOLIDAY mode      → 15.0°C (if no schedule/override/manual)
 ```
 
 **Precedence Examples:**
 
-| Mode | Override | Boost | Schedule | Result |
-|------|----------|-------|----------|--------|
-| Off | - | - | 18.0°C | **None** (off wins) |
-| Manual | 21.0°C | - | 18.0°C | **20.0°C** (manual setpoint, ignores override) |
-| Auto | 21.0°C | - | 18.0°C | **21.0°C** (override wins) |
-| Auto | - | +2.0°C | 18.0°C | **20.0°C** (18 + 2) |
-| Auto | - | - | 18.0°C | **18.0°C** (scheduled block) |
-| Auto | - | - | (gap) | **14.0°C** (default_target) |
-| Auto | - | - | (gap, holiday) | **15.0°C** (holiday mode) |
+| Mode | Override | Schedule | Result |
+|------|----------|----------|--------|
+| Off | - | 18.0°C | **None** (off wins) |
+| Manual | 21.0°C | 18.0°C | **20.0°C** (manual setpoint, ignores override) |
+| Auto | 21.0°C | 18.0°C | **21.0°C** (override wins) |
+| Auto | 20.0°C (from delta +2) | 18.0°C | **20.0°C** (override calculated from delta) |
+| Auto | - | 18.0°C | **18.0°C** (scheduled block) |
+| Auto | - | (gap) | **14.0°C** (default_target) |
+| Auto | - | (gap, holiday) | **15.0°C** (holiday mode) |
 
 **Key Behaviors:**
-- **Off mode** always wins - even if override/boost active
-- **Manual mode** ignores ALL overrides, boosts, and schedules
-- **Override/Boost** are mutually exclusive (timer controls both)
-- **Holiday mode** only applies when no override/boost active
+- **Off mode** always wins - even if override active
+- **Manual mode** ignores ALL overrides and schedules
+- **Override** is stored as absolute temperature (delta only used at creation time)
+- **Holiday mode** only applies when no override active
 - **Stale sensors** prevent heating EXCEPT in manual mode
 
 ### Schedule Resolution Algorithm
@@ -522,79 +519,144 @@ Algorithm:
 Timeline: [gap] → [block 1] → [gap] → [block 2] → [gap]
 ```
 
-### Override and Boost Modes
+### Override Mode
 
-Both override and boost use the **same timer mechanism** but with different semantics:
+**Unified temporary temperature override system** with flexible parameters:
 
-#### Override Mode
+#### Concept
 
-**Absolute target temperature** that replaces scheduled target:
+Override is a single mechanism that allows temporary temperature adjustments in two ways:
+1. **Absolute mode**: Set an explicit target temperature
+2. **Delta mode**: Adjust by a relative amount from the current schedule
+
+Both modes support flexible duration specification (relative minutes or absolute end time).
+
+#### Helper Entities
 
 ```yaml
-Helper Entities:
-  timer.pyheat_{room}_override        # Controls duration
-  input_number.pyheat_{room}_override_target  # Stores target
-  input_text.pyheat_override_types    # Tracks type: "override"
+timer.pyheat_{room}_override            # Controls duration (absolute end time)
+input_number.pyheat_{room}_override_target  # Stores absolute target temperature
 ```
 
-**Service Call:**
+**Note**: No metadata tracking needed - override type (absolute vs delta) is only used at creation time to calculate the absolute target.
+
+#### Service Interface
+
+**Single unified service with mutually exclusive parameter pairs:**
+
+```python
+service: pyheat.override
+data:
+  room: str                    # Required - room identifier
+  
+  # Temperature mode (exactly one required):
+  target: float               # Absolute temperature (°C)
+  delta: float                # Relative adjustment (°C, can be negative)
+  
+  # Duration mode (exactly one required):
+  minutes: int                # Duration in minutes
+  end_time: str               # ISO datetime string (e.g., "2025-11-10T17:30:00")
+```
+
+#### Examples
+
+**Absolute temperature with relative duration:**
 ```python
 service: pyheat.override
 data:
   room: pete
-  target: 21.0      # Absolute temperature (°C)
-  minutes: 120      # Duration
+  target: 21.0     # Set to exactly 21.0°C
+  minutes: 120     # For 2 hours
 ```
 
-**Behavior:**
-- Sets target to exactly 21.0°C regardless of schedule
-- When timer expires, reverts to scheduled target automatically
-- Can be cancelled manually via `pyheat.cancel_override` service
-- Status shows: `Override: 18.0° → 21.0°`
-
-#### Boost Mode
-
-**Delta from current scheduled target** (can be positive or negative):
-
-```yaml
-Helper Entities:
-  timer.pyheat_{room}_override        # Same timer as override
-  input_number.pyheat_{room}_override_target  # Stores calculated target
-  input_text.pyheat_override_types    # Tracks type: "boost" + delta
-```
-
-**Service Call:**
+**Delta adjustment with relative duration:**
 ```python
-service: pyheat.boost
+service: pyheat.override
 data:
   room: pete
-  delta: 2.0        # Temperature delta (°C, can be negative)
-  minutes: 180      # Duration
+  delta: 2.0       # Increase by 2°C from current schedule
+  minutes: 180     # For 3 hours
 ```
 
-**Behavior:**
-1. Reads current scheduled target (e.g., 18.0°C)
-2. Calculates boost target: 18.0 + 2.0 = 20.0°C
-3. Sets override target to 20.0°C
-4. Stores delta in override_types for status display
-5. When timer expires, reverts to scheduled target
+**Absolute temperature with absolute end time:**
+```python
+service: pyheat.override
+data:
+  room: pete
+  target: 20.0                        # Set to 20°C
+  end_time: "2025-11-10T23:00:00"    # Until 23:00 tonight
+```
 
-**Key Difference from Override:**
-- Boost calculates target **once** at service call time
-- Target doesn't update if schedule changes during boost
-- Status shows delta: `Boost +2.0°: 18.0° → 20.0°`
+**Delta adjustment with absolute end time:**
+```python
+service: pyheat.override
+data:
+  room: pete
+  delta: -1.5                         # Decrease by 1.5°C
+  end_time: "2025-11-11T07:00:00"    # Until 7am tomorrow
+```
 
-**Delta Range:** -10.0°C to +10.0°C (clamped to 10-35°C valid range)
+#### Behavior
+
+**Calculation at Service Call Time:**
+- **Absolute mode** (`target`): Directly stores the provided temperature
+- **Delta mode** (`delta`): 
+  1. Reads current scheduled target (without any existing override)
+  2. Calculates absolute target: `scheduled_target + delta`
+  3. Stores the calculated absolute target
+  4. Delta is NOT stored - it was only used for calculation
+
+**Duration Handling:**
+- **Relative** (`minutes`): Calculates absolute end time from current time + duration
+- **Absolute** (`end_time`): Parses ISO datetime and validates it's in the future
+- Timer is started with calculated duration in seconds
+
+**Important**: The override target is calculated **once** at creation time and does not change:
+- If schedule changes during an override, the override target stays constant
+- Example: Set delta=+2°C at 13:00 (schedule: 18°C → override: 20°C)
+  - At 14:00 schedule changes to 16°C
+  - Override target remains 20°C (implied delta is now +4°C)
+- This ensures user intent is preserved - they requested a specific temperature
+
+**Cancellation:**
+- Manual cancellation via `pyheat.cancel_override` service
+- Automatic expiration when timer reaches end time
+- On cancellation/expiration, system reverts to current scheduled target
+
+**Validation Rules:**
+- Exactly one of `target` or `delta` must be provided
+- Exactly one of `minutes` or `end_time` must be provided
+- Delta range: -10.0°C to +10.0°C
+- Calculated target clamped to 10.0-35.0°C range
+- Duration must be positive (minutes > 0)
+- End time must be in the future
+
+#### Status Display
+
+Override status is formatted based on available information:
+
+**In Home Assistant:**
+```
+Override: 20.0° (+2.0°) until 17:30
+```
+- Shows absolute target
+- Shows calculated delta if scheduled temperature is known
+- Shows end time from timer
+
+**Without scheduled temp:**
+```
+Override: 20.0° until 17:30
+```
+- Just shows absolute target and end time
 
 #### Timer Management
 
-Both modes use Home Assistant timer entity:
+Home Assistant timer entity controls the override duration:
 
 ```python
-# Start timer
-service: timer.start
+# Timer started automatically by service
 entity_id: timer.pyheat_{room}_override
-duration: 7200  # seconds (2 hours)
+duration: 7200  # seconds (calculated from minutes or end_time)
 
 # Timer states
 - "idle"     → no override/boost active

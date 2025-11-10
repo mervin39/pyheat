@@ -27,99 +27,6 @@ class StatusPublisher:
         self.ad = ad
         self.config = config
     
-    def _get_override_type(self, room_id: str) -> str:
-        """Get override type for a room.
-        
-        Args:
-            room_id: Room identifier
-            
-        Returns:
-            "none", "boost", or "override"
-        """
-        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
-            return "none"
-        
-        try:
-            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
-            if value and value != "":
-                override_types = json.loads(value)
-                info = override_types.get(room_id)
-                
-                if info is None:
-                    return "none"
-                elif isinstance(info, str):
-                    return info
-                elif isinstance(info, dict):
-                    return info.get("type", "none")
-                else:
-                    return "none"
-            return "none"
-        except (json.JSONDecodeError, TypeError) as e:
-            self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
-            return "none"
-    
-    def _get_override_info(self, room_id: str) -> Dict[str, Any]:
-        """Get full override/boost information for a room.
-        
-        Args:
-            room_id: Room identifier
-            
-        Returns:
-            Dict with keys: type ("none", "boost", "override"), delta (for boost), 
-            target (for override), end_time (ISO format), remaining_minutes
-        """
-        result = {"type": "none"}
-        
-        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
-            return result
-        
-        try:
-            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
-            if value and value != "":
-                override_types = json.loads(value)
-                info = override_types.get(room_id)
-                
-                if info is None or info == "none":
-                    return result
-                elif isinstance(info, str):
-                    result["type"] = info
-                elif isinstance(info, dict):
-                    result["type"] = info.get("type", "none")
-                    if "delta" in info:
-                        result["delta"] = info["delta"]
-                
-                # Get timer information if override/boost is active
-                if result["type"] != "none":
-                    timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
-                    if self.ad.entity_exists(timer_entity):
-                        timer_state = self.ad.get_state(timer_entity)
-                        if timer_state == "active":
-                            # Get finishes_at attribute
-                            finishes_at = self.ad.get_state(timer_entity, attribute="finishes_at")
-                            if finishes_at:
-                                result["end_time"] = finishes_at
-                                
-                                # Calculate remaining minutes
-                                try:
-                                    from datetime import datetime
-                                    end_dt = datetime.fromisoformat(finishes_at.replace('Z', '+00:00'))
-                                    now_dt = datetime.now(end_dt.tzinfo)
-                                    remaining = (end_dt - now_dt).total_seconds() / 60
-                                    result["remaining_minutes"] = max(0, int(remaining))
-                                except Exception as e:
-                                    self.ad.log(f"Error calculating remaining time for {room_id}: {e}", level="WARNING")
-                    
-                    # Get target temperature for override
-                    if result["type"] == "override":
-                        target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
-                        if self.ad.entity_exists(target_entity):
-                            result["target"] = float(self.ad.get_state(target_entity))
-                
-            return result
-        except (json.JSONDecodeError, TypeError) as e:
-            self.ad.log(f"Failed to parse override info for {room_id}: {e}", level="WARNING")
-            return result
-    
     def _check_if_forever(self, room_id: str) -> bool:
         """Check if schedule is set to run forever (no blocks on any day).
         
@@ -147,69 +54,64 @@ class StatusPublisher:
         
         return True
     
-    def _format_status_text(self, room_id: str, data: Dict, override_info: Dict, scheduled_temp: float = None) -> str:
+    def _format_status_text(self, room_id: str, data: Dict, scheduled_temp: float = None) -> str:
         """Format human-readable status text for a room.
         
         Implements STATUS_FORMAT_SPEC.md formats:
         - Auto: "Auto: T° until HH:MM on $DAY (S°)" or "Auto: T° forever"
-        - Boost: "Boost +D°: T° → S°. Until HH:MM"
-        - Override: "Override: T° → S°. Until HH:MM"
+        - Override: "Override: T° (ΔD°) until HH:MM" - delta calculated on-the-fly
         - Manual: "Manual: T°"
         - Off: "Heating Off"
         
         Args:
             room_id: Room identifier
             data: Room state dictionary
-            override_info: Override information from _get_override_info()
             scheduled_temp: Currently scheduled temperature from schedule (if available)
             
         Returns:
             Formatted status string
         """
         mode = data.get('mode', 'off')
-        override_type = override_info.get('type', 'none')
         
-        # Handle boost
-        if override_type == 'boost':
-            delta = override_info.get('delta', 0)
-            sign = '+' if delta > 0 else ''
-            
-            # Get Until time from override end_time
-            end_time_str = "Until ??:??"
-            if 'end_time' in override_info:
-                try:
-                    from datetime import datetime
-                    end_dt = datetime.fromisoformat(override_info['end_time'].replace('Z', '+00:00'))
-                    end_time_str = f"Until {end_dt.strftime('%H:%M')}"
-                except Exception as e:
-                    self.ad.log(f"Error formatting boost end time for {room_id}: {e}", level="WARNING")
-            
-            if scheduled_temp is not None:
-                boosted_temp = scheduled_temp + delta
-                return f"Boost {sign}{delta:.1f}°: {scheduled_temp:.1f}° → {boosted_temp:.1f}°. {end_time_str}"
-            else:
-                # Fallback if we don't have scheduled_temp
-                current_target = data.get('target', 20)
-                return f"Boost {sign}{delta:.1f}°: {current_target:.1f}°. {end_time_str}"
+        # Check if override is active
+        timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
+        override_active = False
+        override_target = None
+        end_time_str = ""
         
-        # Handle override
-        if override_type == 'override':
-            override_target = override_info.get('target', data.get('target', 20))
-            
-            # Get Until time from override end_time
-            end_time_str = "Until ??:??"
-            if 'end_time' in override_info:
-                try:
-                    from datetime import datetime
-                    end_dt = datetime.fromisoformat(override_info['end_time'].replace('Z', '+00:00'))
-                    end_time_str = f"Until {end_dt.strftime('%H:%M')}"
-                except Exception as e:
-                    self.ad.log(f"Error formatting override end time for {room_id}: {e}", level="WARNING")
-            
+        if self.ad.entity_exists(timer_entity):
+            timer_state = self.ad.get_state(timer_entity)
+            if timer_state in ["active", "paused"]:
+                override_active = True
+                
+                # Get override target
+                target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
+                if self.ad.entity_exists(target_entity):
+                    try:
+                        override_target = float(self.ad.get_state(target_entity))
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Get end time from timer
+                finishes_at = self.ad.get_state(timer_entity, attribute="finishes_at")
+                if finishes_at:
+                    try:
+                        from datetime import datetime
+                        end_dt = datetime.fromisoformat(finishes_at.replace('Z', '+00:00'))
+                        end_time_str = f" until {end_dt.strftime('%H:%M')}"
+                    except Exception as e:
+                        self.ad.log(f"Error formatting override end time for {room_id}: {e}", level="WARNING")
+                        end_time_str = " until ??:??"
+        
+        # Handle override (in auto mode)
+        if override_active and override_target is not None and mode == 'auto':
+            # Calculate delta if we have scheduled temp
+            delta_str = ""
             if scheduled_temp is not None:
-                return f"Override: {scheduled_temp:.1f}° → {override_target:.1f}°. {end_time_str}"
-            else:
-                return f"Override: {override_target:.1f}°. {end_time_str}"
+                delta = override_target - scheduled_temp
+                delta_str = f" ({delta:+.1f}°)"
+            
+            return f"Override: {override_target:.1f}°{delta_str}{end_time_str}"
         
         # Handle manual mode
         if mode == 'manual':
@@ -220,7 +122,7 @@ class StatusPublisher:
         if mode == 'off':
             return 'Heating Off'
         
-        # Handle auto mode (no boost/override)
+        # Handle auto mode (no override)
         if mode == 'auto':
             target = data.get('target')
             
@@ -365,9 +267,13 @@ class StatusPublisher:
         # State sensor with comprehensive attributes
         state_entity = f"sensor.pyheat_{room_id}_state"
         
-        # Get override/boost information
-        override_info = self._get_override_info(room_id)
-        override_type = override_info.get('type', 'none')
+        # Check if override is active
+        override_active = False
+        timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
+        if self.ad.entity_exists(timer_entity):
+            timer_state = self.ad.get_state(timer_entity)
+            if timer_state in ["active", "paused"]:
+                override_active = True
         
         # Get scheduled temperature if available from scheduler
         scheduled_temp = None
@@ -391,14 +297,14 @@ class StatusPublisher:
         else:
             state_str = data['mode']
         
-        # Append override/boost indicator to legacy state
-        if override_type != "none":
-            state_str = f"{state_str} ({override_type})"
+        # Append override indicator to legacy state
+        if override_active:
+            state_str = f"{state_str} (override)"
         elif data['mode'] == 'auto' and data.get('calling', False):
             state_str = f"heating ({data.get('valve_percent', 0)}%)"
         
         # Generate human-readable formatted status
-        formatted_status = self._format_status_text(room_id, data, override_info, scheduled_temp)
+        formatted_status = self._format_status_text(room_id, data, scheduled_temp)
         
         # Build comprehensive attributes
         attributes = {
@@ -410,22 +316,34 @@ class StatusPublisher:
             'valve_percent': data.get('valve_percent', 0),
             'is_stale': data.get('is_stale', False),
             'manual_setpoint': data.get('manual_setpoint'),
-            'formatted_status': formatted_status,  # NEW: Human-readable status
+            'formatted_status': formatted_status,  # Human-readable status
             'scheduled_temp': round(scheduled_temp, precision) if scheduled_temp is not None else None,
         }
         
-        # Add override/boost details if active
-        if override_type != 'none':
-            attributes['override_type'] = override_type
-            attributes['override_end_time'] = override_info.get('end_time')
-            attributes['override_remaining_minutes'] = override_info.get('remaining_minutes')
+        # Add override details if active
+        if override_active:
+            # Get override target
+            target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
+            if self.ad.entity_exists(target_entity):
+                try:
+                    override_target_value = float(self.ad.get_state(target_entity))
+                    attributes['override_target'] = round(override_target_value, precision)
+                except (ValueError, TypeError):
+                    pass
             
-            if override_type == 'boost':
-                attributes['boost_delta'] = override_info.get('delta')
-                if scheduled_temp is not None:
-                    attributes['boosted_target'] = round(scheduled_temp + override_info.get('delta', 0), precision)
-            elif override_type == 'override':
-                attributes['override_target'] = override_info.get('target')
+            # Get timer end time and remaining minutes
+            if self.ad.entity_exists(timer_entity):
+                finishes_at = self.ad.get_state(timer_entity, attribute="finishes_at")
+                if finishes_at:
+                    attributes['override_end_time'] = finishes_at
+                    try:
+                        from datetime import datetime
+                        end_dt = datetime.fromisoformat(finishes_at.replace('Z', '+00:00'))
+                        now_dt = datetime.now(end_dt.tzinfo)
+                        remaining = (end_dt - now_dt).total_seconds() / 60
+                        attributes['override_remaining_minutes'] = max(0, int(remaining))
+                    except Exception as e:
+                        self.ad.log(f"Error calculating remaining time for {room_id}: {e}", level="WARNING")
             
         self.ad.set_state(state_entity, state=state_str, attributes=attributes, replace=True)
         

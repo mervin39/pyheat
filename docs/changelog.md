@@ -1,6 +1,125 @@
 
 # PyHeat Changelog
 
+## 2025-11-10: Unified Override System 🎯
+
+### Breaking Change: Single Override Service with Flexible Parameters
+**Status:** COMPLETE ✅
+
+**Summary:**
+Replaced separate `pyheat.boost` and `pyheat.override` services with a single unified `pyheat.override` service that supports both absolute temperature and delta adjustment modes, plus flexible duration specification (relative minutes or absolute end time).
+
+**Motivation:**
+- Original design had `boost` and `override` as conceptually separate but technically identical (shared timer/target entities)
+- Metadata tracking (`input_text.pyheat_override_types`) was only used for UI formatting, not system logic
+- Delta calculation was one-time at service call (not dynamic), making boost functionally equivalent to override
+- Confusion between documented precedence (separate levels) vs implementation reality (mutually exclusive)
+- Missing end_time support that users frequently want ("override until bedtime")
+
+**Changes:**
+
+**Service Interface:**
+- **REMOVED**: `pyheat.boost` service
+- **REMOVED**: `input_text.pyheat_override_types` entity (no longer needed)
+- **MODIFIED**: `pyheat.override` service now accepts:
+  ```python
+  service: pyheat.override
+  data:
+    room: str                    # Required
+    target: float               # Absolute temp (mutually exclusive with delta)
+    delta: float                # Relative adjustment (mutually exclusive with target)
+    minutes: int                # Duration in minutes (mutually exclusive with end_time)
+    end_time: str               # ISO datetime (mutually exclusive with minutes)
+  ```
+
+**Validation:**
+- Exactly one of `target` or `delta` required
+- Exactly one of `minutes` or `end_time` required
+- Delta range: -10.0°C to +10.0°C
+- Final target clamped to 10.0-35.0°C
+- Duration must be positive
+- End time must be in future
+
+**Examples:**
+```python
+# Absolute temperature with duration
+override(room='pete', target=21.0, minutes=120)
+
+# Delta adjustment with duration  
+override(room='pete', delta=2.0, minutes=180)
+
+# Absolute temperature until specific time
+override(room='pete', target=20.0, end_time='2025-11-10T23:00:00')
+
+# Delta adjustment until specific time
+override(room='pete', delta=-1.5, end_time='2025-11-11T07:00:00')
+```
+
+**Behavior:**
+- Delta calculation happens **once** at service call time
+- Absolute target is stored (delta not persisted)
+- If schedule changes during override, target remains constant
+- Example: Set delta=+2°C at 13:00 (schedule: 18°C → override: 20°C)
+  - At 14:00 schedule changes to 16°C
+  - Override target stays at 20°C (implied delta now +4°C)
+- This preserves user intent - they requested a specific resulting temperature
+
+**Status Display:**
+- Shows absolute target with calculated delta: `Override: 20.0° (+2.0°) until 17:30`
+- Delta calculated on-the-fly from current scheduled temp
+- No metadata storage required
+
+**Code Changes:**
+- `constants.py`: Removed `HELPER_OVERRIDE_TYPES`
+- `service_handler.py`:
+  - Rewrote `svc_override()` with new parameter handling
+  - Removed `svc_boost()` entirely
+  - Removed `_get_override_types()` and `_set_override_type()` methods
+  - Updated `svc_cancel_override()` to remove metadata tracking
+- `api_handler.py`:
+  - Rewrote `api_override()` endpoint documentation
+  - Removed `api_boost()` endpoint
+  - Removed `_get_override_type()` method
+  - Simplified status text stripping
+- `status_publisher.py`:
+  - Removed `_get_override_type()` and `_get_override_info()` methods
+  - Rewrote `_format_status_text()` to calculate delta on-the-fly
+  - Simplified attribute publishing (no metadata fields)
+- `docs/ARCHITECTURE.md`:
+  - Documented unified override system
+  - Updated precedence hierarchy (removed boost level)
+  - Added examples for all parameter combinations
+  - Clarified delta behavior across schedule changes
+
+**Migration Guide:**
+For existing automations/scripts:
+```python
+# OLD - Boost service (REMOVED)
+service: pyheat.boost
+data:
+  room: pete
+  delta: 2.0
+  minutes: 180
+
+# NEW - Use override with delta
+service: pyheat.override
+data:
+  room: pete
+  delta: 2.0
+  minutes: 180
+```
+
+**Benefits:**
+- ✅ Single clear concept: temporary override
+- ✅ Flexible parameter combinations (4 modes)
+- ✅ End time support added
+- ✅ Simpler codebase (removed metadata tracking)
+- ✅ Clearer documentation (matches implementation)
+- ✅ No functional changes to heating logic
+- ✅ Delta still works exactly as before (calculated once)
+
+---
+
 ## 2025-11-10: Fix Override Hysteresis Trap 🔧
 
 ### Bug Fix: Bypass Hysteresis Deadband on Target Changes

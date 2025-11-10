@@ -30,63 +30,29 @@ class APIHandler:
         """Strip time information from formatted_status for pyheat-web.
         
         Auto mode: Keep full status with times (same as HA)
-        Override/Boost: Strip ". Until HH:MM" (web will show live countdown)
+        Override: Strip ". Until HH:MM" or " until HH:MM" (web will show live countdown)
         
         Args:
             status: Formatted status string from status_publisher
             
         Returns:
-            Status with times stripped only for Override/Boost
+            Status with times stripped only for Override
         """
         if not status:
             return status
         
         import re
         
-        # Only strip ". Until HH:MM" from Override/Boost modes
+        # Strip ". Until HH:MM" or " until HH:MM" from Override mode
         # Auto mode keeps its full "until HH:MM on Day (T°)" format
-        status = re.sub(r'\. Until \d{2}:\d{2}', '', status)
+        status = re.sub(r'[\. ][Uu]ntil \d{2}:\d{2}', '', status)
         
         return status
-    
-    def _get_override_type(self, room_id: str) -> tuple:
-        """Get override type and info for a room.
-        
-        Args:
-            room_id: Room identifier
-            
-        Returns:
-            Tuple of (type_str, delta) where:
-            - type_str is "none", "boost", or "override"
-            - delta is the boost delta (float) or None
-        """
-        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
-            return ("none", None)
-        
-        try:
-            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
-            if value and value != "":
-                override_types = json.loads(value)
-                info = override_types.get(room_id)
-                
-                if info is None:
-                    return ("none", None)
-                elif isinstance(info, str):
-                    return (info, None)
-                elif isinstance(info, dict):
-                    return (info.get("type", "none"), info.get("delta"))
-                else:
-                    return ("none", None)
-            return ("none", None)
-        except (json.JSONDecodeError, TypeError) as e:
-            self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
-            return ("none", None)
         
     def register_all(self) -> None:
         """Register all HTTP API endpoints."""
         # Register endpoints for each service operation
         self.ad.register_endpoint(self.api_override, "pyheat_override")
-        self.ad.register_endpoint(self.api_boost, "pyheat_boost")
         self.ad.register_endpoint(self.api_cancel_override, "pyheat_cancel_override")
         self.ad.register_endpoint(self.api_set_mode, "pyheat_set_mode")
         self.ad.register_endpoint(self.api_set_default_target, "pyheat_set_default_target")
@@ -131,37 +97,29 @@ class APIHandler:
     def api_override(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_override
         
-        Sets absolute target override for a room.
+        Sets temporary temperature override for a room with flexible parameters.
         
         Request body: {
-            "room": str,
-            "target": float,
-            "minutes": int
+            "room": str,                    # Required
+            "target": float,                # Absolute temp (mutually exclusive with delta)
+            "delta": float,                 # Temp delta (mutually exclusive with target)
+            "minutes": int,                 # Duration in minutes (mutually exclusive with end_time)
+            "end_time": str                 # ISO datetime (mutually exclusive with minutes)
         }
+        
+        Examples:
+            {"room": "pete", "target": 21.0, "minutes": 120}
+            {"room": "pete", "delta": 2.0, "minutes": 180}
+            {"room": "pete", "target": 20.0, "end_time": "2025-11-10T17:30:00"}
         """
         # In Appdaemon, the JSON body is passed as the first parameter (namespace)
         request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_override, request_body)
     
-    def api_boost(self, namespace, data: Dict[str, Any]) -> tuple:
-        """API endpoint: POST /api/appdaemon/pyheat_boost
-        
-        Applies delta boost to current target.
-        
-        Request body: {
-            "room": str,
-            "delta": float,
-            "minutes": int
-        }
-        """
-        # In Appdaemon, the JSON body is passed as the first parameter (namespace)
-        request_body = namespace if isinstance(namespace, dict) else {}
-        return self._handle_request(self.service_handler.svc_boost, request_body)
-    
     def api_cancel_override(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_cancel_override
         
-        Cancels active override/boost.
+        Cancels active override.
         
         Request body: {
             "room": str
@@ -357,15 +315,8 @@ class APIHandler:
                                         except (ValueError, TypeError):
                                             pass
                                 
-                                # Get override type and delta from centralized entity
-                                override_type, boost_delta = self._get_override_type(room_id)
-                                
-                                # Build enhanced status text
-                                if override_type == "boost" and boost_delta is not None:
-                                    # For boost, show the stored delta
-                                    status_text = f"boost({boost_delta:+.1f}) {total_minutes}m"
-                                elif override_type == "override" and override_target is not None:
-                                    # Regular override - show absolute target
+                                # Build simple override status text
+                                if override_target is not None:
                                     status_text = f"override({override_target:.1f}) {total_minutes}m"
                 
                 # Get actual valve position from TRV feedback sensor
@@ -400,12 +351,9 @@ class APIHandler:
                     "manual_setpoint": manual_setpoint,
                     "valve_feedback_consistent": valve_fb_consistent,
                     "override_end_time": override_end_time,  # ISO 8601 timestamp or null
-                    # NEW: Additional override/boost metadata from state entity
-                    "override_type": state_attrs.get("override_type"),
+                    # Override metadata from state entity (calculated on-the-fly)
                     "override_remaining_minutes": state_attrs.get("override_remaining_minutes"),
                     "override_target": state_attrs.get("override_target"),
-                    "boost_delta": state_attrs.get("boost_delta"),
-                    "boosted_target": state_attrs.get("boosted_target"),
                     "scheduled_temp": state_attrs.get("scheduled_temp")
                 }
                 rooms.append(room_status)

@@ -8,7 +8,7 @@ Responsibilities:
 - Bridge service calls to internal logic
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Callable
 import os
 import yaml
@@ -29,74 +29,20 @@ class ServiceHandler:
         self.ad = ad
         self.config = config
         self.trigger_recompute_callback = None  # Set by main app
-        self.scheduler_ref = None  # Set by main app for boost service
-    
-    def _get_override_types(self) -> Dict[str, Any]:
-        """Get override types dict from helper entity.
-        
-        Returns:
-            Dict mapping room_id to override info:
-            - For boost: {"type": "boost", "delta": 2.0}
-            - For override: {"type": "override"}
-            - For none: {"type": "none"} or just "none"
-        """
-        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
-            return {}
-        
-        try:
-            value = self.ad.get_state(C.HELPER_OVERRIDE_TYPES)
-            if value and value != "":
-                return json.loads(value)
-            return {}
-        except (json.JSONDecodeError, TypeError) as e:
-            self.ad.log(f"Failed to parse override types: {e}", level="WARNING")
-            return {}
-    
-    def _set_override_type(self, room_id: str, override_type: str, delta: float = None) -> None:
-        """Set override type for a room.
-        
-        Args:
-            room_id: Room identifier
-            override_type: "none", "boost", or "override"
-            delta: For boost type, the temperature delta
-        """
-        if not self.ad.entity_exists(C.HELPER_OVERRIDE_TYPES):
-            self.ad.log(f"Override types entity {C.HELPER_OVERRIDE_TYPES} does not exist", level="WARNING")
-            return
-        
-        try:
-            override_types = self._get_override_types()
-            
-            # Store boost with delta, others as simple string
-            if override_type == "boost" and delta is not None:
-                override_types[room_id] = {"type": "boost", "delta": delta}
-            elif override_type == "none":
-                override_types[room_id] = "none"
-            else:
-                override_types[room_id] = {"type": override_type}
-            
-            value_json = json.dumps(override_types)
-            self.ad.call_service("input_text/set_value",
-                                entity_id=C.HELPER_OVERRIDE_TYPES,
-                                value=value_json)
-            self.ad.log(f"Set override type for {room_id}: {override_type}" + 
-                       (f" (delta: {delta})" if delta is not None else ""), level="DEBUG")
-        except Exception as e:
-            self.ad.log(f"Failed to set override type for {room_id}: {e}", level="WARNING")
+        self.scheduler_ref = None  # Set by main app for override delta calculation
         
     def register_all(self, trigger_recompute_cb: Callable, scheduler_ref=None) -> None:
         """Register all PyHeat services.
         
         Args:
             trigger_recompute_cb: Callback to trigger system recompute
-            scheduler_ref: Reference to Scheduler instance (for boost service)
+            scheduler_ref: Reference to Scheduler instance (for override delta calculation)
         """
         self.trigger_recompute_callback = trigger_recompute_cb
         self.scheduler_ref = scheduler_ref
         
         # Register all services
         self.ad.register_service("pyheat/override", self.svc_override)
-        self.ad.register_service("pyheat/boost", self.svc_boost)
         self.ad.register_service("pyheat/cancel_override", self.svc_cancel_override)
         self.ad.register_service("pyheat/set_mode", self.svc_set_mode)
         self.ad.register_service("pyheat/set_default_target", self.svc_set_default_target)
@@ -109,175 +55,171 @@ class ServiceHandler:
         self.ad.log("Registered PyHeat services")
         
     def svc_override(self, namespace, domain, service, kwargs):
-        """Service: pyheat.override - Set absolute target override for a room.
+        """Service: pyheat.override - Set temporary temperature override for a room.
+        
+        Unified override mechanism supporting both absolute and delta temperature modes,
+        with flexible duration specification (relative or absolute end time).
         
         Args:
             room (str): Room ID (required)
-            target (float): Target temperature in C (required)
-            minutes (int): Duration in minutes (required)
+            target (float): Absolute target temperature in °C (mutually exclusive with delta)
+            delta (float): Temperature delta from scheduled target in °C (mutually exclusive with target)
+            minutes (int): Duration in minutes (mutually exclusive with end_time)
+            end_time (str): ISO datetime string for override end (mutually exclusive with minutes)
+            
+        Temperature mode (exactly one required):
+            - target: Set explicit temperature (e.g., 21.0°C)
+            - delta: Adjust from current schedule (e.g., +2.0°C or -1.5°C)
+            
+        Duration mode (exactly one required):
+            - minutes: Relative duration (e.g., 120 for 2 hours)
+            - end_time: Absolute end time (e.g., "2025-11-10T17:30:00")
+            
+        Returns:
+            Dict with success, room, target (absolute), duration_seconds, end_time (ISO)
         """
         room = kwargs.get('room')
         target = kwargs.get('target')
+        delta = kwargs.get('delta')
         minutes = kwargs.get('minutes')
+        end_time = kwargs.get('end_time')
         
-        # Validate required arguments
+        # Validate room
         if room is None:
             self.ad.log("pyheat.override: 'room' argument is required", level="ERROR")
             return {"success": False, "error": "room argument is required"}
         
-        if target is None:
-            self.ad.log("pyheat.override: 'target' argument is required", level="ERROR")
-            return {"success": False, "error": "target argument is required"}
-        
-        if minutes is None:
-            self.ad.log("pyheat.override: 'minutes' argument is required", level="ERROR")
-            return {"success": False, "error": "minutes argument is required"}
-        
-        # Validate types and ranges
-        try:
-            target = float(target)
-            minutes = int(minutes)
-        except (ValueError, TypeError) as e:
-            self.ad.log(f"pyheat.override: invalid argument types: {e}", level="ERROR")
-            return {"success": False, "error": f"invalid argument types: {e}"}
-        
-        if minutes <= 0:
-            self.ad.log("pyheat.override: 'minutes' must be positive", level="ERROR")
-            return {"success": False, "error": "minutes must be positive"}
-        
-        if target < 10.0 or target > 35.0:
-            self.ad.log(f"pyheat.override: target {target}C out of range (10-35C)", level="ERROR")
-            return {"success": False, "error": f"target {target}C out of range (10-35C)"}
-        
-        # Validate room exists
         if room not in self.config.rooms:
             self.ad.log(f"pyheat.override: room '{room}' not found", level="ERROR")
             return {"success": False, "error": f"room '{room}' not found"}
         
-        self.ad.log(f"pyheat.override: room={room}, target={target}C, minutes={minutes}")
+        # Validate temperature mode (exactly one of target or delta)
+        if (target is None and delta is None):
+            self.ad.log("pyheat.override: must provide either 'target' or 'delta'", level="ERROR")
+            return {"success": False, "error": "must provide either 'target' or 'delta'"}
+        
+        if (target is not None and delta is not None):
+            self.ad.log("pyheat.override: cannot provide both 'target' and 'delta'", level="ERROR")
+            return {"success": False, "error": "cannot provide both 'target' and 'delta'"}
+        
+        # Validate duration mode (exactly one of minutes or end_time)
+        if (minutes is None and end_time is None):
+            self.ad.log("pyheat.override: must provide either 'minutes' or 'end_time'", level="ERROR")
+            return {"success": False, "error": "must provide either 'minutes' or 'end_time'"}
+        
+        if (minutes is not None and end_time is not None):
+            self.ad.log("pyheat.override: cannot provide both 'minutes' and 'end_time'", level="ERROR")
+            return {"success": False, "error": "cannot provide both 'minutes' and 'end_time'"}
         
         try:
+            # Calculate absolute target temperature
+            if delta is not None:
+                # Delta mode: calculate from current scheduled target
+                delta = float(delta)
+                if delta < -10.0 or delta > 10.0:
+                    self.ad.log(f"pyheat.override: delta {delta}°C out of range (-10 to +10°C)", level="ERROR")
+                    return {"success": False, "error": f"delta {delta}°C out of range (-10 to +10°C)"}
+                
+                # Get current scheduled target (without any existing override)
+                now = datetime.now()
+                mode_entity = C.HELPER_ROOM_MODE.format(room=room)
+                room_mode = self.ad.get_state(mode_entity) if self.ad.entity_exists(mode_entity) else "auto"
+                room_mode = room_mode.lower() if room_mode else "auto"
+                
+                holiday_mode = False
+                if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                    holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+                
+                # Get scheduled target (ignores any existing override)
+                if self.scheduler_ref:
+                    scheduled_target = self.scheduler_ref.get_scheduled_target(room, now, holiday_mode)
+                    if scheduled_target is None:
+                        self.ad.log(f"pyheat.override: could not determine scheduled target for room '{room}'", level="ERROR")
+                        return {"success": False, "error": "could not determine scheduled target"}
+                else:
+                    self.ad.log("pyheat.override: scheduler reference not available", level="ERROR")
+                    return {"success": False, "error": "scheduler reference not available"}
+                
+                absolute_target = scheduled_target + delta
+                self.ad.log(f"pyheat.override: delta mode: scheduled={scheduled_target:.1f}°C, delta={delta:+.1f}°C, target={absolute_target:.1f}°C")
+            else:
+                # Absolute target mode
+                absolute_target = float(target)
+                self.ad.log(f"pyheat.override: absolute mode: target={absolute_target:.1f}°C")
+            
+            # Clamp to valid temperature range
+            if absolute_target < 10.0 or absolute_target > 35.0:
+                self.ad.log(f"pyheat.override: calculated target {absolute_target:.1f}°C out of valid range (10-35°C), clamping", level="WARNING")
+                absolute_target = max(10.0, min(35.0, absolute_target))
+            
+            # Calculate duration and end time
+            if minutes is not None:
+                # Relative duration mode
+                minutes = int(minutes)
+                if minutes <= 0:
+                    self.ad.log("pyheat.override: 'minutes' must be positive", level="ERROR")
+                    return {"success": False, "error": "minutes must be positive"}
+                
+                duration_seconds = minutes * 60
+                end_dt = datetime.now() + timedelta(seconds=duration_seconds)
+                end_time_iso = end_dt.isoformat()
+                self.ad.log(f"pyheat.override: duration mode: {minutes} minutes ({duration_seconds}s), ends at {end_time_iso}")
+            else:
+                # Absolute end time mode
+                try:
+                    # Parse ISO datetime
+                    end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00') if 'Z' in end_time else end_time)
+                    now_dt = datetime.now(end_dt.tzinfo if end_dt.tzinfo else None)
+                    
+                    if end_dt <= now_dt:
+                        self.ad.log(f"pyheat.override: end_time {end_time} is not in the future", level="ERROR")
+                        return {"success": False, "error": "end_time must be in the future"}
+                    
+                    duration_seconds = int((end_dt - now_dt).total_seconds())
+                    end_time_iso = end_dt.isoformat()
+                    self.ad.log(f"pyheat.override: end_time mode: {end_time_iso} ({duration_seconds}s from now)")
+                except (ValueError, AttributeError) as e:
+                    self.ad.log(f"pyheat.override: invalid end_time format: {e}", level="ERROR")
+                    return {"success": False, "error": f"invalid end_time format: {e}"}
+            
             # Set override target in helper
             override_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room)
             if self.ad.entity_exists(override_entity):
-                self.ad.call_service("input_number/set_value", entity_id=override_entity, value=target)
+                self.ad.call_service("input_number/set_value", entity_id=override_entity, value=absolute_target)
+            else:
+                self.ad.log(f"pyheat.override: entity {override_entity} does not exist", level="WARNING")
             
-            # Start override timer
+            # Start override timer with calculated duration
             timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room)
             if self.ad.entity_exists(timer_entity):
-                duration = f"{minutes * 60}"  # Convert to seconds
-                self.ad.call_service("timer/start", entity_id=timer_entity, duration=duration)
-            
-            # Track override type
-            self._set_override_type(room, "override")
+                self.ad.call_service("timer/start", entity_id=timer_entity, duration=str(duration_seconds))
+            else:
+                self.ad.log(f"pyheat.override: entity {timer_entity} does not exist", level="WARNING")
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
                 self.ad.run_in(lambda kwargs: self.trigger_recompute_callback("override_service"), 1)
             
-            return {"success": True, "room": room, "target": target, "minutes": minutes}
+            result = {
+                "success": True,
+                "room": room,
+                "target": absolute_target,
+                "duration_seconds": duration_seconds,
+                "end_time": end_time_iso
+            }
+            
+            self.ad.log(f"pyheat.override: SUCCESS - room={room}, target={absolute_target:.1f}°C, duration={duration_seconds}s")
+            return result
         
         except Exception as e:
             self.ad.log(f"pyheat.override failed: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}
 
-    def svc_boost(self, namespace, domain, service, kwargs):
-        """Service: pyheat.boost - Apply delta boost to current target.
-        
-        Args:
-            room (str): Room ID (required)
-            delta (float): Temperature delta in C (can be negative) (required)
-            minutes (int): Duration in minutes (required)
-        """
-        room = kwargs.get('room')
-        delta = kwargs.get('delta')
-        minutes = kwargs.get('minutes')
-        
-        # Validate required arguments
-        if room is None:
-            self.ad.log("pyheat.boost: 'room' argument is required", level="ERROR")
-            return {"success": False, "error": "room argument is required"}
-        
-        if delta is None:
-            self.ad.log("pyheat.boost: 'delta' argument is required", level="ERROR")
-            return {"success": False, "error": "delta argument is required"}
-        
-        if minutes is None:
-            self.ad.log("pyheat.boost: 'minutes' argument is required", level="ERROR")
-            return {"success": False, "error": "minutes argument is required"}
-        
-        # Validate types and ranges
-        try:
-            delta = float(delta)
-            minutes = int(minutes)
-        except (ValueError, TypeError) as e:
-            self.ad.log(f"pyheat.boost: invalid argument types: {e}", level="ERROR")
-            return {"success": False, "error": f"invalid argument types: {e}"}
-        
-        if minutes <= 0:
-            self.ad.log("pyheat.boost: 'minutes' must be positive", level="ERROR")
-            return {"success": False, "error": "minutes must be positive"}
-        
-        if delta < -10.0 or delta > 10.0:
-            self.ad.log(f"pyheat.boost: delta {delta}C out of range (-10 to +10C)", level="ERROR")
-            return {"success": False, "error": f"delta {delta}C out of range (-10 to +10C)"}
-        
-        # Validate room exists
-        if room not in self.config.rooms:
-            self.ad.log(f"pyheat.boost: room '{room}' not found", level="ERROR")
-            return {"success": False, "error": f"room '{room}' not found"}
-        
-        self.ad.log(f"pyheat.boost: room={room}, delta={delta:+.1f}C, minutes={minutes}")
-        
-        try:
-            # Get current target to calculate boost target
-            now = datetime.now()
-            mode_entity = C.HELPER_ROOM_MODE.format(room=room)
-            room_mode = self.ad.get_state(mode_entity) if self.ad.entity_exists(mode_entity) else "auto"
-            room_mode = room_mode.lower() if room_mode else "auto"
-            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on" if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE) else False
-            
-            # Resolve current target (without override/boost) using scheduler
-            current_target = None
-            if self.scheduler_ref:
-                current_target = self.scheduler_ref.resolve_room_target(room, now, room_mode, holiday_mode, False)
-            
-            if current_target is None:
-                self.ad.log(f"pyheat.boost: could not resolve current target for room '{room}'", level="ERROR")
-                return {"success": False, "error": "could not resolve current target"}
-            
-            # Calculate boost target
-            boost_target = current_target + delta
-            
-            # Clamp to valid range
-            boost_target = max(10.0, min(35.0, boost_target))
-            
-            # Set override target
-            override_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room)
-            if self.ad.entity_exists(override_entity):
-                self.ad.call_service("input_number/set_value", entity_id=override_entity, value=boost_target)
-            
-            # Start override timer
-            timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room)
-            if self.ad.entity_exists(timer_entity):
-                duration = f"{minutes * 60}"  # Convert to seconds
-                self.ad.call_service("timer/start", entity_id=timer_entity, duration=duration)
-            
-            # Track override type as boost with delta
-            self._set_override_type(room, "boost", delta=delta)
-            
-            # Trigger immediate recompute
-            if self.trigger_recompute_callback:
-                self.ad.run_in(lambda kwargs: self.trigger_recompute_callback("boost_service"), 1)
-            
-            return {"success": True, "room": room, "delta": delta, "boost_target": boost_target, "minutes": minutes}
-        
-        except Exception as e:
-            self.ad.log(f"pyheat.boost failed: {e}", level="ERROR")
-            return {"success": False, "error": str(e)}
 
     def svc_cancel_override(self, namespace, domain, service, kwargs):
-        """Service: pyheat.cancel_override - Cancel active override/boost.
+        """Service: pyheat.cancel_override - Cancel active override.
         
         Args:
             room (str): Room ID (required)
@@ -301,9 +243,6 @@ class ServiceHandler:
             timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room)
             if self.ad.entity_exists(timer_entity):
                 self.ad.call_service("timer/cancel", entity_id=timer_entity)
-            
-            # Clear override type
-            self._set_override_type(room, "none")
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
