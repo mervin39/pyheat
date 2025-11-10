@@ -658,14 +658,13 @@ entity_id: timer.pyheat_{room}_override
 duration: 7200  # seconds (calculated from minutes or end_time)
 
 # Timer states
-- "idle"     → no override/boost active
+- "idle"     → no override active
 - "active"   → counting down
 - "paused"   → paused (still active)
 
 # Timer expiration
 - Timer transitions to "idle"
 - Callback clears override_target (set to 0 sentinel)
-- Callback clears override type to "none"
 - Triggers recompute → reverts to schedule
 ```
 
@@ -686,7 +685,7 @@ Helper Entities:
 **Behavior:**
 - Reads `manual_setpoint` helper entity
 - Returns setpoint rounded to room precision
-- Ignores schedule, override, boost, holiday mode
+- Ignores schedule, override, holiday mode
 - **Exception:** Still requires valid temperature sensors (safety)
 - Used for rooms needing constant temperature (e.g., nursery, office)
 
@@ -711,13 +710,13 @@ Helper Entities:
 **Behavior:**
 - When enabled, returns `HOLIDAY_TARGET_C = 15.0°C` for all rooms in auto mode
 - Overrides schedule blocks and default_target
-- Does NOT override manual mode, override, or boost
+- Does NOT override manual mode or override
 - Useful when away from home for extended periods
-- Can still use boost to heat individual rooms temporarily
+- Can still use override to heat individual rooms temporarily
 
 **Precedence:**
 ```
-Manual mode > Override > Boost > Holiday mode > Schedule
+Manual mode > Override > Holiday mode > Schedule
 ```
 
 ### Next Schedule Change Calculation
@@ -936,7 +935,7 @@ hysteresis:
 ```
 
 **Target Change Detection:**
-The hysteresis deadband is **bypassed when the target temperature changes** (override, boost, schedule transition, or mode change). This ensures immediate response to user actions while preserving anti-flapping protection during temperature drift.
+The hysteresis deadband is **bypassed when the target temperature changes** (override, schedule transition, or mode change). This ensures immediate response to user actions while preserving anti-flapping protection during temperature drift.
 
 ```python
 # Constants for target change detection
@@ -2422,7 +2421,7 @@ PyHeat registers services with **AppDaemon** (not Home Assistant). These service
 ```python
 # In service_handler.py
 ad.register_service("pyheat/override", svc_override)
-ad.register_service("pyheat/boost", svc_boost)
+ad.register_service("pyheat/cancel_override", svc_cancel_override)
 # ... etc
 ```
 
@@ -2646,14 +2645,13 @@ PyHeat requires specific Home Assistant helper entities to be created. These are
   - `input_select.pyheat_{room}_mode` - Room mode selection
   - `input_number.pyheat_{room}_manual_setpoint` - Manual temperature
   - `input_number.pyheat_{room}_override_target` - Override target
-  - `timer.pyheat_{room}_override` - Override/boost timer
+  - `timer.pyheat_{room}_override` - Override timer
 - Boiler control timers:
   - `timer.pyheat_boiler_min_on_timer`
   - `timer.pyheat_boiler_min_off_timer`
   - `timer.pyheat_boiler_off_delay_timer`
   - `timer.pyheat_boiler_pump_overrun_timer`
 - State persistence:
-  - `input_text.pyheat_override_types` - JSON tracking of override/boost types
   - `input_text.pyheat_pump_overrun_valves` - Saved valve positions
 
 ### Home Assistant Services Consumed

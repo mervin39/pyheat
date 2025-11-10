@@ -7,7 +7,7 @@ A comprehensive heating control system that manages:
 - Schedule-based and manual temperature setpoints
 - Boiler control with safety interlocks and anti-cycling
 - Temperature sensor fusion and staleness detection
-- Override and boost functionality
+- Override functionality with flexible temperature and duration modes
 
 Architecture:
 - Thin orchestrator (this file) coordinates modular components
@@ -102,7 +102,7 @@ class PyHeat(hass.Hass):
         self.run_in(self.initial_recompute, C.STARTUP_INITIAL_DELAY_S)
         self.run_in(self.second_recompute, C.STARTUP_SECOND_DELAY_S)
         
-        # Register service handlers (pass scheduler for boost service)
+        # Register service handlers
         self.services.register_all(self.trigger_recompute, self.scheduler)
         
         # Register HTTP API endpoints for external access (e.g., pyheat-web)

@@ -24,7 +24,7 @@ TIMEZONE = "UTC"
 # ============================================================================
 
 # Target temperature (°C) used when holiday mode is active
-# Applies as the base schedule target; overrides/boosts still work
+# Applies as the base schedule target; overrides still work
 HOLIDAY_TARGET_C = 15.0
 
 # ============================================================================

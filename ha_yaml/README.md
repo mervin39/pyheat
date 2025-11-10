@@ -19,7 +19,7 @@ The following individual domain files are maintained for reference only:
 - **pyheat_input_numbers.yaml** - Manual setpoints and override targets for each room
 - **pyheat_input_datetimes.yaml** - Datetime helpers for scheduling
 - **pyheat_input_texts.yaml** - Text inputs for status messages
-- **pyheat_timers.yaml** - Timers for override/boost functionality
+- **pyheat_timers.yaml** - Timers for override functionality
 - **pyheat_template_sensors.yaml** - Template sensors for derived values
 - **pyheat_mqtt_sensor.yaml** - MQTT sensor definitions (if applicable)
 - **pyheat_climate.yaml** - Climate entity configurations
@@ -105,8 +105,8 @@ PyHeat expects the following entities to exist in Home Assistant:
 ### Per-Room Controls (for each room: pete, abby, office, lounge, games, bathroom)
 - `input_select.pyheat_{room}_mode` - Heating mode (Auto/Manual/Off)
 - `input_number.pyheat_{room}_manual_setpoint` - Manual temperature target
-- `input_number.pyheat_{room}_override_target` - Override/boost target
-- `timer.pyheat_{room}_override` - Override/boost timer
+- `input_number.pyheat_{room}_override_target` - Override target temperature
+- `timer.pyheat_{room}_override` - Override timer
 
 ### Status Entity
 - `sensor.pyheat_status` - System status (published by AppDaemon app)

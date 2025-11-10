@@ -1,6 +1,32 @@
 
 # PyHeat Changelog
 
+## 2025-11-10: Cleanup of Boost Terminology 🧹
+
+**Summary:**
+Removed all remaining references to "boost" terminology throughout the codebase to complete the unified override implementation. This is a cleanup/refactoring change with no functional impact.
+
+**Changes:**
+- Updated all code comments that mentioned "boost" to use "override" terminology
+- Updated documentation (README.md, ARCHITECTURE.md, ha_yaml/README.md) to remove boost references
+- Updated precedence hierarchy documentation: `Manual mode > Override > Holiday mode > Schedule`
+- Removed `input_text.pyheat_override_types` from helper entity documentation (already removed from code)
+- Simplified comments about timer functionality to refer only to override
+
+**Files Modified:**
+- `constants.py` - Updated holiday mode comment
+- `api_handler.py` - Updated timer comment
+- `scheduler.py` - Updated module docstring and timer comment
+- `room_controller.py` - Updated hysteresis comment
+- `app.py` - Updated module docstring and service registration comment
+- `docs/README.md` - Updated pyheat-web integration description
+- `docs/ARCHITECTURE.md` - Updated precedence hierarchy, service registration, helper entities
+- `ha_yaml/README.md` - Updated timer descriptions
+
+**Note:** This is documentation cleanup only. All functional changes were completed in the earlier "Unified Override System" update.
+
+---
+
 ## 2025-11-10: Unified Override System 🎯
 
 ### Breaking Change: Single Override Service with Flexible Parameters

@@ -325,7 +325,7 @@ See `api_handler.py` for implementation details and response formats.
 
 PyHeat can be controlled via the [pyheat-web](https://github.com/yourusername/pyheat-web) mobile-first web interface:
 - Real-time status monitoring via WebSocket
-- Room control (boost, override, mode switching)
+- Room control (override with flexible temperature/duration modes, mode switching)
 - Visual schedule editor with drag-and-drop
 - Secure token custody (HA token never exposed to browser)
 

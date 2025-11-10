@@ -191,7 +191,7 @@ class RoomController:
         """Determine if a room should call for heat using asymmetric hysteresis.
         
         Hysteresis deadband logic is bypassed when the target temperature changes
-        (e.g., due to override, boost, schedule transition, or mode change).
+        (e.g., due to override, schedule transition, or mode change).
         This ensures immediate response to user actions and schedule changes.
         
         Args:

@@ -277,7 +277,7 @@ class APIHandler:
                 state_entity_full = self.ad.get_state(state_entity_id, attribute="all")
                 state_attrs = state_entity_full.get("attributes", {}) if state_entity_full else {}
                 
-                # Check for active override/boost timer and enhance status_text
+                # Check for active override timer and enhance status_text
                 timer_entity = f"timer.pyheat_{room_id}_override"
                 status_text = base_status_text
                 override_end_time = None  # ISO 8601 timestamp when override finishes

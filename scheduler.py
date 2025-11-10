@@ -4,7 +4,7 @@ scheduler.py - Schedule resolution and target temperature calculation
 
 Responsibilities:
 - Resolve room target temperatures based on mode and schedule
-- Handle override/boost timers
+- Handle override timers
 - Apply holiday mode
 - Manage manual setpoints
 """
@@ -64,7 +64,7 @@ class Scheduler:
         
         # Auto mode → check for override, then schedule
         
-        # Check for active override/boost
+        # Check for active override
         timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
         if self.ad.entity_exists(timer_entity):
             timer_state = self.ad.get_state(timer_entity)
