@@ -1,6 +1,19 @@
 
 # PyHeat Changelog
 
+## 2025-11-10: Vestigial State Constant Removal 🧹
+
+### Code Cleanup: Remove Unused STATE_INTERLOCK_FAILED
+**Status:** COMPLETE ✅
+
+**Changes:**
+- Removed `STATE_INTERLOCK_FAILED` constant from `constants.py`
+- Updated changelog.md references to reflect 6-state FSM (not 7)
+- Verified no code breakage or references remain
+
+**Rationale:**
+The `STATE_INTERLOCK_FAILED` constant was defined during initial implementation but never used in actual code. The boiler FSM uses `STATE_INTERLOCK_BLOCKED` for all interlock-related blocking scenarios (pre-emptive and runtime failures). Runtime interlock failures transition directly to `STATE_PUMP_OVERRUN` for emergency shutdown rather than entering a distinct "failed" state. The unused constant was vestigial code causing confusion about actual FSM state count.
+
 ## 2025-11-10: Comprehensive Architecture Documentation 📚
 
 ### Documentation: Complete System Architecture Guide
@@ -2011,7 +2024,7 @@ Room error=0.36°C → Band 1 → 35% valve (total=35% < min 100%)
 ## 2025-11-04: Full Boiler State Machine & Per-Room Entity Publishing ✅
 
 ### Boiler State Machine Implementation
-Implemented complete 7-state boiler FSM from pyscript version with full anti-cycling protection:
+Implemented complete 6-state boiler FSM from pyscript version with full anti-cycling protection:
 
 **States:**
 - `off`: Boiler off, no rooms calling for heat
@@ -2020,7 +2033,6 @@ Implemented complete 7-state boiler FSM from pyscript version with full anti-cyc
 - `pending_off`: Delayed shutdown (off_delay_s timer)
 - `pump_overrun`: Post-heating circulation with valve persistence
 - `interlock_blocked`: TRV interlock check failed, blocking turn-on
-- `interlock_failed`: TRV interlock failed after boiler was already on
 
 **Features:**
 - Anti-cycling protection using timer helpers (min_on, min_off, off_delay, pump_overrun)
@@ -2088,7 +2100,7 @@ Each room now publishes monitoring entities via AppDaemon's `set_state()` API in
 ### Overview
 Implemented production-ready 7-state boiler control system with comprehensive safety features, anti-cycling protection, and advanced interlock validation. This completes the core functionality migration from PyScript.
 
-### Boiler State Machine (7 States)
+### Boiler State Machine (6 States)
 
 **State Definitions:**
 1. **STATE_OFF** - Boiler off, no heating demand
@@ -2097,7 +2109,6 @@ Implemented production-ready 7-state boiler control system with comprehensive sa
 4. **STATE_PENDING_OFF** - No demand, waiting through off-delay period
 5. **STATE_PUMP_OVERRUN** - Boiler off, pump running to dissipate residual heat
 6. **STATE_INTERLOCK_BLOCKED** - Demand exists but interlock conditions not met
-7. **STATE_INTERLOCK_FAILED** - (Merged with INTERLOCK_BLOCKED in implementation)
 
 **Key Features:**
 

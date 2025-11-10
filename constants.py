@@ -131,7 +131,6 @@ STATE_ON = "on"
 STATE_PENDING_OFF = "pending_off"
 STATE_PUMP_OVERRUN = "pump_overrun"
 STATE_INTERLOCK_BLOCKED = "interlock_blocked"
-STATE_INTERLOCK_FAILED = "interlock_failed"
 
 # ============================================================================
 # TRV Entity Derivation Patterns
