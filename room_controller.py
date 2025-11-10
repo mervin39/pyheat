@@ -84,7 +84,7 @@ class RoomController:
                 current_target = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, False)
                 if current_target is not None:
                     self.room_last_target[room_id] = current_target
-                    self.ad.log(f"Room {room_id}: Initialized target tracking at {current_target}°C", level="DEBUG")
+                    self.ad.log(f"Room {room_id}: Initialized target tracking at {current_target}C", level="DEBUG")
             except Exception as e:
                 self.ad.log(f"Failed to initialize target tracking for room {room_id}: {e}", level="WARNING")
         
@@ -222,16 +222,16 @@ class RoomController:
                          abs(target - prev_target) > C.TARGET_CHANGE_EPSILON)
         
         if target_changed:
-            # Target changed → bypass hysteresis deadband, make fresh decision
+            # Target changed -> bypass hysteresis deadband, make fresh decision
             # Heat if we're meaningfully below target (use small threshold to avoid sensor noise)
             if prev_target is not None:
-                self.ad.log(f"Room {room_id}: Target changed {prev_target:.1f}→{target:.1f}°C, "
-                           f"making fresh heating decision (error={error:.2f}°C)", level="DEBUG")
+                self.ad.log(f"Room {room_id}: Target changed {prev_target:.1f}->{target:.1f}C, "
+                           f"making fresh heating decision (error={error:.2f}C)", level="DEBUG")
             return error >= C.FRESH_DECISION_THRESHOLD
         
-        # Target unchanged → use normal hysteresis logic
+        # Target unchanged -> use normal hysteresis logic
         if error >= on_delta:
-            # Clearly below target → call for heat
+            # Clearly below target -> call for heat
             return True
         elif error <= off_delta:
             # At or above target → stop calling
@@ -320,7 +320,7 @@ class RoomController:
         # Log band changes
         if new_band != current_band:
             self.ad.log(
-                f"Room '{room_id}': valve band {current_band} → {new_band} "
+                f"Room '{room_id}': valve band {current_band} -> {new_band} "
                 f"(error={error:.2f}C, valve={valve_pct}%)",
                 level="INFO"
             )

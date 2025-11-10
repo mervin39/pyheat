@@ -260,13 +260,13 @@ class TRVController:
             }
     
     def lock_all_setpoints(self) -> None:
-        """Lock all TRV setpoints to maximum (35°C) to force valves into open mode."""
-        self.ad.log("Locking all TRV setpoints to 35°C (open mode)")
+        """Lock all TRV setpoints to maximum (35C) to force valves into open mode."""
+        self.ad.log("Locking all TRV setpoints to 35C (open mode)")
         for room_id in self.config.rooms.keys():
             self.lock_setpoint(room_id)
     
     def lock_setpoint(self, room_id: str) -> None:
-        """Lock a single TRV's setpoint to maximum (35°C).
+        """Lock a single TRV's setpoint to maximum (35C).
         
         Args:
             room_id: Room identifier
@@ -285,12 +285,12 @@ class TRVController:
                 current_temp = current_state['attributes'].get('temperature')
                 
                 if current_temp != C.TRV_LOCKED_SETPOINT_C:
-                    self.ad.log(f"Locking TRV setpoint for '{room_id}': {current_temp}°C → {C.TRV_LOCKED_SETPOINT_C}°C")
+                    self.ad.log(f"Locking TRV setpoint for '{room_id}': {current_temp}C -> {C.TRV_LOCKED_SETPOINT_C}C")
                     self.ad.call_service('climate/set_temperature',
                                     entity_id=climate_entity,
                                     temperature=C.TRV_LOCKED_SETPOINT_C)
                 else:
-                    self.ad.log(f"TRV setpoint for '{room_id}' already locked at {C.TRV_LOCKED_SETPOINT_C}°C", level="DEBUG")
+                    self.ad.log(f"TRV setpoint for '{room_id}' already locked at {C.TRV_LOCKED_SETPOINT_C}C", level="DEBUG")
         except Exception as e:
             self.ad.log(f"Failed to lock TRV setpoint for '{room_id}': {e}", level="ERROR")
     

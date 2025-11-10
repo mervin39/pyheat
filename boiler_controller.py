@@ -161,7 +161,7 @@ class BoilerController:
             
             if not has_demand:
                 # Demand stopped, enter off-delay period
-                self.ad.log(f"Boiler: STATE_ON → PENDING_OFF, preserved valve positions: {self.boiler_last_valve_positions}", level="DEBUG")
+                self.ad.log(f"Boiler: STATE_ON -> PENDING_OFF, preserved valve positions: {self.boiler_last_valve_positions}", level="DEBUG")
                 self._transition_to(C.STATE_PENDING_OFF, now, "demand ceased, entering off-delay")
                 self._start_timer(C.HELPER_BOILER_OFF_DELAY_TIMER, self._get_off_delay())
                 reason = f"Pending OFF: off-delay started"
@@ -444,7 +444,7 @@ class BoilerController:
             self.ad.call_service('climate/set_temperature',
                             entity_id=boiler_entity,
                             temperature=setpoint)
-            self.ad.log(f"Boiler ON (setpoint={setpoint}°C)")
+            self.ad.log(f"Boiler ON (setpoint={setpoint}C)")
         except Exception as e:
             self.ad.log(f"Failed to turn boiler on: {e}", level="ERROR")
     
@@ -588,7 +588,7 @@ class BoilerController:
             reason: Reason for transition
         """
         if new_state != self.boiler_state:
-            self.ad.log(f"Boiler: {self.boiler_state} → {new_state} ({reason})")
+            self.ad.log(f"Boiler: {self.boiler_state} -> {new_state} ({reason})")
             self.boiler_state = new_state
             self.boiler_state_entry_time = now
     

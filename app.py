@@ -181,21 +181,21 @@ class PyHeat(hass.Hass):
     # ========================================================================
 
     def master_enable_changed(self, entity, attribute, old, new, kwargs):
-        self.log(f"Master enable changed: {old} → {new}")
+        self.log(f"Master enable changed: {old} -> {new}")
         self.trigger_recompute("master_enable_changed")
 
     def holiday_mode_changed(self, entity, attribute, old, new, kwargs):
-        self.log(f"Holiday mode changed: {old} → {new}")
+        self.log(f"Holiday mode changed: {old} -> {new}")
         self.trigger_recompute("holiday_mode_changed")
 
     def room_mode_changed(self, entity, attribute, old, new, kwargs):
         room_id = kwargs.get('room_id')
-        self.log(f"Room '{room_id}' mode changed: {old} → {new}")
+        self.log(f"Room '{room_id}' mode changed: {old} -> {new}")
         self.trigger_recompute(f"room_{room_id}_mode_changed")
 
     def room_setpoint_changed(self, entity, attribute, old, new, kwargs):
         room_id = kwargs.get('room_id')
-        self.log(f"Room '{room_id}' manual setpoint changed: {old} → {new}")
+        self.log(f"Room '{room_id}' manual setpoint changed: {old} -> {new}")
         self.trigger_recompute(f"room_{room_id}_setpoint_changed")
 
     def room_timer_changed(self, entity, attribute, old, new, kwargs):
@@ -223,9 +223,9 @@ class PyHeat(hass.Hass):
         recomputes by 80-90% when sensors report small fluctuations.
         
         Deadband threshold: To prevent boundary flipping when fused sensors hover
-        around rounding boundaries (e.g., 17.745°C ↔ 17.755°C flipping between
-        17.7°C and 17.8°C), only trigger recompute if the change exceeds 0.5 * precision.
-        This adds hysteresis without affecting control accuracy (boiler hysteresis >> 0.05°C).
+        around rounding boundaries (e.g., 17.745C <-> 17.755C flipping between
+        17.7C and 17.8C), only trigger recompute if the change exceeds 0.5 * precision.
+        This adds hysteresis without affecting control accuracy (boiler hysteresis >> 0.05C).
         """
         room_id = kwargs.get('room_id')
         if new and new not in ['unknown', 'unavailable']:
@@ -235,7 +235,7 @@ class PyHeat(hass.Hass):
                 
                 # Always update sensor manager with new raw value
                 self.sensors.update_sensor(entity, temp, now)
-                self.log(f"Sensor {entity} updated: {temp}°C (room: {room_id})", level="DEBUG")
+                self.log(f"Sensor {entity} updated: {temp}C (room: {room_id})", level="DEBUG")
                 
                 # Get room precision and fused temperature
                 precision = self.config.rooms[room_id].get('precision', 1)
@@ -251,14 +251,14 @@ class PyHeat(hass.Hass):
                 old_rounded = self.last_published_temps.get(room_id)
                 
                 # Deadband: Only recompute if change exceeds half a display unit
-                # Prevents flipping at boundaries (e.g., 17.745°C vs 17.755°C)
+                # Prevents flipping at boundaries (e.g., 17.745C vs 17.755C)
                 if old_rounded is not None:
-                    deadband = 0.5 * (10 ** -precision)  # 0.05°C for precision=1
+                    deadband = 0.5 * (10 ** -precision)  # 0.05C for precision=1
                     temp_delta = abs(new_rounded - old_rounded)
                     
                     if temp_delta < deadband:
                         self.log(f"Sensor {entity} recompute skipped - change below deadband "
-                                f"({old_rounded}°C → {new_rounded}°C, Δ={temp_delta:.3f}°C < {deadband:.3f}°C)", 
+                                f"({old_rounded}C -> {new_rounded}C, delta={temp_delta:.3f}C < {deadband:.3f}C)", 
                                 level="DEBUG")
                         return
                 
@@ -292,7 +292,7 @@ class PyHeat(hass.Hass):
         """TRV climate entity setpoint changed (someone changed it manually)."""
         room_id = kwargs.get('room_id')
         if new and new != C.TRV_LOCKED_SETPOINT_C:
-            self.log(f"TRV setpoint for '{room_id}' changed to {new}°C (should be locked at {C.TRV_LOCKED_SETPOINT_C}°C), correcting...", level="WARNING")
+            self.log(f"TRV setpoint for '{room_id}' changed to {new}C (should be locked at {C.TRV_LOCKED_SETPOINT_C}C), correcting...", level="WARNING")
             self.run_in(lambda kwargs: self.trvs.lock_setpoint(room_id), 1)
 
     # ========================================================================
@@ -300,7 +300,7 @@ class PyHeat(hass.Hass):
     # ========================================================================
 
     def lock_all_trv_setpoints(self, kwargs=None):
-        """Lock all TRV setpoints to maximum (35°C)."""
+        """Lock all TRV setpoints to maximum (35C)."""
         self.trvs.lock_all_setpoints()
 
     def check_trv_setpoints(self, kwargs):

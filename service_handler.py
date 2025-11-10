@@ -117,8 +117,8 @@ class ServiceHandler:
                 # Delta mode: calculate from current scheduled target
                 delta = float(delta)
                 if delta < -10.0 or delta > 10.0:
-                    self.ad.log(f"pyheat.override: delta {delta}°C out of range (-10 to +10°C)", level="ERROR")
-                    return {"success": False, "error": f"delta {delta}°C out of range (-10 to +10°C)"}
+                    self.ad.log(f"pyheat.override: delta {delta}C out of range (-10 to +10C)", level="ERROR")
+                    return {"success": False, "error": f"delta {delta}C out of range (-10 to +10C)"}
                 
                 # Get current scheduled target (without any existing override)
                 now = datetime.now()
@@ -141,15 +141,15 @@ class ServiceHandler:
                     return {"success": False, "error": "scheduler reference not available"}
                 
                 absolute_target = scheduled_target + delta
-                self.ad.log(f"pyheat.override: delta mode: scheduled={scheduled_target:.1f}°C, delta={delta:+.1f}°C, target={absolute_target:.1f}°C")
+                self.ad.log(f"pyheat.override: delta mode: scheduled={scheduled_target:.1f}C, delta={delta:+.1f}C, target={absolute_target:.1f}C")
             else:
                 # Absolute target mode
                 absolute_target = float(target)
-                self.ad.log(f"pyheat.override: absolute mode: target={absolute_target:.1f}°C")
+                self.ad.log(f"pyheat.override: absolute mode: target={absolute_target:.1f}C")
             
             # Clamp to valid temperature range
             if absolute_target < 10.0 or absolute_target > 35.0:
-                self.ad.log(f"pyheat.override: calculated target {absolute_target:.1f}°C out of valid range (10-35°C), clamping", level="WARNING")
+                self.ad.log(f"pyheat.override: calculated target {absolute_target:.1f}C out of valid range (10-35C), clamping", level="WARNING")
                 absolute_target = max(10.0, min(35.0, absolute_target))
             
             # Calculate duration and end time
@@ -208,7 +208,7 @@ class ServiceHandler:
                 "end_time": end_time_iso
             }
             
-            self.ad.log(f"pyheat.override: SUCCESS - room={room}, target={absolute_target:.1f}°C, duration={duration_seconds}s")
+            self.ad.log(f"pyheat.override: SUCCESS - room={room}, target={absolute_target:.1f}C, duration={duration_seconds}s")
             return result
         
         except Exception as e:
@@ -298,7 +298,7 @@ class ServiceHandler:
                         entity_id=manual_setpoint_entity,
                         value=manual_setpoint
                     )
-                    self.ad.log(f"Set {manual_setpoint_entity} to {manual_setpoint}°C")
+                    self.ad.log(f"Set {manual_setpoint_entity} to {manual_setpoint}C")
             
             # Set mode via helper
             mode_entity = C.HELPER_ROOM_MODE.format(room=room)

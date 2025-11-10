@@ -1,6 +1,65 @@
 
 # PyHeat Changelog
 
+## 2025-11-10: Fix Unicode Encoding in Log Messages 🔧
+
+**Summary:**
+Replaced all Unicode symbols in log messages with ASCII equivalents to fix `�` character rendering issues in AppDaemon logs.
+
+**Problem:**
+AppDaemon's log writer doesn't handle Unicode properly, causing symbols to render as `�`:
+- Degree symbol (°) → `�`
+- Right arrow (→) → `�`
+- Delta (Δ) → `�`
+- Bidirectional arrow (↔) → `�`
+
+This made logs difficult to read and parse.
+
+**Solution:**
+Replaced all problematic Unicode characters in log statements with ASCII equivalents:
+- `°C` → `C` (degree symbol not needed in logs)
+- `→` → `->` (ASCII arrow)
+- `↔` → `<->` (bidirectional ASCII arrow)
+- `Δ` → `delta` (spelled out)
+
+**Files Modified:**
+- `app.py` - Sensor updates, mode changes, TRV setpoints
+- `trv_controller.py` - TRV locking messages
+- `service_handler.py` - Override and mode change logging
+- `boiler_controller.py` - State transitions
+- `room_controller.py` - Target changes, valve band transitions
+- `sensor_manager.py` - Sensor initialization
+
+**Example Changes:**
+```python
+# Before
+self.log(f"Sensor {entity} updated: {temp}°C")
+self.log(f"Master enable changed: {old} → {new}")
+self.log(f"delta={temp_delta:.3f}°C")
+
+# After
+self.log(f"Sensor {entity} updated: {temp}C")
+self.log(f"Master enable changed: {old} -> {new}")
+self.log(f"delta={temp_delta:.3f}C")
+```
+
+**Testing:**
+```bash
+# Before: Lots of � characters
+Sensor sensor.roomtemp_office updated: 17.66��C
+Master enable changed: off �� on
+TRV setpoint locked at 35.0��C
+
+# After: Clean ASCII output
+Sensor sensor.roomtemp_office updated: 17.66C
+Master enable changed: off -> on
+TRV setpoint locked at 35.0C
+```
+
+**Note:** Documentation files (Markdown, comments) retain Unicode symbols as they're not affected by the logging encoding issue.
+
+---
+
 ## 2025-11-10: Deadband Threshold to Prevent Boundary Flipping 🎯
 
 **Summary:**

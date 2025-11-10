@@ -40,7 +40,7 @@ class SensorManager:
                     if state_str and state_str not in ['unknown', 'unavailable']:
                         value = float(state_str)
                         self.sensor_last_values[entity_id] = (value, now)
-                        self.ad.log(f"Initialized sensor {entity_id} = {value}°C", level="DEBUG")
+                        self.ad.log(f"Initialized sensor {entity_id} = {value}C", level="DEBUG")
                 except (ValueError, TypeError) as e:
                     self.ad.log(f"Could not initialize sensor {entity_id}: {e}", level="WARNING")
     
