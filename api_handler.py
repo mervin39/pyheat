@@ -364,12 +364,41 @@ class APIHandler:
             master_enabled = self.ad.get_state(C.HELPER_MASTER_ENABLE) == "on" if self.ad.entity_exists(C.HELPER_MASTER_ENABLE) else True
             holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on" if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE) else False
             
+            # Get boiler timer end times for client-side countdowns
+            boiler_off_delay_end_time = None
+            boiler_min_on_end_time = None
+            boiler_pump_overrun_end_time = None
+            
+            if self.ad.entity_exists(C.HELPER_BOILER_OFF_DELAY_TIMER):
+                timer_state = self.ad.get_state(C.HELPER_BOILER_OFF_DELAY_TIMER)
+                if timer_state == "active":
+                    timer_attrs = self.ad.get_state(C.HELPER_BOILER_OFF_DELAY_TIMER, attribute="all")
+                    if timer_attrs and "attributes" in timer_attrs:
+                        boiler_off_delay_end_time = timer_attrs["attributes"].get("finishes_at")
+            
+            if self.ad.entity_exists(C.HELPER_BOILER_MIN_ON_TIMER):
+                timer_state = self.ad.get_state(C.HELPER_BOILER_MIN_ON_TIMER)
+                if timer_state == "active":
+                    timer_attrs = self.ad.get_state(C.HELPER_BOILER_MIN_ON_TIMER, attribute="all")
+                    if timer_attrs and "attributes" in timer_attrs:
+                        boiler_min_on_end_time = timer_attrs["attributes"].get("finishes_at")
+            
+            if self.ad.entity_exists(C.HELPER_PUMP_OVERRUN_TIMER):
+                timer_state = self.ad.get_state(C.HELPER_PUMP_OVERRUN_TIMER)
+                if timer_state == "active":
+                    timer_attrs = self.ad.get_state(C.HELPER_PUMP_OVERRUN_TIMER, attribute="all")
+                    if timer_attrs and "attributes" in timer_attrs:
+                        boiler_pump_overrun_end_time = timer_attrs["attributes"].get("finishes_at")
+            
             system = {
                 "master_enabled": master_enabled,
                 "holiday_mode": holiday_mode,
                 "any_call_for_heat": status_attrs.get("any_call_for_heat", False),
                 "boiler_state": status_attrs.get("boiler_state", "unknown"),
-                "last_recompute": status_attrs.get("last_recompute")
+                "last_recompute": status_attrs.get("last_recompute"),
+                "boiler_off_delay_end_time": boiler_off_delay_end_time,
+                "boiler_min_on_end_time": boiler_min_on_end_time,
+                "boiler_pump_overrun_end_time": boiler_pump_overrun_end_time,
             }
             
             return {
