@@ -2423,7 +2423,7 @@ DEBUG: Boiler: total valve opening 120% >= min 100%, using valve bands
 
 ### AppDaemon Services
 
-PyHeat registers services with **AppDaemon** (not Home Assistant). These services are callable from Home Assistant automations and scripts using the `appdaemon` domain.
+PyHeat registers services with **AppDaemon** (not Home Assistant). These services are **internal to AppDaemon** and are not automatically exposed as native Home Assistant services.
 
 **Service Registration:**
 ```python
@@ -2434,30 +2434,77 @@ ad.register_service("pyheat/cancel_override", svc_cancel_override)
 ```
 
 **Available Services:**
-- `appdaemon.pyheat_override` - Set temperature override (absolute target OR relative delta, duration OR end time)
-- `appdaemon.pyheat_cancel_override` - Cancel active override
-- `appdaemon.pyheat_set_mode` - Change room mode (auto/manual/off)
-- `appdaemon.pyheat_set_default_target` - Update schedule default target
-- `appdaemon.pyheat_reload_config` - Reload configuration files
-- `appdaemon.pyheat_get_schedules` - Retrieve schedule configuration
-- `appdaemon.pyheat_get_rooms` - Retrieve room configuration
-- `appdaemon.pyheat_replace_schedules` - Replace entire schedule config
+- `pyheat/override` - Set temperature override (absolute target OR relative delta, duration OR end time)
+- `pyheat/cancel_override` - Cancel active override
+- `pyheat/set_mode` - Change room mode (auto/manual/off)
+- `pyheat/set_default_target` - Update schedule default target
+- `pyheat/reload_config` - Reload configuration files
+- `pyheat/get_schedules` - Retrieve schedule configuration
+- `pyheat/get_rooms` - Retrieve room configuration
+- `pyheat/replace_schedules` - Replace entire schedule config
+- `pyheat/get_status` - Get comprehensive system and room status
+
+**How These Services Are Accessible:**
+
+1. **From other AppDaemon apps** - Using `self.call_service("pyheat/override", room="pete", ...)`
+2. **Via AppDaemon's REST API** - HTTP endpoints at `/api/appdaemon/...` (see REST API section below)
+3. **From pyheat-web** - Uses the REST API endpoints
 
 **Calling from Home Assistant:**
+
+AppDaemon services are NOT automatically available as native HA services. To call them from Home Assistant, use one of these approaches:
+
+**Option 1: REST Commands (Direct API calls)**
 ```yaml
-# Absolute target override for 2 hours
-service: appdaemon.pyheat_override
+# In configuration.yaml
+rest_command:
+  pyheat_override:
+    url: "http://localhost:5050/api/appdaemon/pyheat_override"
+    method: POST
+    content_type: "application/json"
+    payload: >
+      {
+        "room": "{{ room }}",
+        "target": {{ target }},
+        "minutes": {{ minutes }}
+      }
+
+# Then call in automations:
+service: rest_command.pyheat_override
 data:
-  room: pete
+  room: "pete"
   target: 21.0
   minutes: 120
+```
 
-# Relative delta override until 22:30
-service: appdaemon.pyheat_override
+**Option 2: Script Wrappers (Cleaner interface)**
+```yaml
+# In scripts.yaml
+pyheat_override:
+  alias: "PyHeat Temperature Override"
+  fields:
+    room:
+      description: "Room ID (pete, lounge, office, etc.)"
+      example: "pete"
+    target:
+      description: "Target temperature in °C"
+      example: 21.0
+    minutes:
+      description: "Duration in minutes"
+      example: 120
+  sequence:
+    - service: rest_command.pyheat_override
+      data:
+        room: "{{ room }}"
+        target: "{{ target }}"
+        minutes: "{{ minutes }}"
+
+# Then call in automations:
+service: script.pyheat_override
 data:
-  room: pete
-  delta: 2.0
-  end_time: "22:30"
+  room: "pete"
+  target: 21.0
+  minutes: 120
 ```
 
 ### Service Handler Implementation

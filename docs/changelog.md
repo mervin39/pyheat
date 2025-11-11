@@ -1,6 +1,37 @@
 
 # PyHeat Changelog
 
+## 2025-11-11: Correct AppDaemon Service Documentation 📚
+
+**Summary:**
+Corrected misleading documentation about how AppDaemon services are exposed to Home Assistant. AppDaemon's `register_service()` creates internal services that are NOT automatically available as native Home Assistant services.
+
+**What Changed:**
+Updated `docs/ARCHITECTURE.md` to accurately describe:
+- AppDaemon services are internal to AppDaemon
+- They are NOT available via `appdaemon.service_name` domain in Home Assistant
+- Two correct ways to call them from Home Assistant:
+  1. **REST Commands**: Direct HTTP calls to AppDaemon's REST API
+  2. **Script Wrappers**: HA scripts that wrap REST commands for cleaner interface
+
+**Documentation Updates:**
+- `docs/ARCHITECTURE.md`:
+  - Removed incorrect examples showing `service: appdaemon.pyheat_override`
+  - Added correct `rest_command` examples
+  - Added script wrapper examples with field definitions
+  - Clarified that services are accessible via REST API, not native HA service domain
+  - Listed all available services with correct `pyheat/service_name` format
+
+**Why This Matters:**
+- Previous documentation could lead to confusion when trying to call services from HA
+- Services ARE working correctly (pyheat-web uses REST API successfully)
+- Only the documentation about HA integration was incorrect
+
+**Files Modified:**
+- `docs/ARCHITECTURE.md` - Service Interface section corrected
+
+---
+
 ## 2025-11-11: Add Support for Temperature Attributes 🌡️
 
 **Summary:**
