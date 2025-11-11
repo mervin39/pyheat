@@ -111,4 +111,35 @@ PyHeat expects the following entities to exist in Home Assistant:
 ### Status Entity
 - `sensor.pyheat_status` - System status (published by AppDaemon app)
 
+### Services (NEW)
+
+The package now includes REST commands and script wrappers that provide a user-friendly interface to PyHeat's AppDaemon services:
+
+**Available Scripts:**
+- `script.pyheat_override` - Set a temperature override (absolute target OR delta adjustment)
+- `script.pyheat_cancel_override` - Cancel an active override
+- `script.pyheat_set_mode` - Change room heating mode (Auto/Manual/Off)
+- `script.pyheat_reload_config` - Reload PyHeat configuration files
+
+**Example Usage:**
+```yaml
+# In an automation or script
+service: script.pyheat_override
+data:
+  room: pete
+  target: 21.5
+  minutes: 120
+
+# Or with delta adjustment
+service: script.pyheat_override
+data:
+  room: lounge
+  delta: 2.0
+  end_time: "2025-11-11T22:30:00"
+```
+
+**Note:** These scripts require AppDaemon to be running and accessible at `http://localhost:5050`. If your AppDaemon runs on a different host or port, edit the `rest_command` URLs in the package file.
+
 After adding these files, restart Home Assistant or reload the relevant integrations.
+
+```

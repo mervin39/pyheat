@@ -1,6 +1,43 @@
 
 # PyHeat Changelog
 
+## 2025-11-11: Add Home Assistant Service Wrappers 🎛️
+
+**Summary:**
+Added REST commands and script wrappers to `pyheat_package.yaml` that provide a clean, user-friendly interface for calling PyHeat services from Home Assistant automations and scripts.
+
+**What's New:**
+Four new scripts that wrap PyHeat's AppDaemon services with proper field validation and UI selectors:
+- `script.pyheat_override` - Set temperature override (supports both absolute target and delta modes)
+- `script.pyheat_cancel_override` - Cancel active override
+- `script.pyheat_set_mode` - Change room heating mode
+- `script.pyheat_reload_config` - Reload configuration files
+
+**Benefits:**
+- **Better UX**: Field selectors in Developer Tools with dropdowns and number inputs
+- **Type Safety**: Input validation before API calls
+- **Self-Documenting**: Descriptions and examples for each field
+- **Native Feel**: Services appear as `script.pyheat_*` alongside other HA scripts
+
+**Usage Example:**
+```yaml
+# In automations or scripts
+service: script.pyheat_override
+data:
+  room: pete
+  target: 21.5
+  minutes: 120
+```
+
+**Configuration:**
+Services are included in `pyheat_package.yaml`. If AppDaemon runs on a different host/port than `localhost:5050`, edit the `rest_command` URLs in the package file.
+
+**Files Modified:**
+- `ha_yaml/pyheat_package.yaml` - Added `rest_command` and `script` sections
+- `ha_yaml/README.md` - Documented new services with examples
+
+---
+
 ## 2025-11-11: Correct AppDaemon Service Documentation 📚
 
 **Summary:**

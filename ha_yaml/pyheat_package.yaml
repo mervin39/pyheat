@@ -400,4 +400,174 @@ mqtt:
       payload_available: "online"
       payload_not_available: "offline"
 
+# ---------------------------------------------------------------------------
+# REST Commands - Direct API access to AppDaemon services
+# These are called by the script wrappers below
+# Adjust the localhost:5050 URL if your AppDaemon is on a different host/port
+# ---------------------------------------------------------------------------
+rest_command:
+  pyheat_api_override:
+    url: "http://localhost:5050/api/appdaemon/pyheat_override"
+    method: POST
+    content_type: "application/json"
+    payload: "{{ payload }}"
+
+  pyheat_api_cancel_override:
+    url: "http://localhost:5050/api/appdaemon/pyheat_cancel_override"
+    method: POST
+    content_type: "application/json"
+    payload: "{{ payload }}"
+
+  pyheat_api_set_mode:
+    url: "http://localhost:5050/api/appdaemon/pyheat_set_mode"
+    method: POST
+    content_type: "application/json"
+    payload: "{{ payload }}"
+
+  pyheat_api_reload_config:
+    url: "http://localhost:5050/api/appdaemon/pyheat_reload_config"
+    method: POST
+    content_type: "application/json"
+    payload: "{}"
+
+# ---------------------------------------------------------------------------
+# Script Wrappers - User-friendly services with field validation
+# These provide a clean interface to call PyHeat services from HA
+# ---------------------------------------------------------------------------
+script:
+  pyheat_override:
+    alias: "PyHeat: Temperature Override"
+    description: "Set a temporary temperature override for a room"
+    fields:
+      room:
+        description: "Room ID"
+        example: "pete"
+        required: true
+        selector:
+          select:
+            options:
+              - pete
+              - abby
+              - office
+              - lounge
+              - games
+              - bathroom
+      target:
+        description: "Target temperature in °C (use either target OR delta, not both)"
+        example: 21.0
+        selector:
+          number:
+            min: 10
+            max: 35
+            step: 0.5
+            unit_of_measurement: "°C"
+      delta:
+        description: "Temperature adjustment from schedule (e.g., +2.0 or -1.5)"
+        example: 2.0
+        selector:
+          number:
+            min: -10
+            max: 10
+            step: 0.5
+            unit_of_measurement: "°C"
+      minutes:
+        description: "Duration in minutes (use either minutes OR end_time, not both)"
+        example: 120
+        selector:
+          number:
+            min: 1
+            max: 1440
+            unit_of_measurement: "min"
+      end_time:
+        description: "End time in ISO format (e.g., 2025-11-11T22:30:00)"
+        example: "2025-11-11T22:30:00"
+        selector:
+          text:
+    sequence:
+      - service: rest_command.pyheat_api_override
+        data:
+          payload: >
+            {
+              "room": "{{ room }}",
+              {% if target is defined %}"target": {{ target }},{% endif %}
+              {% if delta is defined %}"delta": {{ delta }},{% endif %}
+              {% if minutes is defined %}"minutes": {{ minutes }},{% endif %}
+              {% if end_time is defined %}"end_time": "{{ end_time }}",{% endif %}
+              "_dummy": null
+            }
+
+  pyheat_cancel_override:
+    alias: "PyHeat: Cancel Override"
+    description: "Cancel an active temperature override for a room"
+    fields:
+      room:
+        description: "Room ID"
+        example: "pete"
+        required: true
+        selector:
+          select:
+            options:
+              - pete
+              - abby
+              - office
+              - lounge
+              - games
+              - bathroom
+    sequence:
+      - service: rest_command.pyheat_api_cancel_override
+        data:
+          payload: '{"room": "{{ room }}"}'
+
+  pyheat_set_mode:
+    alias: "PyHeat: Set Room Mode"
+    description: "Change heating mode for a room (Auto/Manual/Off)"
+    fields:
+      room:
+        description: "Room ID"
+        example: "pete"
+        required: true
+        selector:
+          select:
+            options:
+              - pete
+              - abby
+              - office
+              - lounge
+              - games
+              - bathroom
+      mode:
+        description: "Heating mode"
+        required: true
+        selector:
+          select:
+            options:
+              - auto
+              - manual
+              - "off"
+      manual_setpoint:
+        description: "Manual temperature setpoint (only used when mode is 'manual')"
+        example: 20.5
+        selector:
+          number:
+            min: 10
+            max: 35
+            step: 0.5
+            unit_of_measurement: "°C"
+    sequence:
+      - service: rest_command.pyheat_api_set_mode
+        data:
+          payload: >
+            {
+              "room": "{{ room }}",
+              "mode": "{{ mode }}"
+              {% if manual_setpoint is defined %},"manual_setpoint": {{ manual_setpoint }}{% endif %}
+            }
+
+  pyheat_reload_config:
+    alias: "PyHeat: Reload Configuration"
+    description: "Reload PyHeat configuration files (rooms.yaml, schedules.yaml, boiler.yaml)"
+    sequence:
+      - service: rest_command.pyheat_api_reload_config
+        data: {}
+
 
