@@ -96,7 +96,11 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
 Each room requires:
 - **id**: Unique identifier (used in entity names)
 - **name**: Display name
-- **sensors**: Array of temperature sensors with roles (primary/fallback) and timeouts
+- **sensors**: Array of temperature sensors with roles (primary/fallback), timeouts, and optional temperature_attribute
+  - `entity_id`: Home Assistant entity ID
+  - `role`: `primary` or `fallback`
+  - `timeout_m`: Minutes before sensor is considered stale
+  - `temperature_attribute`: (optional) Read from attribute instead of state (e.g., `current_temperature` for climate entities)
 - **trv**: TRV climate entity
 - **hysteresis**: Optional override for on/off delta temperatures
 - **valve_bands**: Optional override for valve percentage bands
@@ -112,6 +116,10 @@ rooms:
       - entity_id: sensor.roomtemp_pete
         role: primary
         timeout_m: 180
+      - entity_id: climate.trv_pete  # Use TRV's internal sensor as fallback
+        role: fallback
+        timeout_m: 180
+        temperature_attribute: current_temperature
     trv:
       entity_id: climate.trv_pete
     hysteresis:

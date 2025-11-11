@@ -1,4 +1,14 @@
 rooms:
+  # Room Configuration
+  # 
+  # Temperature Sensors:
+  # - entity_id: The Home Assistant entity ID
+  # - role: 'primary' or 'fallback' (primary sensors are used first)
+  # - timeout_m: Minutes before sensor is considered stale
+  # - temperature_attribute: (optional) Read temperature from this attribute instead of state
+  #     Example: For climate entities, use "current_temperature" to read the TRV's
+  #              internal temperature sensor as an attribute rather than state
+  #
   - id: pete
     name: "Pete's Room"
     precision: 1
@@ -52,6 +62,11 @@ rooms:
       - entity_id: sensor.abby_xiaomi_temperature
         role: primary
         timeout_m: 180
+      # Example: Using a climate entity's current_temperature attribute
+      # - entity_id: climate.trv_abby
+      #   role: fallback
+      #   timeout_m: 180
+      #   temperature_attribute: current_temperature
     trv:
       entity_id: climate.trv_abby
   - id: office

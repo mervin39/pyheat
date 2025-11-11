@@ -1,6 +1,57 @@
 
 # PyHeat Changelog
 
+## 2025-11-11: Add Support for Temperature Attributes 🌡️
+
+**Summary:**
+Added support for reading temperature values from entity attributes instead of just state. This allows using climate entities' internal temperature sensors (e.g., `current_temperature` attribute on TRVs) as temperature sources.
+
+**Use Case:**
+Some entities expose temperature as an attribute rather than as the primary state:
+- Climate entities (TRVs) have `current_temperature` attribute
+- Multi-sensor devices may expose multiple temperature readings as attributes
+- Custom integrations that structure data as attributes
+
+**Implementation:**
+Added optional `temperature_attribute` key to sensor configuration in `rooms.yaml`:
+
+```yaml
+sensors:
+  - entity_id: sensor.roomtemp_office
+    role: primary
+    timeout_m: 180
+  - entity_id: climate.trv_office  # Use TRV's internal sensor
+    role: fallback
+    timeout_m: 180
+    temperature_attribute: current_temperature  # Read from attribute
+```
+
+**Files Modified:**
+- `sensor_manager.py`:
+  - Added `sensor_attributes` mapping to track which sensors use attributes
+  - Added `_build_attribute_map()` to populate mapping from config
+  - Modified `initialize_from_ha()` to read from attribute when specified
+  - Added `get_sensor_value()` helper method for consistent attribute/state reading
+- `app.py`:
+  - Updated `setup_callbacks()` to register attribute listeners when `temperature_attribute` is specified
+  - Callbacks automatically receive attribute value in `new` parameter (AppDaemon behavior)
+- `rooms.yaml.example`:
+  - Added documentation comment explaining temperature_attribute
+  - Added example showing climate entity as fallback sensor
+
+**Behavior:**
+- If `temperature_attribute` is specified, reads from that attribute
+- If not specified, reads from entity state (backward compatible)
+- Works with both state listeners and initial value loading
+- Supports all sensor roles (primary/fallback) and fusion logic
+
+**Testing:**
+```bash
+# AppDaemon will log the source when initializing
+Initialized sensor climate.trv_office = 19.5C (from attribute 'current_temperature')
+Initialized sensor sensor.roomtemp_office = 19.3C (from state)
+```
+
 ## 2025-11-10: Fix Unicode Encoding in Log Messages 🔧
 
 **Summary:**

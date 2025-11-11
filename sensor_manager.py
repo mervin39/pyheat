@@ -26,6 +26,18 @@ class SensorManager:
         self.ad = ad
         self.config = config
         self.sensor_last_values = {}  # {entity_id: (value, timestamp)}
+        self.sensor_attributes = {}  # {entity_id: temperature_attribute or None}
+        
+        # Build attribute mapping from config
+        self._build_attribute_map()
+        
+    def _build_attribute_map(self) -> None:
+        """Build mapping of entity_id to temperature_attribute from config."""
+        for room_id, room_cfg in self.config.rooms.items():
+            for sensor_cfg in room_cfg['sensors']:
+                entity_id = sensor_cfg['entity_id']
+                temp_attribute = sensor_cfg.get('temperature_attribute')
+                self.sensor_attributes[entity_id] = temp_attribute
         
     def initialize_from_ha(self) -> None:
         """Initialize sensor values from current Home Assistant state."""
@@ -34,15 +46,49 @@ class SensorManager:
         for room_id, room_cfg in self.config.rooms.items():
             for sensor_cfg in room_cfg['sensors']:
                 entity_id = sensor_cfg['entity_id']
+                temp_attribute = sensor_cfg.get('temperature_attribute')
                 
                 try:
-                    state_str = self.ad.get_state(entity_id)
+                    # If temperature_attribute is specified, read from attribute
+                    if temp_attribute:
+                        state_str = self.ad.get_state(entity_id, attribute=temp_attribute)
+                    else:
+                        state_str = self.ad.get_state(entity_id)
+                    
                     if state_str and state_str not in ['unknown', 'unavailable']:
                         value = float(state_str)
                         self.sensor_last_values[entity_id] = (value, now)
-                        self.ad.log(f"Initialized sensor {entity_id} = {value}C", level="DEBUG")
+                        source = f"attribute '{temp_attribute}'" if temp_attribute else "state"
+                        self.ad.log(f"Initialized sensor {entity_id} = {value}C (from {source})", level="DEBUG")
                 except (ValueError, TypeError) as e:
                     self.ad.log(f"Could not initialize sensor {entity_id}: {e}", level="WARNING")
+    
+    def get_sensor_value(self, entity_id: str) -> Optional[float]:
+        """Get current temperature value from a sensor entity.
+        
+        Respects the temperature_attribute configuration. If specified, reads from
+        the attribute; otherwise reads from the entity state.
+        
+        Args:
+            entity_id: Sensor entity ID
+            
+        Returns:
+            Temperature value in °C, or None if unavailable/invalid
+        """
+        temp_attribute = self.sensor_attributes.get(entity_id)
+        
+        try:
+            if temp_attribute:
+                state_str = self.ad.get_state(entity_id, attribute=temp_attribute)
+            else:
+                state_str = self.ad.get_state(entity_id)
+            
+            if state_str and state_str not in ['unknown', 'unavailable']:
+                return float(state_str)
+        except (ValueError, TypeError) as e:
+            self.ad.log(f"Invalid sensor value for {entity_id}: {e}", level="WARNING")
+        
+        return None
     
     def update_sensor(self, entity_id: str, value: float, timestamp: datetime) -> None:
         """Update a sensor's value and timestamp.

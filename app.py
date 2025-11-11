@@ -165,7 +165,15 @@ class PyHeat(hass.Hass):
             room_cfg = self.config.rooms[room_id]
             for sensor_cfg in room_cfg['sensors']:
                 entity_id = sensor_cfg['entity_id']
-                self.listen_state(self.sensor_changed, entity_id, room_id=room_id)
+                temp_attribute = sensor_cfg.get('temperature_attribute')
+                
+                # If temperature_attribute is specified, listen to that attribute
+                # Otherwise listen to state changes
+                if temp_attribute:
+                    self.listen_state(self.sensor_changed, entity_id, 
+                                    room_id=room_id, attribute=temp_attribute)
+                else:
+                    self.listen_state(self.sensor_changed, entity_id, room_id=room_id)
             
             # TRV feedback callbacks
             trv = room_cfg['trv']

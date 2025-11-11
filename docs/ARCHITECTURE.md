@@ -214,12 +214,20 @@ rooms:
       - entity_id: sensor.pete_snzb02_temperature
         role: primary              # Multiple primaries are averaged
         timeout_m: 180
+      - entity_id: climate.trv_pete
+        role: fallback
+        timeout_m: 180
+        temperature_attribute: current_temperature  # Read from attribute instead of state
 ```
 
 **Configuration Parameters:**
 - `entity_id`: Home Assistant sensor entity (must report numeric temperature in °C)
 - `role`: Either `"primary"` or `"fallback"` (determines priority)
 - `timeout_m`: Staleness timeout in minutes (default: 180 minutes / 3 hours)
+- `temperature_attribute`: (optional) Attribute name to read temperature from instead of entity state
+  - Use this for entities that expose temperature as an attribute rather than as state
+  - Common use case: Climate entities with `current_temperature` attribute (TRV internal sensors)
+  - If not specified, reads from entity state (default behavior)
 
 ### Sensor Roles and Prioritization
 
