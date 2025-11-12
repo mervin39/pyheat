@@ -27,9 +27,18 @@ Changed master enable OFF behavior to be safer for water circulation and allow f
 
 **Technical Changes:**
 - `app.py::master_enable_changed()` - Opens all valves to 100% on OFF, re-locks setpoints on ON
-- `app.py::recompute_all()` - Simply returns early when master OFF (no interference)
+- `app.py::recompute_all()` - When master OFF: only updates temperature sensors, skips all heating control
 - `app.py::check_trv_setpoints()` - Skips periodic checks when master OFF
 - `app.py::trv_setpoint_changed()` - Skips correction callback when master OFF
+
+**Temperature Sensor Publishing:**
+Even when master enable is OFF, PyHeat continues to:
+- Monitor temperature sensor changes via callbacks
+- Perform sensor fusion (primary/fallback selection, staleness detection)
+- Publish fused temperatures to `sensor.pyheat_<room>_temperature`
+- Update is_stale status in sensor attributes
+
+This ensures other Home Assistant automations can continue using the fused temperature sensors even when PyHeat heating control is disabled.
 
 **Philosophy:**
 Master enable OFF now means "PyHeat hands off control" rather than "PyHeat forces everything closed". This allows engineers/users to have complete manual control during testing, maintenance, or troubleshooting while keeping the system in a safe passive state.

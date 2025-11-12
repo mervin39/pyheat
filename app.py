@@ -414,9 +414,31 @@ class PyHeat(hass.Hass):
         if self.entity_exists(C.HELPER_MASTER_ENABLE):
             master_enable = self.get_state(C.HELPER_MASTER_ENABLE)
             if master_enable != "on":
-                # System is disabled - do nothing
-                # Valve positioning and boiler shutdown are handled in master_enable_changed callback
-                # This allows manual control without PyHeat interference
+                # System is disabled - only update temperature sensors for HA automations
+                # No heating control, valve commands, or boiler management
+                for room_id in self.config.rooms.keys():
+                    room_config = self.config.rooms.get(room_id, {})
+                    room_name = room_config.get('name', room_id)
+                    precision = room_config.get('precision', 1)
+                    
+                    # Get fused temperature
+                    temp, is_stale = self.sensors.get_room_temperature(room_id, now)
+                    
+                    # Publish temperature sensor only
+                    temp_entity = f"sensor.pyheat_{room_id}_temperature"
+                    if temp is not None:
+                        self.set_state(temp_entity, 
+                                     state=round(temp, precision),
+                                     attributes={
+                                         'unit_of_measurement': '°C',
+                                         'device_class': 'temperature',
+                                         'state_class': 'measurement',
+                                         'is_stale': is_stale
+                                     })
+                    else:
+                        self.set_state(temp_entity, state="unavailable")
+                
+                # System is idle - no further processing
                 return
         
         # Compute each room
