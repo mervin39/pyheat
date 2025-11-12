@@ -1,6 +1,34 @@
 
 # PyHeat Changelog
 
+## 2025-01-12: Add Min Off Timer to API 🔌
+
+**Summary:**
+Added `boiler_min_off_end_time` to the API status response to support pending_on countdown display in pyheat-web.
+
+**Changes:**
+- Extract `finishes_at` attribute from `timer.pyheat_boiler_min_off_timer` when active
+- Include `boiler_min_off_end_time` in system status dictionary returned by `/api/appdaemon/pyheat_get_status`
+- Added debug logging for min_off timer state and finishes_at value
+
+**API Response:**
+```json
+{
+  "system": {
+    "boiler_state": "pending_on",
+    "boiler_min_off_end_time": "2025-01-12T12:34:56+00:00"
+  }
+}
+```
+
+**Purpose:**
+Enables pyheat-web frontend to display live countdown when boiler is in `pending_on` state, showing "Starting Up (Xm Ys)" while waiting for minimum off period to complete.
+
+**Files Modified:**
+- `api_handler.py` - Added min_off timer extraction (lines 368-420)
+
+**Commit:** `git commit -m "feat: add boiler_min_off_end_time to API response"`
+
 ## 2025-11-11: Add Home Assistant Service Wrappers 🎛️
 
 **Summary:**

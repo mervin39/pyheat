@@ -367,28 +367,52 @@ class APIHandler:
             # Get boiler timer end times for client-side countdowns
             boiler_off_delay_end_time = None
             boiler_min_on_end_time = None
+            boiler_min_off_end_time = None
             boiler_pump_overrun_end_time = None
+            
+            # Log boiler state for debugging
+            boiler_state_val = status_attrs.get("boiler_state", "unknown")
+            self.ad.log(f"API: boiler_state={boiler_state_val}", level="INFO")
             
             if self.ad.entity_exists(C.HELPER_BOILER_OFF_DELAY_TIMER):
                 timer_state = self.ad.get_state(C.HELPER_BOILER_OFF_DELAY_TIMER)
+                self.ad.log(f"API: off_delay_timer state={timer_state}", level="INFO")
                 if timer_state == "active":
                     timer_attrs = self.ad.get_state(C.HELPER_BOILER_OFF_DELAY_TIMER, attribute="all")
+                    self.ad.log(f"API: off_delay_timer attrs={timer_attrs}", level="INFO")
                     if timer_attrs and "attributes" in timer_attrs:
                         boiler_off_delay_end_time = timer_attrs["attributes"].get("finishes_at")
+                        self.ad.log(f"API: off_delay finishes_at={boiler_off_delay_end_time}", level="INFO")
             
             if self.ad.entity_exists(C.HELPER_BOILER_MIN_ON_TIMER):
                 timer_state = self.ad.get_state(C.HELPER_BOILER_MIN_ON_TIMER)
+                self.ad.log(f"API: min_on_timer state={timer_state}", level="INFO")
                 if timer_state == "active":
                     timer_attrs = self.ad.get_state(C.HELPER_BOILER_MIN_ON_TIMER, attribute="all")
+                    self.ad.log(f"API: min_on_timer attrs={timer_attrs}", level="INFO")
                     if timer_attrs and "attributes" in timer_attrs:
                         boiler_min_on_end_time = timer_attrs["attributes"].get("finishes_at")
+                        self.ad.log(f"API: min_on finishes_at={boiler_min_on_end_time}", level="INFO")
             
             if self.ad.entity_exists(C.HELPER_PUMP_OVERRUN_TIMER):
                 timer_state = self.ad.get_state(C.HELPER_PUMP_OVERRUN_TIMER)
+                self.ad.log(f"API: pump_overrun_timer state={timer_state}", level="INFO")
                 if timer_state == "active":
                     timer_attrs = self.ad.get_state(C.HELPER_PUMP_OVERRUN_TIMER, attribute="all")
+                    self.ad.log(f"API: pump_overrun_timer attrs={timer_attrs}", level="INFO")
                     if timer_attrs and "attributes" in timer_attrs:
                         boiler_pump_overrun_end_time = timer_attrs["attributes"].get("finishes_at")
+                        self.ad.log(f"API: pump_overrun finishes_at={boiler_pump_overrun_end_time}", level="INFO")
+            
+            if self.ad.entity_exists(C.HELPER_BOILER_MIN_OFF_TIMER):
+                timer_state = self.ad.get_state(C.HELPER_BOILER_MIN_OFF_TIMER)
+                self.ad.log(f"API: min_off_timer state={timer_state}", level="INFO")
+                if timer_state == "active":
+                    timer_attrs = self.ad.get_state(C.HELPER_BOILER_MIN_OFF_TIMER, attribute="all")
+                    self.ad.log(f"API: min_off_timer attrs={timer_attrs}", level="INFO")
+                    if timer_attrs and "attributes" in timer_attrs:
+                        boiler_min_off_end_time = timer_attrs["attributes"].get("finishes_at")
+                        self.ad.log(f"API: min_off finishes_at={boiler_min_off_end_time}", level="INFO")
             
             system = {
                 "master_enabled": master_enabled,
@@ -398,6 +422,7 @@ class APIHandler:
                 "last_recompute": status_attrs.get("last_recompute"),
                 "boiler_off_delay_end_time": boiler_off_delay_end_time,
                 "boiler_min_on_end_time": boiler_min_on_end_time,
+                "boiler_min_off_end_time": boiler_min_off_end_time,
                 "boiler_pump_overrun_end_time": boiler_pump_overrun_end_time,
             }
             
