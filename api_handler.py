@@ -618,29 +618,35 @@ class APIHandler:
             if days_ago == 0:
                 end_time = now
             
-            # Get boiler actor history
-            boiler_actor = "input_boolean.pyheat_boiler_actor"
+            # Get boiler state history from status sensor
+            status_entity = C.STATUS_ENTITY  # sensor.pyheat_status
             periods = []
             
-            if self.ad.entity_exists(boiler_actor):
-                boiler_history = self.ad.get_history(
-                    entity_id=boiler_actor,
+            if self.ad.entity_exists(status_entity):
+                status_history = self.ad.get_history(
+                    entity_id=status_entity,
                     start_time=start_time,
                     end_time=end_time
                 )
                 
-                if boiler_history and len(boiler_history) > 0:
+                if status_history and len(status_history) > 0:
                     period_start = None
                     period_state = None
                     
-                    for state_obj in boiler_history[0]:
+                    for state_obj in status_history[0]:
                         try:
-                            state = state_obj.get("state")
+                            # Get boiler_state from attributes
+                            attrs = state_obj.get("attributes", {})
+                            boiler_state = attrs.get("boiler_state")
                             timestamp = state_obj["last_changed"]
                             
-                            # Convert "on"/"off" to our state format
-                            is_on = state == "on"
-                            current_state = "on" if is_on else "off"
+                            if not boiler_state:
+                                continue
+                            
+                            # Only track "on" state (actual heating)
+                            # Ignore pump_overrun, pending_off, pending_on, etc.
+                            is_heating = boiler_state == "on"
+                            current_state = "on" if is_heating else "off"
                             
                             # If this is the first state or state changed
                             if period_state is None:
