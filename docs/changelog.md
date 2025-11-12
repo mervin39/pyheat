@@ -1,6 +1,46 @@
 
 # PyHeat Changelog
 
+## 2025-11-12: Improve Master Enable OFF Safety and Manual Control 🔧
+
+**Summary:**
+Changed master enable OFF behavior to be safer for water circulation and allow full manual control during maintenance.
+
+**Old Behavior:**
+- Closed all valves to 0% when master enable turned OFF
+- Continued enforcing TRV setpoint locks at 35°C
+- Prevented manual TRV control during maintenance
+- Created potential for pressure buildup if boiler ran
+
+**New Behavior:**
+- **Opens all valves to 100%** when master enable turns OFF (one-time command)
+- **Stops enforcing TRV setpoint locks** while disabled
+- **Allows full manual control** of TRVs and boiler during maintenance
+- **Re-locks setpoints to 35°C** when master enable turns back ON
+- **Safer for pump overrun and manual boiler operation**
+
+**Safety Improvements:**
+- ✅ Prevents pressure buildup in closed-loop system
+- ✅ Allows safe water circulation if boiler runs (manual or pump overrun)
+- ✅ Protects pump from running against fully closed valves
+- ✅ Enables safe testing and maintenance without PyHeat interference
+
+**Technical Changes:**
+- `app.py::master_enable_changed()` - Opens all valves to 100% on OFF, re-locks setpoints on ON
+- `app.py::recompute_all()` - Simply returns early when master OFF (no interference)
+- `app.py::check_trv_setpoints()` - Skips periodic checks when master OFF
+- `app.py::trv_setpoint_changed()` - Skips correction callback when master OFF
+
+**Philosophy:**
+Master enable OFF now means "PyHeat hands off control" rather than "PyHeat forces everything closed". This allows engineers/users to have complete manual control during testing, maintenance, or troubleshooting while keeping the system in a safe passive state.
+
+**Files Modified:**
+- `app.py` - Updated master enable handling, setpoint monitoring, and recompute logic
+
+**Commit:** `git commit -m "feat: improve master enable OFF for safety and manual control"`
+
+---
+
 ## 2025-01-12: Add Boiler History API Endpoint 📊
 
 **Summary:**

@@ -190,6 +190,26 @@ class PyHeat(hass.Hass):
 
     def master_enable_changed(self, entity, attribute, old, new, kwargs):
         self.log(f"Master enable changed: {old} -> {new}")
+        
+        if new == "off":
+            # System being disabled - open all valves to 100% for safe water circulation
+            # This allows manual boiler control and prevents pressure buildup
+            self.log("Master enable OFF - opening all valves to 100% and shutting down system")
+            now = self.get_now()
+            for room_id in self.config.rooms.keys():
+                self.rooms.set_room_valve(room_id, 100, now)
+            
+            # Turn off boiler
+            if self.entity_exists(C.HELPER_BOILER_ACTOR):
+                if self.get_state(C.HELPER_BOILER_ACTOR) == "on":
+                    self.call_service("input_boolean/turn_off", entity_id=C.HELPER_BOILER_ACTOR)
+                    self.log("Boiler turned OFF (master disabled)")
+        
+        elif new == "on":
+            # System being re-enabled - lock all setpoints and resume normal operation
+            self.log("Master enable ON - locking TRV setpoints to 35C and resuming operation")
+            self.run_in(self.lock_all_trv_setpoints, 1)
+        
         self.trigger_recompute("master_enable_changed")
 
     def holiday_mode_changed(self, entity, attribute, old, new, kwargs):
@@ -297,7 +317,15 @@ class PyHeat(hass.Hass):
                 self.log(f"Invalid TRV feedback for {entity}: {new}", level="WARNING")
 
     def trv_setpoint_changed(self, entity, attribute, old, new, kwargs):
-        """TRV climate entity setpoint changed (someone changed it manually)."""
+        """TRV climate entity setpoint changed (someone changed it manually).
+        
+        Skip correction when master enable is OFF to allow manual control during maintenance.
+        """
+        # Skip setpoint enforcement when system is disabled
+        if self.entity_exists(C.HELPER_MASTER_ENABLE):
+            if self.get_state(C.HELPER_MASTER_ENABLE) != "on":
+                return
+        
         room_id = kwargs.get('room_id')
         if new and new != C.TRV_LOCKED_SETPOINT_C:
             self.log(f"TRV setpoint for '{room_id}' changed to {new}C (should be locked at {C.TRV_LOCKED_SETPOINT_C}C), correcting...", level="WARNING")
@@ -312,7 +340,15 @@ class PyHeat(hass.Hass):
         self.trvs.lock_all_setpoints()
 
     def check_trv_setpoints(self, kwargs):
-        """Periodic check to ensure TRV setpoints remain locked."""
+        """Periodic check to ensure TRV setpoints remain locked.
+        
+        Skip when master enable is OFF to allow manual control during maintenance.
+        """
+        # Skip setpoint enforcement when system is disabled
+        if self.entity_exists(C.HELPER_MASTER_ENABLE):
+            if self.get_state(C.HELPER_MASTER_ENABLE) != "on":
+                return
+        
         self.trvs.check_all_setpoints()
 
     def check_config_files(self, kwargs):
@@ -378,15 +414,9 @@ class PyHeat(hass.Hass):
         if self.entity_exists(C.HELPER_MASTER_ENABLE):
             master_enable = self.get_state(C.HELPER_MASTER_ENABLE)
             if master_enable != "on":
-                self.log("Master enable is OFF, system idle")
-                # Turn off boiler if running
-                if self.entity_exists(C.HELPER_BOILER_ACTOR):
-                    if self.get_state(C.HELPER_BOILER_ACTOR) == "on":
-                        self.call_service("input_boolean/turn_off", entity_id=C.HELPER_BOILER_ACTOR)
-                        self.log("Boiler turned OFF (master disabled)")
-                # Close all valves
-                for room_id in self.config.rooms.keys():
-                    self.rooms.set_room_valve(room_id, 0, now)
+                # System is disabled - do nothing
+                # Valve positioning and boiler shutdown are handled in master_enable_changed callback
+                # This allows manual control without PyHeat interference
                 return
         
         # Compute each room
