@@ -64,6 +64,7 @@ class APIHandler:
         self.ad.register_endpoint(self.api_replace_schedules, "pyheat_replace_schedules")
         self.ad.register_endpoint(self.api_get_status, "pyheat_get_status")
         self.ad.register_endpoint(self.api_get_history, "pyheat_get_history")
+        self.ad.register_endpoint(self.api_get_boiler_history, "pyheat_get_boiler_history")
         
         self.ad.log("Registered PyHeat HTTP API endpoints")
         
@@ -577,6 +578,104 @@ class APIHandler:
             
         except Exception as e:
             self.ad.log(f"get_history API error: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+            return {"success": False, "error": str(e)}, 500
+
+    def api_get_boiler_history(self, namespace, data: Dict[str, Any]) -> tuple:
+        """API endpoint: POST /api/appdaemon/pyheat_get_boiler_history
+        
+        Gets historical boiler state data for a given day.
+        
+        Request body: {
+            "days_ago": int  # 0 = today, 1 = yesterday, etc. (max 7)
+        }
+        
+        Returns: {
+            "periods": [
+                {"start": str (ISO), "end": str (ISO), "state": "on" | "off"},
+                ...
+            ]
+        }
+        """
+        from datetime import datetime, timedelta, timezone
+        
+        request_body = namespace if isinstance(namespace, dict) else {}
+        
+        try:
+            days_ago = request_body.get("days_ago", 0)
+            
+            if not isinstance(days_ago, int) or days_ago < 0 or days_ago > 7:
+                return {"success": False, "error": "days_ago must be integer 0-7"}, 400
+            
+            # Calculate time range for the requested day
+            now = datetime.now(timezone.utc)
+            target_day = now - timedelta(days=days_ago)
+            start_time = target_day.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_time = start_time + timedelta(days=1)
+            
+            # If it's today, only go up to now
+            if days_ago == 0:
+                end_time = now
+            
+            # Get boiler actor history
+            boiler_actor = "input_boolean.pyheat_boiler_actor"
+            periods = []
+            
+            if self.ad.entity_exists(boiler_actor):
+                boiler_history = self.ad.get_history(
+                    entity_id=boiler_actor,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                
+                if boiler_history and len(boiler_history) > 0:
+                    period_start = None
+                    period_state = None
+                    
+                    for state_obj in boiler_history[0]:
+                        try:
+                            state = state_obj.get("state")
+                            timestamp = state_obj["last_changed"]
+                            
+                            # Convert "on"/"off" to our state format
+                            is_on = state == "on"
+                            current_state = "on" if is_on else "off"
+                            
+                            # If this is the first state or state changed
+                            if period_state is None:
+                                # Start first period
+                                period_start = timestamp
+                                period_state = current_state
+                            elif current_state != period_state:
+                                # State changed - end previous period and start new one
+                                if period_start is not None:
+                                    periods.append({
+                                        "start": period_start,
+                                        "end": timestamp,
+                                        "state": period_state
+                                    })
+                                period_start = timestamp
+                                period_state = current_state
+                        except (KeyError, TypeError):
+                            continue
+                    
+                    # Close final period
+                    if period_start is not None and period_state is not None:
+                        periods.append({
+                            "start": period_start,
+                            "end": end_time.isoformat(),
+                            "state": period_state
+                        })
+            
+            return {
+                "periods": periods,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat()
+            }, 200
+            
+        except Exception as e:
+            self.ad.log(f"get_boiler_history API error: {e}", level="ERROR")
             import traceback
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}, 500

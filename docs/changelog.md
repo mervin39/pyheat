@@ -1,6 +1,44 @@
 
 # PyHeat Changelog
 
+## 2025-01-12: Add Boiler History API Endpoint 📊
+
+**Summary:**
+Added new API endpoint to fetch boiler state history for visualization in pyheat-web.
+
+**Changes:**
+- New `api_get_boiler_history` endpoint: `POST /api/appdaemon/pyheat_get_boiler_history`
+- Fetches `input_boolean.pyheat_boiler_actor` history from Home Assistant for a given day
+- Supports 0-7 days ago (0 = today, 1 = yesterday, etc.)
+- Returns periods of on/off states with ISO timestamps
+
+**API Request:**
+```json
+{
+  "days_ago": 0  // 0-7
+}
+```
+
+**API Response:**
+```json
+{
+  "periods": [
+    {"start": "2025-01-12T10:30:00+00:00", "end": "2025-01-12T11:15:00+00:00", "state": "on"},
+    {"start": "2025-01-12T11:15:00+00:00", "end": "2025-01-12T12:00:00+00:00", "state": "off"}
+  ],
+  "start_time": "2025-01-12T00:00:00+00:00",
+  "end_time": "2025-01-12T12:00:00+00:00"
+}
+```
+
+**Purpose:**
+Enables pyheat-web to display visual timeline of boiler operation for troubleshooting and analysis.
+
+**Files Modified:**
+- `api_handler.py` - Added boiler history endpoint (lines 67, 576-675)
+
+**Commit:** `git commit -m "feat: add boiler history API endpoint for timeline visualization"`
+
 ## 2025-01-12: Add Min Off Timer to API 🔌
 
 **Summary:**
