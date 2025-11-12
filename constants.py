@@ -178,9 +178,6 @@ TRV_COMMAND_FEEDBACK_TOLERANCE = 5  # Percent tolerance for feedback match
 HELPER_MASTER_ENABLE = "input_boolean.pyheat_master_enable"
 HELPER_HOLIDAY_MODE = "input_boolean.pyheat_holiday_mode"
 
-# Boiler actor (on/off control)
-HELPER_BOILER_ACTOR = "input_boolean.pyheat_boiler_actor"
-
 # Per-room helpers (format strings - use .format(room=room_id))
 HELPER_ROOM_MODE = "input_select.pyheat_{room}_mode"  # auto, manual, off
 HELPER_ROOM_MANUAL_SETPOINT = "input_number.pyheat_{room}_manual_setpoint"
