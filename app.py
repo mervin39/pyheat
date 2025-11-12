@@ -32,6 +32,7 @@ from pyheat.boiler_controller import BoilerController
 from pyheat.status_publisher import StatusPublisher
 from pyheat.service_handler import ServiceHandler
 from pyheat.api_handler import APIHandler
+from pyheat.alert_manager import AlertManager
 import pyheat.constants as C
 
 
@@ -51,11 +52,12 @@ class PyHeat(hass.Hass):
         
         # Initialize modules
         self.config = ConfigLoader(self)
+        self.alerts = AlertManager(self)  # Initialize alert manager first
         self.sensors = SensorManager(self, self.config)
         self.scheduler = Scheduler(self, self.config)
-        self.trvs = TRVController(self, self.config)
+        self.trvs = TRVController(self, self.config, self.alerts)
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
-        self.boiler = BoilerController(self, self.config)
+        self.boiler = BoilerController(self, self.config, self.alerts)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.services = ServiceHandler(self, self.config)
@@ -76,6 +78,13 @@ class PyHeat(hass.Hass):
         except Exception as e:
             self.error(f"Failed to load configuration: {e}")
             self.log("PyHeat initialization failed - configuration error")
+            # Report critical alert for config failure
+            self.alerts.report_error(
+                AlertManager.ALERT_CONFIG_LOAD_FAILURE,
+                AlertManager.SEVERITY_CRITICAL,
+                f"Failed to load PyHeat configuration: {e}\n\nPlease check your YAML files for syntax errors.",
+                auto_clear=False  # Requires manual intervention
+            )
             return
         
         # Initialize sensor values from current state

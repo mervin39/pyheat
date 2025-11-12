@@ -1,6 +1,55 @@
 
 # PyHeat Changelog
 
+## 2025-11-12: Alert Manager - Critical Error Notifications 🚨
+
+**Summary:**
+Added comprehensive alert management system to surface critical PyHeat errors as Home Assistant persistent notifications.
+
+**Features:**
+- **Debouncing**: Requires 3 consecutive errors before alerting (prevents false positives)
+- **Rate Limiting**: Maximum 1 notification per alert per hour (prevents spam)
+- **Auto-clearing**: Automatically dismisses notifications when conditions resolve
+- **Room Context**: Includes affected room information when applicable
+- **Severity Levels**: Critical alerts for issues requiring immediate attention
+
+**Alert Types:**
+1. **Boiler Interlock Failure** - Boiler running but insufficient valve opening
+2. **TRV Feedback Timeout** - Valve commanded but feedback doesn't match after retries
+3. **TRV Unavailable** - Lost communication with TRV after retries
+4. **Boiler Control Failure** - Failed to turn boiler on/off via HA service
+5. **Configuration Load Failure** - YAML syntax errors in config files
+
+**Technical Implementation:**
+- `alert_manager.py` - New module with AlertManager class (270 lines)
+  - `report_error()` - Debounced error reporting with consecutive count tracking
+  - `clear_error()` - Auto-clear notifications when conditions resolve
+  - `_send_notification()` - Creates HA persistent notifications with rate limiting
+  - `_dismiss_notification()` - Removes notifications from HA UI
+- `app.py` - Initialize AlertManager first, pass to controllers
+- `boiler_controller.py` - Alert on interlock failures and boiler control errors
+- `trv_controller.py` - Alert on TRV feedback timeout and unavailability
+
+**Home Assistant Integration:**
+- Uses `persistent_notification.create` service
+- Notifications appear in HA bell icon
+- Auto-dismiss when conditions resolve
+- Notification IDs: `pyheat_{alert_id}`
+
+**Documentation:**
+- Created `docs/ALERT_MANAGER.md` - Comprehensive alert system documentation
+
+**Files Modified:**
+- `alert_manager.py` (NEW)
+- `app.py`
+- `boiler_controller.py`
+- `trv_controller.py`
+- `docs/ALERT_MANAGER.md` (NEW)
+
+**Commit:** `git commit -m "feat: add alert manager for critical error notifications"`
+
+---
+
 ## 2025-11-12: Improve Master Enable OFF Safety and Manual Control 🔧
 
 **Summary:**

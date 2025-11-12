@@ -18,15 +18,17 @@ import pyheat.constants as C
 class TRVController:
     """Manages TRV valve control with feedback confirmation."""
     
-    def __init__(self, ad, config):
+    def __init__(self, ad, config, alert_manager=None):
         """Initialize the TRV controller.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
+            alert_manager: Optional AlertManager instance for notifications
         """
         self.ad = ad
         self.config = config
+        self.alert_manager = alert_manager
         self.trv_last_commanded = {}  # {room_id: percent}
         self.trv_last_update = {}  # {room_id: timestamp}
         self.unexpected_valve_positions = {}  # {room_id: {actual, expected, detected_at}}
@@ -184,11 +186,16 @@ class TRVController:
                 actual_percent = int(float(fb_state))
                 
                 if abs(actual_percent - target_percent) <= tolerance:
-                    # Success!
+                    # Success
                     self.ad.log(f"TRV {room_id}: Valve confirmed at {actual_percent}%", level="DEBUG")
                     self.trv_last_commanded[room_id] = target_percent
                     self.trv_last_update[room_id] = datetime.now()
                     del self._valve_command_state[state_key]
+                    # Clear any previous TRV alerts for this room
+                    if self.alert_manager:
+                        from pyheat.alert_manager import AlertManager
+                        self.alert_manager.clear_error(f"{AlertManager.ALERT_TRV_FEEDBACK_TIMEOUT}_{room_id}")
+                        self.alert_manager.clear_error(f"{AlertManager.ALERT_TRV_UNAVAILABLE}_{room_id}")
                     return
                 else:
                     # Mismatch
@@ -204,6 +211,19 @@ class TRVController:
                         self.trv_last_commanded[room_id] = actual_percent
                         self.trv_last_update[room_id] = datetime.now()
                         del self._valve_command_state[state_key]
+                        # Report critical alert for TRV feedback timeout
+                        if self.alert_manager:
+                            from pyheat.alert_manager import AlertManager
+                            self.alert_manager.report_error(
+                                f"{AlertManager.ALERT_TRV_FEEDBACK_TIMEOUT}_{room_id}",
+                                AlertManager.SEVERITY_CRITICAL,
+                                f"TRV valve feedback mismatch after multiple retries.\n\n"
+                                f"**Commanded:** {target_percent}%\n"
+                                f"**Actual:** {actual_percent}%\n\n"
+                                f"Check TRV batteries, connection, or mechanical issues.",
+                                room_id=room_id,
+                                auto_clear=True
+                            )
             else:
                 # Feedback unavailable, retry if attempts remain
                 if attempt + 1 < max_retries:
@@ -213,6 +233,17 @@ class TRVController:
                 else:
                     self.ad.log(f"TRV {room_id}: Max retries reached, feedback unavailable", level="ERROR")
                     del self._valve_command_state[state_key]
+                    # Report critical alert for TRV unavailable
+                    if self.alert_manager:
+                        from pyheat.alert_manager import AlertManager
+                        self.alert_manager.report_error(
+                            f"{AlertManager.ALERT_TRV_UNAVAILABLE}_{room_id}",
+                            AlertManager.SEVERITY_CRITICAL,
+                            f"TRV feedback sensor unavailable after multiple retries.\n\n"
+                            f"Lost communication with TRV. Check TRV connectivity and batteries.",
+                            room_id=room_id,
+                            auto_clear=True
+                        )
                     
         except Exception as e:
             self.ad.log(f"TRV {room_id}: Error checking feedback: {e}", level="ERROR")

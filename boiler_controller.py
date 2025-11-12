@@ -29,15 +29,17 @@ class BoilerController:
     - STATE_INTERLOCK_BLOCKED: Insufficient valve opening, cannot turn on
     """
     
-    def __init__(self, ad, config):
+    def __init__(self, ad, config, alert_manager=None):
         """Initialize the boiler controller.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
+            alert_manager: Optional AlertManager instance for notifications
         """
         self.ad = ad
         self.config = config
+        self.alert_manager = alert_manager
         
         # State machine state
         self.boiler_state = C.STATE_OFF
@@ -183,6 +185,17 @@ class BoilerController:
                     f"Total valve opening dropped below minimum.",
                     level="ERROR"
                 )
+                # Report critical alert
+                if self.alert_manager:
+                    from pyheat.alert_manager import AlertManager
+                    self.alert_manager.report_error(
+                        AlertManager.ALERT_BOILER_INTERLOCK_FAILURE,
+                        AlertManager.SEVERITY_CRITICAL,
+                        f"Boiler was running but valve interlock failed!\n\n"
+                        f"**Reason:** {interlock_reason}\n\n"
+                        f"The boiler has been turned off for safety. Check TRV operation and valve positions.",
+                        auto_clear=True
+                    )
             else:
                 reason = f"ON: heating {len(active_rooms)} room(s), total valve {total_valve}%"
         
@@ -445,8 +458,22 @@ class BoilerController:
                             entity_id=boiler_entity,
                             temperature=setpoint)
             self.ad.log(f"Boiler ON (setpoint={setpoint}C)")
+            # Clear any previous control failure alert
+            if self.alert_manager:
+                from pyheat.alert_manager import AlertManager
+                self.alert_manager.clear_error(AlertManager.ALERT_BOILER_CONTROL_FAILURE)
         except Exception as e:
             self.ad.log(f"Failed to turn boiler on: {e}", level="ERROR")
+            # Report critical alert for boiler control failure
+            if self.alert_manager:
+                from pyheat.alert_manager import AlertManager
+                self.alert_manager.report_error(
+                    AlertManager.ALERT_BOILER_CONTROL_FAILURE,
+                    AlertManager.SEVERITY_CRITICAL,
+                    f"Failed to turn boiler ON: {e}\n\n"
+                    f"Check boiler entity ({boiler_entity}) availability and network connection.",
+                    auto_clear=True
+                )
     
     def _set_boiler_off(self) -> None:
         """Turn boiler off."""
@@ -461,8 +488,22 @@ class BoilerController:
                             entity_id=boiler_entity,
                             hvac_mode='off')
             self.ad.log(f"Boiler OFF")
+            # Clear any previous control failure alert
+            if self.alert_manager:
+                from pyheat.alert_manager import AlertManager
+                self.alert_manager.clear_error(AlertManager.ALERT_BOILER_CONTROL_FAILURE)
         except Exception as e:
             self.ad.log(f"Failed to turn boiler off: {e}", level="ERROR")
+            # Report critical alert for boiler control failure
+            if self.alert_manager:
+                from pyheat.alert_manager import AlertManager
+                self.alert_manager.report_error(
+                    AlertManager.ALERT_BOILER_CONTROL_FAILURE,
+                    AlertManager.SEVERITY_CRITICAL,
+                    f"Failed to turn boiler OFF: {e}\n\n"
+                    f"Check boiler entity ({boiler_entity}) availability and network connection.",
+                    auto_clear=True
+                )
     
     # ========================================================================
     # Helper Methods - Timer Management
