@@ -107,8 +107,8 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    │    • Min OFF time: 180s                                                 │
 │    │    • Off-delay: 30s (grace period before shutdown)                      │
 │    ├─ State transitions:                                                     │
-│    │    OFF → PENDING_ON → WAITING_FOR_TRVFB → ON                            │
-│    │    ON → PENDING_OFF → PUMP_OVERRUN → ANTICYCLE → OFF                    │
+│    │    OFF → PENDING_ON → ON                                                 │
+│    │    ON → PENDING_OFF → PUMP_OVERRUN → OFF                                │
 │    │    (Any) → INTERLOCK_BLOCKED if insufficient valve opening              │
 │    ├─ Pump overrun handling:                                                 │
 │    │    • Save valve positions when demand ceases                            │
@@ -1013,23 +1013,6 @@ Deadband (0.1-0.3°C): No state change
 - **Default**: `on_delta=0.3`, `off_delta=0.1` (balanced)
 - **Stable/slow**: `on_delta=0.4`, `off_delta=0.1` (very stable, less precise)
 - **Rule**: Always maintain `on_delta ≥ off_delta + 0.1°C` for deadband
-
-### Known Issue: Override Hysteresis Trap
-
-**Problem:** When override is set with target only 0.1-0.3°C above current temp, and room was not previously calling, the room may fail to start heating immediately due to deadband logic maintaining previous state.
-
-**Example:**
-```
-Current: 17.3°C, not calling
-Set override: 17.5°C
-Error: 0.2°C (in deadband)
-Result: Does NOT call for heat (maintains prev_calling=False)
-Expected: Should call for heat to reach override
-```
-
-**Workaround:** Set override at least 0.3°C above current temperature for immediate effect.
-
-**See:** `docs/BUG_OVERRIDE_HYSTERESIS_TRAP.md` for full analysis and potential fixes.
 
 ### Stepped Valve Bands (Proportional Control)
 

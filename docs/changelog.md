@@ -1,6 +1,40 @@
 
 # PyHeat Changelog
 
+## 2025-11-13: Fix ARCHITECTURE.md Inaccuracies 🔧
+
+**Summary:**
+Corrected outdated and inaccurate information in ARCHITECTURE.md found during comprehensive review.
+
+**Issues Fixed:**
+1. **State Transition Diagram** (Line 110-111): Corrected FSM state names
+   - ❌ Old: `OFF → PENDING_ON → WAITING_FOR_TRVFB → ON`
+   - ✅ New: `OFF → PENDING_ON → ON`
+   - ❌ Old: `ON → PENDING_OFF → PUMP_OVERRUN → ANTICYCLE → OFF`
+   - ✅ New: `ON → PENDING_OFF → PUMP_OVERRUN → OFF`
+   - `WAITING_FOR_TRVFB` and `ANTICYCLE` states never existed in implementation
+
+2. **"Known Issue: Override Hysteresis Trap" Section** (Lines 1017-1032): Removed entirely
+   - This bug was **fixed on 2025-11-10** with target change detection
+   - Implementation now bypasses hysteresis deadband when target changes
+   - Section was obsolete and misleading
+
+3. **Reference to Deleted File**: Removed reference to `docs/BUG_OVERRIDE_HYSTERESIS_TRAP.md`
+   - File was deleted earlier today (bug resolved)
+
+**Verification:**
+- Cross-referenced all state machine documentation with `boiler_controller.py`
+- Verified all 6 states match actual `constants.py` definitions
+- Confirmed target change bypass is correctly documented (constants: `TARGET_CHANGE_EPSILON`, `FRESH_DECISION_THRESHOLD`)
+- Checked changelog for 2025-11-10 entry confirming bug fix
+
+**Files Modified:**
+- `docs/ARCHITECTURE.md` - Corrected state transitions, removed obsolete bug section
+
+**Commit:** `git commit -m "docs: fix ARCHITECTURE.md state transitions and remove obsolete bug section"`
+
+---
+
 ## 2025-11-13: Documentation Cleanup and Architecture Update 📚
 
 **Summary:**
