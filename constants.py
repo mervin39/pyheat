@@ -46,23 +46,27 @@ TIMEOUT_MIN_M = 1
 # ============================================================================
 
 # Asymmetric hysteresis thresholds for call-for-heat decisions
-# e = target - temp (°C; positive means below target)
-# - Start calling when e ≥ on_delta_c (turn-on threshold)
-# - Stop calling when e ≤ off_delta_c (turn-off threshold)
-# - If off_delta_c < e < on_delta_c, keep previous call state (no flip)
-# - Must have: on_delta_c ≥ off_delta_c
 #
-# HOWEVER: Hysteresis deadband is bypassed when target changes.
-# This ensures user overrides/schedule changes respond immediately.
+# Temperature zones:
+# - Zone 1 (too cold): t < S - on_delta_c → START/Continue heating
+# - Zone 2 (deadband): S - on_delta_c ≤ t ≤ S + off_delta_c → MAINTAIN state
+# - Zone 3 (too warm): t > S + off_delta_c → STOP heating
+#
+# Where:
+#   t = current room temperature
+#   S = setpoint (target temperature)
+#   error = S - t (positive when below target, negative when above)
+#
+# Normal operation uses all three zones with state persistence in deadband.
+# When target changes: bypass deadband, heat until t > S + off_delta_c
 
 HYSTERESIS_DEFAULT: Dict[str, float] = {
-    "on_delta_c": 0.30,   # Start heating when 0.3°C below target
-    "off_delta_c": 0.10,  # Stop heating when 0.1°C below target (near enough)
+    "on_delta_c": 0.30,   # Start heating when temp falls below target - 0.30°C
+    "off_delta_c": 0.10,  # Stop heating when temp rises above target + 0.10°C
 }
 
-# Target change detection - bypass hysteresis when target changes
+# Target change detection - bypass hysteresis deadband when target changes
 TARGET_CHANGE_EPSILON = 0.01  # °C - target changes smaller than this are ignored (floating point tolerance)
-FRESH_DECISION_THRESHOLD = 0.05  # °C - when target changes, heat if error >= this (prevents noise-triggered heating)
 
 # ============================================================================
 # Smart TRV Control - Valve Bands

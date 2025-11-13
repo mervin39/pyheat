@@ -934,85 +934,155 @@ def compute_room(room_id: str, now: datetime) -> Dict:
 
 ### Asymmetric Hysteresis (Call-for-Heat Decision)
 
-Prevents rapid on/off cycling by using different thresholds for turning on vs. turning off:
+Prevents rapid on/off cycling by using different thresholds for turning on vs. turning off.
 
 **Configuration (per room):**
 ```yaml
 hysteresis:
-  on_delta_c: 0.30    # Start heating when 0.3°C below target
-  off_delta_c: 0.10   # Stop heating when 0.1°C below target
+  on_delta_c: 0.40    # Start heating when 0.40°C below target
+  off_delta_c: 0.10   # Stop heating when 0.10°C above target
 ```
 
-**Target Change Detection:**
-The hysteresis deadband is **bypassed when the target temperature changes** (override, schedule transition, or mode change). This ensures immediate response to user actions while preserving anti-flapping protection during temperature drift.
+**Key Concept:**
+- `on_delta_c`: Temperature must fall **below** `target - on_delta` to start heating
+- `off_delta_c`: Temperature must rise **above** `target + off_delta` to stop heating
+- **Deadband**: Between `target - on_delta` and `target + off_delta`, maintain previous state
+
+#### Temperature Zones
+
+Using notation where:
+- `t` = current room temperature
+- `S` = setpoint (target temperature)
+- `on_delta` = on_delta_c
+- `off_delta` = off_delta_c
+
+**Normal Operation (target unchanged):**
+
+```
+Zone 1: t < S - on_delta           → START/Continue heating (too cold)
+Zone 2: S - on_delta ≤ t ≤ S + off_delta  → MAINTAIN previous state (deadband)
+Zone 3: t > S + off_delta          → STOP heating (overshot target)
+```
+
+**Example with S=18.0°C, on_delta=0.40, off_delta=0.10:**
+```
+Temperature Zones:
+─────────────────────────────────────────────────
+18.1°C  ├─────────── Stop Threshold (S + off_delta)
+        │ Zone 3: STOP heating (too warm)
+18.0°C  ├─────────── Target (S)
+        │
+        │ Zone 2: DEADBAND
+        │ (Maintain previous state)
+        │
+17.6°C  ├─────────── Start Threshold (S - on_delta)
+        │ Zone 1: START heating (too cold)
+─────────────────────────────────────────────────
+```
+
+#### Algorithm (in terms of error)
+
+Since `error = S - t` (positive when below target):
+
+**Normal Operation:**
+```python
+error = target - temp
+
+if error > on_delta:           # t < S - on_delta (Zone 1)
+    return True                # Too cold → heat
+elif error < -off_delta:       # t > S + off_delta (Zone 3)
+    return False               # Too warm → don't heat
+else:                          # -off_delta ≤ error ≤ on_delta (Zone 2)
+    return prev_calling        # Deadband → maintain state
+```
+
+**Target Change (bypass deadband):**
+
+When target changes (schedule transition, override, mode change), the "previous state" is meaningless because it was relative to a different target. The deadband logic is bypassed:
 
 ```python
 # Constants for target change detection
-TARGET_CHANGE_EPSILON = 0.01°C      # Floating-point tolerance
-FRESH_DECISION_THRESHOLD = 0.05°C   # Min error to heat on target change
-```
+TARGET_CHANGE_EPSILON = 0.01°C  # Floating-point tolerance
 
-**Algorithm:**
-```python
-error = target - temp  # Positive = below target
-
-# Check if target changed
 if abs(target - prev_target) > TARGET_CHANGE_EPSILON:
-    # Target changed → bypass deadband, make fresh decision
-    return error >= FRESH_DECISION_THRESHOLD
-else:
-    # Target unchanged → use normal hysteresis
-    if error >= on_delta:
-        return True         # Clearly below target → start calling
-    elif error <= off_delta:
-        return False        # At or above target → stop calling
-    else:
-        return prev_calling  # In deadband → maintain previous state
+    # Target changed → make fresh decision based on upper threshold only
+    if error >= -off_delta:     # t ≤ S + off_delta
+        return True             # Not yet overshot → heat
+    else:                       # t > S + off_delta
+        return False            # Already overshot → don't heat
 ```
 
-**Graphical Representation:**
-```
-Temperature (relative to target)
-    +1.0°C ─────────────────────────────────────
-           │                                    
-     0.0°C ├─────────────┐  OFF               
-           │  DEADBAND   │  (stop calling)     
-    -0.1°C ├─────────────┤ ← off_delta         
-           │  DEADBAND   │  (keep prev state)  
-           │             │  *BYPASSED if target changed*
-    -0.3°C ├─────────────┤ ← on_delta          
-           │             │  ON                  
-    -1.0°C ─────────────────────────────────────
+**Why use only off_delta on target change?**
+- When target changes, we want to heat toward the new target
+- Continue heating until we reach the "overshoot" threshold (S + off_delta)
+- This ensures responsive behavior without immediately stopping in the deadband
 
-Transitions:
-  • NOT calling + error ≥ 0.3°C → START calling
-  • Calling + error ≤ 0.1°C → STOP calling  
-  • Target changed + error ≥ 0.05°C → START calling (bypass deadband)  
-  • In deadband (0.1-0.3°C) → NO CHANGE
-```
+#### State Transitions
 
-**State Machine:**
+**Scenario 1: Normal heating cycle**
+1. Temp drops to 17.5°C (error = 0.5 > 0.4) → **START heating**
+2. Temp rises to 17.8°C (error = 0.2, in deadband) → **Continue heating**
+3. Temp rises to 18.0°C (error = 0.0, in deadband) → **Continue heating**
+4. Temp rises to 18.15°C (error = -0.15 < -0.1) → **STOP heating**
+5. Temp drifts down to 17.9°C (error = 0.1, in deadband) → **Stay off**
+6. Temp drifts down to 17.5°C (error = 0.5 > 0.4) → **START heating** (cycle repeats)
+
+**Scenario 2: Target change from 14.0°C to 18.0°C**
+1. Before change: Target=14.0°C, Temp=17.9°C → Not heating (above target)
+2. Target changes to 18.0°C → Temp=17.9°C, error=0.1
+3. Check: error (0.1) >= -off_delta (-0.1) → **TRUE** → **START heating**
+4. Next recompute: Target unchanged, temp=17.9°C, error=0.1 (in deadband)
+5. Use normal hysteresis: prev_calling=True → **Continue heating**
+6. Heat until temp > 18.1°C, then stop
+
+**Scenario 3: Target change from 20.0°C to 18.0°C**
+1. Before change: Target=20.0°C, Temp=19.0°C → Heating
+2. Target changes to 18.0°C → Temp=19.0°C, error=-1.0
+3. Check: error (-1.0) >= -off_delta (-0.1) → **FALSE** → **STOP heating**
+4. Already well above new target, no heating needed
+
+#### Graphical Representation
+
 ```
-┌──────────────┐  error ≥ 0.3°C   ┌──────────────┐
-│ NOT CALLING  │ ─────────────────→│  CALLING     │
-│ (valve 0%)   │                   │ (valve open) │
-└──────────────┘ ←────────────────┘──────────────┘
-                   error ≤ 0.1°C
+Temperature relative to target (S = 18.0°C example)
+─────────────────────────────────────────────────
+19.0°C  │
+        │  Zone 3: OFF
+18.1°C  ├─────────── S + off_delta (stop threshold)
+        │
+18.0°C  ├─────────── S (target)
+        │  Zone 2: DEADBAND
+        │  (maintain previous state)
+        │
+17.6°C  ├─────────── S - on_delta (start threshold)
+        │
+        │  Zone 1: ON
+17.0°C  │
+─────────────────────────────────────────────────
+
+State Transitions:
+  • OFF + cross below 17.6°C → START heating
+  • ON + cross above 18.1°C → STOP heating
+  • In deadband (17.6-18.1°C) → NO CHANGE (maintain state)
+  • Target changes + in deadband → Heat if t ≤ 18.1°C, else don't heat
 
 Deadband (0.1-0.3°C): No state change
 ```
 
-**Why Asymmetric?**
-- Prevents "flapping" where heating turns on/off repeatedly
-- Larger gap between on/off thresholds = more stability
-- Room allowed to slightly overshoot target before stopping
-- Trade-off: ±0.2°C accuracy for system stability
+#### Why Asymmetric Hysteresis?
 
-**Tuning Guidance:**
-- **Tight control**: `on_delta=0.2`, `off_delta=0.1` (risks more cycling)
-- **Default**: `on_delta=0.3`, `off_delta=0.1` (balanced)
-- **Stable/slow**: `on_delta=0.4`, `off_delta=0.1` (very stable, less precise)
-- **Rule**: Always maintain `on_delta ≥ off_delta + 0.1°C` for deadband
+- **Prevents flapping**: Room temperature oscillates naturally; hysteresis prevents rapid on/off cycling
+- **Accounts for overshoot**: Allow heating to continue past target so residual heat brings room to target
+- **Deadband stability**: Wide band (`on_delta + off_delta = 0.5°C` typical) provides stable operation
+- **Responsive to changes**: Target changes bypass deadband for immediate response
+
+#### Tuning Guidance
+
+- **Tight control**: `on_delta=0.3`, `off_delta=0.05` (more cycles, tighter temp range)
+- **Default**: `on_delta=0.4`, `off_delta=0.10` (balanced stability and precision)
+- **Very stable**: `on_delta=0.5`, `off_delta=0.15` (fewer cycles, wider temp range)
+- **Rule of thumb**: Total deadband width (`on_delta + off_delta`) should be 0.4-0.7°C
+- **off_delta**: Should be slightly larger than typical temperature sensor noise/variation
 
 ### Stepped Valve Bands (Proportional Control)
 

@@ -190,9 +190,12 @@ class RoomController:
     def compute_call_for_heat(self, room_id: str, target: float, temp: float) -> bool:
         """Determine if a room should call for heat using asymmetric hysteresis.
         
-        Hysteresis deadband logic is bypassed when the target temperature changes
-        (e.g., due to override, schedule transition, or mode change).
-        This ensures immediate response to user actions and schedule changes.
+        Asymmetric hysteresis creates three temperature zones:
+        - Zone 1 (too cold): t < S - on_delta → START/Continue heating
+        - Zone 2 (deadband): S - on_delta ≤ t ≤ S + off_delta → MAINTAIN state
+        - Zone 3 (too warm): t > S + off_delta → STOP heating
+        
+        When target changes, deadband is bypassed - heat until reaching S + off_delta.
         
         Args:
             room_id: Room identifier
@@ -207,7 +210,7 @@ class RoomController:
         on_delta = hysteresis['on_delta_c']
         off_delta = hysteresis['off_delta_c']
         
-        # Calculate error (positive = below target)
+        # Calculate error (positive = below target, negative = above target)
         error = target - temp
         
         # Get previous state and target
@@ -222,22 +225,23 @@ class RoomController:
                          abs(target - prev_target) > C.TARGET_CHANGE_EPSILON)
         
         if target_changed:
-            # Target changed -> bypass hysteresis deadband, make fresh decision
-            # Heat if we're meaningfully below target (use small threshold to avoid sensor noise)
+            # Target changed → bypass deadband, use only upper threshold
+            # Heat until temperature exceeds S + off_delta
             if prev_target is not None:
                 self.ad.log(f"Room {room_id}: Target changed {prev_target:.1f}->{target:.1f}C, "
-                           f"making fresh heating decision (error={error:.2f}C)", level="DEBUG")
-            return error >= C.FRESH_DECISION_THRESHOLD
+                           f"making fresh heating decision (error={error:.2f}C, t={temp:.1f}C)", level="DEBUG")
+            return error >= -off_delta  # t ≤ S + off_delta → heat
         
-        # Target unchanged -> use normal hysteresis logic
-        if error >= on_delta:
-            # Clearly below target -> call for heat
+        # Target unchanged → use normal hysteresis with three zones
+        if error > on_delta:
+            # Zone 1: t < S - on_delta (too cold)
             return True
-        elif error <= off_delta:
-            # At or above target → stop calling
+        elif error < -off_delta:
+            # Zone 3: t > S + off_delta (too warm, overshot)
             return False
         else:
-            # In deadband → maintain previous state
+            # Zone 2: S - on_delta ≤ t ≤ S + off_delta (deadband)
+            # Maintain previous state
             return prev_calling
 
     def compute_valve_percent(self, room_id: str, target: float, temp: float, 

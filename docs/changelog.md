@@ -1,6 +1,86 @@
 
 # PyHeat Changelog
 
+## 2025-11-13: Critical Hysteresis Bug Fix 🔧
+
+**Summary:**
+Fixed critical bug in asymmetric hysteresis implementation where heating would incorrectly stop immediately after a target change, even when room was still below the new target.
+
+**Problem:**
+The hysteresis logic incorrectly interpreted `off_delta_c` as "degrees below target" instead of "degrees above target". This caused:
+1. When target changed (e.g., schedule 14°C→18°C), room at 17.9°C would start heating
+2. On next recompute (29 seconds later), heating would stop because error (0.1°C) was at the old "off_delta" threshold
+3. Room would never reach the new target temperature
+
+**Root Cause:**
+- Used `error <= off_delta` (stop when 0.1°C below target)
+- Should have been `error < -off_delta` (stop when 0.1°C above target)
+- `off_delta_c` represents overshoot allowance ABOVE target, not proximity tolerance below it
+
+**Fix Details:**
+
+1. **room_controller.py - `compute_call_for_heat()`:**
+   - Changed condition from `error <= off_delta` to `error < -off_delta`
+   - Changed condition from `error >= on_delta` to `error > on_delta`
+   - Target change logic: changed from `error >= FRESH_DECISION_THRESHOLD` to `error >= -off_delta`
+   - Updated docstring to explain three temperature zones correctly
+   - Added temperature value to debug log for target changes
+
+2. **constants.py:**
+   - Removed `FRESH_DECISION_THRESHOLD` constant (no longer used)
+   - Completely rewrote hysteresis comments to explain correct zone behavior
+   - Clarified that off_delta is above target, on_delta is below target
+   - Updated HYSTERESIS_DEFAULT comments to reflect actual behavior
+
+3. **docs/ARCHITECTURE.md:**
+   - Complete rewrite of "Asymmetric Hysteresis" section
+   - Added clear temperature zone definitions with notation (t, S, on_delta, off_delta)
+   - Added detailed scenarios showing correct behavior
+   - Added graphical representation with proper zones
+   - Added "Why use only off_delta on target change?" explanation
+   - Updated tuning guidance to reflect corrected understanding
+
+**Correct Behavior After Fix:**
+
+With `S=18.0°C`, `on_delta=0.40`, `off_delta=0.10`:
+- **Zone 1 (t < 17.6°C):** START/Continue heating (too cold)
+- **Zone 2 (17.6°C ≤ t ≤ 18.1°C):** MAINTAIN state (deadband)
+- **Zone 3 (t > 18.1°C):** STOP heating (overshot)
+
+When target changes and room is in deadband:
+- Heat until temp exceeds S + off_delta (18.1°C)
+- Continue heating across subsequent recomputes until threshold crossed
+- Prevents immediate stop after target change
+
+**Testing Scenario:**
+
+Before fix:
+```
+19:00:25 - Target changes 14→18°C, temp 17.9°C → START heating ✓
+19:00:54 - Temp still 17.9°C → STOP heating ✗ (BUG)
+```
+
+After fix:
+```
+19:00:25 - Target changes 14→18°C, temp 17.9°C → START heating ✓
+19:00:54 - Temp still 17.9°C (in deadband) → CONTINUE heating ✓
+...continues until temp > 18.1°C...
+```
+
+**Impact:**
+- Fixes schedule transitions not heating rooms properly
+- Fixes override commands stopping prematurely
+- Fixes mode changes not maintaining heat to target
+- All rooms now heat correctly to new targets after any target change
+
+**Files Changed:**
+- `room_controller.py` - Fixed hysteresis logic
+- `constants.py` - Removed FRESH_DECISION_THRESHOLD, updated comments
+- `docs/ARCHITECTURE.md` - Complete hysteresis section rewrite
+- `docs/changelog.md` - This entry
+
+---
+
 ## 2025-11-13: Documentation Cleanup and Simplification 📝
 
 **Summary:**
