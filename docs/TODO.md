@@ -2,7 +2,7 @@
 
 ## Status: Production-Ready with HTTP API ✅
 
-**Last Updated**: 2025-11-06  
+**Last Updated**: 2025-11-13  
 **Current Phase**: Complete Heating Control with External API Integration
 
 ---
@@ -259,14 +259,15 @@ All services also available via HTTP at `/api/appdaemon/pyheat_*` for external a
 
 ### Enhanced Features (Inspired by PyScript Version)
 
-- [ ] **Persistent Notification System**
-  - [ ] Create notification manager for critical/serious errors
-  - [ ] Spam prevention by tracking active notifications
-  - [ ] Auto-dismiss when issues resolve
-  - [ ] Severity levels (INFO, WARNING, ERROR, CRITICAL)
-  - [ ] Category-based notifications (boiler, TRV, sensor, config, system)
-  - [ ] User-friendly notifications with emoji indicators
-  - **Note:** PyScript version has full `notifications.py` module - we may implement differently for AppDaemon
+- [x] **Persistent Notification System** - COMPLETE ✅ (2025-11-12)
+  - [x] Create notification manager for critical/serious errors
+  - [x] Spam prevention by tracking active notifications (debouncing + rate limiting)
+  - [x] Auto-dismiss when issues resolve
+  - [x] Severity levels (CRITICAL, WARNING)
+  - [x] Category-based notifications (boiler, TRV, sensor, config, system)
+  - [x] User-friendly notifications with emoji indicators
+  - **Implementation:** `alert_manager.py` module with comprehensive alert tracking
+  - **Documentation:** `docs/ALERT_MANAGER.md`
 
 - [ ] **Enhanced Watchdog and Auto-Recovery**
   - [ ] 1-minute watchdog cron for stuck state detection
@@ -343,13 +344,16 @@ All services also available via HTTP at `/api/appdaemon/pyheat_*` for external a
 
 ### Active Bugs
 
-1. **Override Hysteresis Trap** - Medium Priority
+**No active bugs!** 🎉
+
+**Previously Resolved:**
+
+1. **Override Hysteresis Trap** - RESOLVED ✅ (2025-11-10)
    - **Issue**: Override set close to current temp may not trigger heating
+   - **Resolution**: Implemented target change detection with hysteresis bypass
    - **Details**: See `docs/BUG_OVERRIDE_HYSTERESIS_TRAP.md`
-   - **Impact**: Override targets within 0.3°C of current temp are ignored if room was not previously calling
-   - **Workaround**: Set override targets at least 0.5°C above current temperature
-   - **Recommended Fix**: Track override activation and force fresh heating decision on first recompute
-   - **Affects**: `room_controller.py::compute_call_for_heat()`, `service_handler.py`
+   - **Fix**: Track `room_last_target` and bypass hysteresis deadband when target changes
+   - **Impact**: All target changes (override, schedule, mode) now respond immediately
 
 ---
 
