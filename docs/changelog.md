@@ -1,6 +1,55 @@
 
 # PyHeat Changelog
 
+## 2025-11-13: Documentation Cleanup and Simplification 📝
+
+**Summary:**
+Simplified documentation language, removed historical references, added MIT license, and cleaned up README structure.
+
+**Changes:**
+
+1. **README.md Major Updates:**
+   - Removed self-aggrandizing language ("comprehensive", "sophisticated", "intelligent")
+   - Removed "Development Status" section (completed features obvious from usage)
+   - Removed "Troubleshooting" section (support via issues)
+   - Removed "Integration with pyheat-web" section with hyperlink
+   - Removed "Migration from PyScript" section (historical, not relevant to current users)
+   - Removed "Contributing" section
+   - Removed "Authors" section
+   - Changed installation from symlink to copy command
+   - Removed reference to deleted `ha_yaml/README.md`
+   - Added MIT License section
+
+2. **ARCHITECTURE.md Updates:**
+   - Removed "comprehensive" and "sophisticated" language from component descriptions
+   - Simplified technical descriptions while retaining accuracy
+
+3. **New Files:**
+   - `LICENSE` - MIT License file added
+
+4. **Deleted Files:**
+   - `ha_yaml/README.md` - Installation instructions consolidated in main README
+
+**Rationale:**
+- Documentation should be straightforward and factual
+- Self-aggrandizing language adds no value
+- Historical context (PyScript migration) irrelevant to new users
+- Troubleshooting via GitHub issues is more maintainable
+- MIT license provides clear usage terms
+
+**Files Modified:**
+- `README.md` - Simplified and restructured
+- `docs/ARCHITECTURE.md` - Removed excessive adjectives
+- `LICENSE` (NEW) - MIT License
+- `docs/changelog.md` (this file)
+
+**Files Deleted:**
+- `ha_yaml/README.md`
+
+**Commit:** `git commit -m "docs: simplify language, add MIT license, remove historical sections"`
+
+---
+
 ## 2025-11-13: Fix ARCHITECTURE.md Inaccuracies 🔧
 
 **Summary:**

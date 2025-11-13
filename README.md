@@ -1,10 +1,10 @@
 # PyHeat - AppDaemon Heating Controller
 
-A comprehensive home heating control system for Home Assistant using AppDaemon.
+Home heating control system for Home Assistant using AppDaemon.
 
 ## Overview
 
-PyHeat provides intelligent multi-room heating control with:
+PyHeat provides multi-room heating control with:
 - **Per-room temperature management** with individual schedules
 - **Smart TRV control** via zigbee2mqtt (TRVZB devices)
 - **Boiler management** with safety interlocks and anti-cycling
@@ -14,8 +14,6 @@ PyHeat provides intelligent multi-room heating control with:
 - **Holiday mode** for energy savings
 
 ## Architecture
-
-This is a complete rewrite of the original PyScript implementation, migrated to AppDaemon for better reliability and state management. The codebase has been fully modularized for maintainability.
 
 ### Key Components
 
@@ -63,11 +61,11 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
 
 3. **Install Home Assistant entities**:
    
-   Add the PyHeat package to your Home Assistant configuration:
+   Copy the PyHeat package to your Home Assistant configuration:
    
    ```bash
    # From your Home Assistant config directory
-   ln -s /opt/appdata/appdaemon/conf/apps/pyheat/ha_yaml/pyheat_package.yaml packages/pyheat_package.yaml
+   cp /opt/appdata/appdaemon/conf/apps/pyheat/ha_yaml/pyheat_package.yaml packages/pyheat_package.yaml
    ```
    
    Then ensure your `configuration.yaml` has packages enabled:
@@ -76,8 +74,6 @@ This is a complete rewrite of the original PyScript implementation, migrated to 
    homeassistant:
      packages: !include_dir_named packages
    ```
-   
-   See `ha_yaml/README.md` for alternative installation methods.
 
 4. **Register the app** in `apps.yaml`:
    ```yaml
@@ -221,33 +217,9 @@ The app logs:
 - Configuration loading
 - Errors and warnings
 
-## Development Status
-
-### ✅ Completed
-- Core heating logic (sensor fusion, target resolution, hysteresis)
-- Full modular architecture with 10 specialized modules
-- TRV control with setpoint locking (35°C), rate limiting, and feedback confirmation
-- Complete 6-state boiler FSM with anti-cycling protection
-- TRV-open interlock validation and safety override
-- Pump overrun timer with valve position persistence
-- Status entity publishing with comprehensive diagnostics
-- Per-room sensor entities (temperature, target, valve_percent, calling_for_heat)
-- Configuration loading and validation
-- Callback registration for all state changes
-- **HTTP API endpoints** for external access (pyheat-web integration)
-- Debug monitoring tool for system testing
-
-## HTTP API Endpoints
-
-PyHeat exposes HTTP API endpoints via AppDaemon's `register_endpoint()` for external control and monitoring:
-
-**Base URL**: `http://<appdaemon-host>:5050/api/appdaemon/`
-
-### Available Endpoints
-
 ## REST API Reference
 
-PyHeat exposes a comprehensive REST API for external applications like [pyheat-web](https://github.com/yourusername/pyheat-web). All endpoints are available at `http://<appdaemon-host>:5050/api/appdaemon/<endpoint>`.
+PyHeat exposes a REST API for external applications like pyheat-web. All endpoints are available at `http://<appdaemon-host>:5050/api/appdaemon/<endpoint>`.
 
 ### Common Patterns
 
@@ -721,112 +693,6 @@ data:
 
 Service names match API endpoint names with the `appdaemon.` prefix.
 
----
-
-- **`pyheat_cancel_override`** - Cancel active override
-  ```json
-  POST /api/appdaemon/pyheat_cancel_override
-  {"room": "lounge"}
-  ```
-
-- **`pyheat_set_mode`** - Set room operating mode
-  ```json
-  POST /api/appdaemon/pyheat_set_mode
-  {"room": "lounge", "mode": "auto"}
-  // mode: "auto", "manual", "off"
-  // optional: "manual_setpoint": 20.0 for manual mode
-  ```
-
-- **`pyheat_get_status`** - Get complete system and room status
-  ```json
-  POST /api/appdaemon/pyheat_get_status
-  {}
-  // Returns: {rooms: [...], system: {...}}
-  ```
-
-- **`pyheat_get_schedules`** - Get current schedules
-  ```json
-  POST /api/appdaemon/pyheat_get_schedules
-  {}
-  // Returns: {rooms: [{id, default_target, week: {...}}, ...]}
-  ```
-
-- **`pyheat_replace_schedules`** - Update schedules (used by pyheat-web)
-  ```json
-  POST /api/appdaemon/pyheat_replace_schedules
-  {"schedule": {"rooms": [...]}}
-  // Atomically replaces schedules.yaml
-  ```
-
-- **`pyheat_reload_config`** - Reload configuration from YAML files
-  ```json
-  POST /api/appdaemon/pyheat_reload_config
-  {}
-  ```
-
-All endpoints return JSON with `{"success": true/false, ...}` format.
-
-See `api_handler.py` for implementation details and response formats.
-
-## Troubleshooting
-
-### App won't load
-- Check AppDaemon logs for import errors
-- Verify `__init__.py` exists in the pyheat directory
-- Ensure `apps.yaml` has `module: pyheat.app` (not `pyheat.pyheat`)
-
-### TRVs not responding
-- Verify TRV entity IDs in `config/rooms.yaml`
-- Check that zigbee2mqtt is running
-- Ensure TRV command entities exist (derived from climate entity)
-
-### Temperature not reading
-- Check sensor entity IDs in `config/rooms.yaml`
-- Verify sensors are updating (check timeout_m settings)
-- Look for "stale" messages in logs
-
-### Boiler not turning on
-- Ensure `input_boolean.pyheat_master_enable` is on
-- Check that at least one room is calling for heat
-- Verify boiler actor entity exists
-
-### API endpoints not working
-- Verify AppDaemon is running and accessible on port 5050
-- Check logs for endpoint registration messages
-- Ensure JSON body is properly formatted
-- Note: Endpoints are synchronous, not async
-
-## Integration with pyheat-web
-
-PyHeat can be controlled via the [pyheat-web](https://github.com/yourusername/pyheat-web) mobile-first web interface:
-- Real-time status monitoring via WebSocket
-- Room control (override with flexible temperature/duration modes, mode switching)
-- Visual schedule editor with drag-and-drop
-- Secure token custody (HA token never exposed to browser)
-
-See pyheat-web documentation for setup instructions.
-
-## Migration from PyScript
-
-This is a complete rewrite of the original PyScript implementation. Key differences:
-
-- **Execution model**: Callback-based vs decorator-based
-- **State management**: AppDaemon's persistent state vs PyScript's stateless
-- **Entity control**: `call_service()` vs direct state manipulation
-- **Imports**: Proper Python package structure
-- **API access**: HTTP endpoints via `register_endpoint()` (new in AppDaemon version)
-
-Configuration files (`rooms.yaml`, `schedules.yaml`) are compatible between versions.
-
-## Contributing
-
-See `docs/changelog.md` for recent changes and `docs/TODO.md` for planned work.
-
 ## License
 
-[Your license here]
-
-## Authors
-
-Originally implemented in PyScript, migrated to AppDaemon in November 2025.
-HTTP API endpoints and pyheat-web integration added November 2025.
+MIT License - see LICENSE file for details.

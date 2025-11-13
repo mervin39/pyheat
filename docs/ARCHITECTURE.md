@@ -2,7 +2,7 @@
 
 ## Introduction
 
-PyHeat is a sophisticated multi-room heating control system built on AppDaemon for Home Assistant. The system manages per-room temperature control through intelligent TRV (Thermostatic Radiator Valve) management, boiler state control with safety interlocks, and flexible scheduling capabilities.
+PyHeat is a multi-room heating control system built on AppDaemon for Home Assistant. The system manages per-room temperature control through TRV (Thermostatic Radiator Valve) management, boiler state control with safety interlocks, and flexible scheduling capabilities.
 
 The architecture is modular and event-driven, with clear separation of concerns across specialized controllers. Each module has a specific responsibility within the heating control pipeline, from sensor fusion through to physical valve commands.
 
@@ -415,7 +415,7 @@ if temp is None or is_stale:
 
 ### Overview
 
-The `Scheduler` class (`scheduler.py`) is responsible for determining target temperatures based on time-based schedules, user overrides, and system modes. It implements a sophisticated precedence system that allows temporary overrides while maintaining underlying schedule logic for automatic resumption.
+The `Scheduler` class (`scheduler.py`) is responsible for determining target temperatures based on time-based schedules, user overrides, and system modes. It implements a precedence system that allows temporary overrides while maintaining underlying schedule logic for automatic resumption.
 
 **Key Features:**
 - Weekly schedule blocks with start/end times per room
@@ -844,7 +844,7 @@ Applied at target resolution time, not in schedule config (schedules can have an
 
 ### Overview
 
-The `RoomController` class (`room_controller.py`) is the core decision-making engine that determines whether each room should heat and at what intensity. It implements sophisticated control algorithms with **asymmetric hysteresis** to prevent oscillation and **stepped valve bands** for proportional control without complex PID tuning.
+The `RoomController` class (`room_controller.py`) is the core decision-making engine that determines whether each room should heat and at what intensity. It implements control algorithms with **asymmetric hysteresis** to prevent oscillation and **stepped valve bands** for proportional control without complex PID tuning.
 
 **Key Responsibilities:**
 - Coordinate sensor fusion, scheduling, and TRV control
@@ -1282,7 +1282,7 @@ if room_cfg.get('disabled'):
 
 ### Overview
 
-The `TRVController` class (`trv_controller.py`) manages all interactions with Thermostatic Radiator Valves (TRVs), implementing sophisticated command/feedback logic with automatic retry, position verification, and setpoint locking. The system is designed specifically for **TRVZB valves** via Zigbee2MQTT.
+The `TRVController` class (`trv_controller.py`) manages all interactions with Thermostatic Radiator Valves (TRVs), implementing command/feedback logic with automatic retry, position verification, and setpoint locking. The system is designed specifically for **TRVZB valves** via Zigbee2MQTT.
 
 **Key Features:**
 - Non-blocking command execution with feedback confirmation
@@ -1749,7 +1749,7 @@ if not room_config or room_config.get('disabled'):
 
 ### Overview
 
-The `BoilerController` class (`boiler_controller.py`) implements a sophisticated **6-state finite state machine (FSM)** that manages central boiler operation with comprehensive safety features. The system prevents dangerous conditions like no-flow heating, excessive cycling, and residual heat buildup.
+The `BoilerController` class (`boiler_controller.py`) implements a **6-state finite state machine (FSM)** that manages central boiler operation with safety features. The system prevents dangerous conditions like no-flow heating, excessive cycling, and residual heat buildup.
 
 **Critical Safety Features:**
 - **Valve interlock**: Prevents boiler running without sufficient water flow
@@ -2426,7 +2426,7 @@ ad.register_service("pyheat/cancel_override", svc_cancel_override)
 - `pyheat/get_schedules` - Retrieve schedule configuration
 - `pyheat/get_rooms` - Retrieve room configuration
 - `pyheat/replace_schedules` - Replace entire schedule config
-- `pyheat/get_status` - Get comprehensive system and room status
+- `pyheat/get_status` - Get complete system and room status
 
 **How These Services Are Accessible:**
 
@@ -2499,7 +2499,7 @@ The `ServiceHandler` class manages service registration and execution with param
 
 ## Alert Manager
 
-PyHeat includes a comprehensive alert management system (`alert_manager.py`) that creates Home Assistant persistent notifications for critical issues requiring user attention.
+PyHeat includes an alert management system (`alert_manager.py`) that creates Home Assistant persistent notifications for critical issues requiring user attention.
 
 ### Design Principles
 
