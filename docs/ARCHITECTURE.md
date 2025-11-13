@@ -178,6 +178,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 - **room_controller.py** - Per-room heating logic and target resolution
 - **trv_controller.py** - TRV valve commands and setpoint locking
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
+- **alert_manager.py** - Error tracking and Home Assistant persistent notifications
 - **service_handler.py** - Home Assistant service registration and handling
 - **status_publisher.py** - Entity creation and status publication to HA
 - **config_loader.py** - YAML configuration validation and loading
@@ -2513,6 +2514,123 @@ The `ServiceHandler` class manages service registration and execution with param
 
 ---
 
+## Alert Manager
+
+PyHeat includes a comprehensive alert management system (`alert_manager.py`) that creates Home Assistant persistent notifications for critical issues requiring user attention.
+
+### Design Principles
+
+**Debouncing**: Requires 3 consecutive identical errors before creating an alert to prevent false positives from transient issues.
+
+**Rate Limiting**: Maximum 1 notification per alert type per hour to prevent notification spam.
+
+**Auto-clearing**: Automatically dismisses notifications when the underlying condition resolves (for most alert types).
+
+**Room Context**: Includes affected room information in notifications when applicable.
+
+**Severity Levels**: Critical (immediate attention) and Warning (informational) levels.
+
+### Alert Types
+
+**Critical Alerts:**
+
+1. **Boiler Interlock Failure** (`ALERT_BOILER_INTERLOCK_FAILURE`)
+   - Trigger: Boiler was running but valve interlock check failed (insufficient valve opening)
+   - Action: Boiler immediately turned off for safety
+   - Auto-clear: Yes (when valves reopen properly)
+
+2. **TRV Feedback Timeout** (`ALERT_TRV_FEEDBACK_TIMEOUT_{room_id}`)
+   - Trigger: TRV valve commanded but feedback doesn't match after 3 retries
+   - Indicates: TRV battery low, connectivity issue, or mechanical failure
+   - Auto-clear: Yes (when valve feedback confirms position)
+
+3. **TRV Unavailable** (`ALERT_TRV_UNAVAILABLE_{room_id}`)
+   - Trigger: TRV feedback sensor unavailable/unknown after multiple retries
+   - Indicates: Lost communication with TRV
+   - Auto-clear: Yes (when sensor becomes available)
+
+4. **Boiler Control Failure** (`ALERT_BOILER_CONTROL_FAILURE`)
+   - Trigger: Failed to turn boiler on/off via HA service call
+   - Indicates: Network issue or boiler entity unavailable
+   - Auto-clear: Yes (when next control command succeeds)
+
+5. **Configuration Load Failure** (`ALERT_CONFIG_LOAD_FAILURE`)
+   - Trigger: YAML syntax error or validation failure during config load
+   - Indicates: Configuration file corruption or syntax error
+   - Auto-clear: No (requires manual fix and reload)
+
+### Integration with Controllers
+
+The alert manager is initialized first in `app.py` and passed to controllers that need to report errors:
+
+```python
+self.alerts = AlertManager(self)  # Initialize first
+self.trvs = TRVController(self, self.config, self.alerts)
+self.boiler = BoilerController(self, self.config, self.alerts)
+```
+
+**TRV Controller Integration:**
+- Reports `ALERT_TRV_FEEDBACK_TIMEOUT` after valve command retries exhausted
+- Reports `ALERT_TRV_UNAVAILABLE` when feedback sensor is unavailable
+- Clears alerts when valve feedback confirms position
+
+**Boiler Controller Integration:**
+- Reports `ALERT_BOILER_INTERLOCK_FAILURE` when running with insufficient valves open
+- Reports `ALERT_BOILER_CONTROL_FAILURE` on HA service call exceptions
+- Clears alerts when control commands succeed
+
+**App Integration:**
+- Reports `ALERT_CONFIG_LOAD_FAILURE` on YAML load exceptions
+- Used during initialization and config reload operations
+
+### Implementation Details
+
+**Consecutive Error Tracking:**
+```python
+self.error_counts[alert_id] = self.error_counts.get(alert_id, 0) + 1
+if self.error_counts[alert_id] >= self.debounce_threshold:
+    # Create alert
+```
+
+**Rate Limiting:**
+```python
+last_notified = self.notification_history.get(alert_id)
+if last_notified and (now - last_notified).total_seconds() < rate_limit_seconds:
+    return  # Skip notification
+```
+
+**Auto-clearing:**
+```python
+def clear_error(self, alert_id: str) -> None:
+    self.error_counts[alert_id] = 0
+    if alert_id in self.active_alerts and alert['auto_clear']:
+        self._dismiss_notification(alert_id)
+        del self.active_alerts[alert_id]
+```
+
+**Home Assistant Integration:**
+```python
+self.ad.call_service(
+    "persistent_notification/create",
+    title="⚠️ PyHeat Critical Alert",
+    message=full_message,
+    notification_id=f"pyheat_{alert_id}"
+)
+```
+
+Notifications appear in Home Assistant's notification center (bell icon) and can be dismissed manually or automatically.
+
+### API Methods
+
+- `report_error(alert_id, severity, message, room_id, auto_clear)` - Report error condition
+- `clear_error(alert_id)` - Clear error condition and dismiss notification
+- `get_active_alerts()` - Query currently active alerts
+- `get_alert_count(severity)` - Count active alerts by severity
+
+For detailed alert documentation, see [ALERT_MANAGER.md](ALERT_MANAGER.md).
+
+---
+
 ## REST API
 
 PyHeat exposes HTTP endpoints via AppDaemon's `register_endpoint()` mechanism for external access (primarily pyheat-web).
@@ -2772,12 +2890,11 @@ All entity states are read via AppDaemon's `get_state()` method which queries Ho
 
 ### Related Documentation
 
-- [README.md](../README.md) - Installation and setup
+- [README.md](../README.md) - Installation, setup, and REST API reference
 - [STATUS_FORMAT_SPEC.md](STATUS_FORMAT_SPEC.md) - Status attribute format
-- [BOILER_SAFETY_STATUS.md](BOILER_SAFETY_STATUS.md) - Boiler control details
-- [TRV_SETPOINT_LOCKING.md](TRV_SETPOINT_LOCKING.md) - TRV locking rationale
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - Development roadmap
-- [BUG_OVERRIDE_HYSTERESIS_TRAP.md](BUG_OVERRIDE_HYSTERESIS_TRAP.md) - Known issue documentation
+- [ALERT_MANAGER.md](ALERT_MANAGER.md) - Alert system documentation
+- [TODO.md](TODO.md) - Project tracking and completed features
+- [changelog.md](changelog.md) - Detailed change history
 
 ### Configuration Examples
 
@@ -2785,6 +2902,6 @@ All entity states are read via AppDaemon's `get_state()` method which queries Ho
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2025-11-10  
+**Document Version**: 2.0  
+**Last Updated**: 2025-11-13  
 **Author**: PyHeat Development Team

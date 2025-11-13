@@ -1,6 +1,49 @@
 
 # PyHeat Changelog
 
+## 2025-11-13: Documentation Cleanup and Architecture Update 📚
+
+**Summary:**
+Cleaned up docs folder, removed obsolete bug files, and updated ARCHITECTURE.md to reflect current system state including alert manager.
+
+**Files Deleted:**
+- `docs/BUG_OVERRIDE_HYSTERESIS_TRAP.md` - Bug was resolved (2025-11-10), already documented in TODO and changelog
+- `docs/bugs/` - Empty directory removed
+
+**ARCHITECTURE.md Updates:**
+- Added `alert_manager.py` to core components list
+- Added comprehensive "Alert Manager" section documenting:
+  - Debouncing (3 consecutive errors required)
+  - Rate limiting (1 notification/hour/alert)
+  - Auto-clearing mechanisms
+  - All 5 alert types (boiler interlock, TRV feedback, TRV unavailable, boiler control, config load)
+  - Integration with TRV and boiler controllers
+  - Implementation details and API methods
+- Updated "Related Documentation" section
+- Updated document version to 2.0 (2025-11-13)
+- Removed references to deleted/non-existent docs
+
+**Verified Current:**
+- 6-state boiler FSM documentation matches implementation
+- Unified override system (target/delta) correctly documented
+- Target change hysteresis bypass documented with constants
+- All algorithms and state machines reflect actual code
+
+**Remaining Docs:**
+- `ARCHITECTURE.md` - Complete system architecture (updated)
+- `ALERT_MANAGER.md` - Alert system detailed documentation
+- `STATUS_FORMAT_SPEC.md` - Status text formatting specification
+- `TODO.md` - Project tracking and completed features
+- `changelog.md` - This file
+
+**Files Modified:**
+- `docs/ARCHITECTURE.md` - Added alert manager, updated version/date
+- `docs/changelog.md` (this file)
+
+**Commit:** `git commit -m "docs: cleanup docs folder and update ARCHITECTURE.md with alert manager"`
+
+---
+
 ## 2025-11-13: REST API Documentation 📚
 
 **Summary:**
