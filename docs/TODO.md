@@ -277,13 +277,14 @@ All services also available via HTTP at `/api/appdaemon/pyheat_*` for external a
   - [ ] Emergency safety valve monitoring
   - **Note:** Some safety features exist; this would enhance them
 
-- [ ] **REST API Documentation**
-  - [ ] Complete curl examples for all services
-  - [ ] `?return_response=true` usage patterns for AppDaemon
-  - [ ] Reading configuration via state attributes
-  - [ ] Service response structures with JSON examples
-  - [ ] Integration guide for external applications
-  - **Note:** PyScript version has extensive REST API docs - adapt for AppDaemon
+- [x] **REST API Documentation** - COMPLETE ✅ (2025-11-13)
+  - [x] Complete curl examples for all endpoints
+  - [x] Request/response format documentation
+  - [x] Field descriptions for status endpoint
+  - [x] Integration examples (Python client)
+  - [x] Home Assistant service equivalents
+  - **Implementation:** Comprehensive API reference in README.md
+
 
 - [ ] **Advanced Error Handling**
   - [ ] Graceful degradation when entities missing

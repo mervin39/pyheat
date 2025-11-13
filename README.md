@@ -245,16 +245,483 @@ PyHeat exposes HTTP API endpoints via AppDaemon's `register_endpoint()` for exte
 
 ### Available Endpoints
 
-- **`pyheat_override`** - Set temperature override with flexible parameters
-  ```json
-  // Absolute target for 60 minutes
-  POST /api/appdaemon/pyheat_override
-  {"room": "lounge", "target": 21.0, "minutes": 60}
-  
-  // Delta from schedule until 22:30
-  POST /api/appdaemon/pyheat_override
-  {"room": "lounge", "delta": 2.0, "end_time": "22:30"}
-  ```
+## REST API Reference
+
+PyHeat exposes a comprehensive REST API for external applications like [pyheat-web](https://github.com/yourusername/pyheat-web). All endpoints are available at `http://<appdaemon-host>:5050/api/appdaemon/<endpoint>`.
+
+### Common Patterns
+
+**Request Format:**
+- Method: POST (all endpoints)
+- Content-Type: `application/json`
+- Body: JSON object with parameters
+
+**Response Format:**
+```json
+{
+  "success": true,  // or false on error
+  "error": "error message"  // only present if success=false
+}
+```
+
+**Error Codes:**
+- `200 OK` - Success
+- `400 Bad Request` - Invalid parameters or validation error
+- `500 Internal Server Error` - Server-side error
+
+### Control Endpoints
+
+#### `pyheat_override` - Set Temperature Override
+
+Set a temporary temperature target for a room with flexible parameters.
+
+**Parameters:**
+- `room` (string, required) - Room ID
+- Temperature (one required):
+  - `target` (float) - Absolute temperature in °C (mutually exclusive with delta)
+  - `delta` (float) - Temperature adjustment from current schedule (mutually exclusive with target)
+- Duration (one required):
+  - `minutes` (integer) - Duration in minutes (mutually exclusive with end_time)
+  - `end_time` (string) - End time in HH:MM format (mutually exclusive with minutes)
+
+**Examples:**
+```bash
+# Set absolute target for 120 minutes
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_override \
+  -H "Content-Type: application/json" \
+  -d '{"room": "lounge", "target": 21.5, "minutes": 120}'
+
+# Adjust +2°C from schedule until 22:30
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_override \
+  -H "Content-Type: application/json" \
+  -d '{"room": "pete", "delta": 2.0, "end_time": "22:30"}'
+
+# Set target until specific time
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_override \
+  -H "Content-Type: application/json" \
+  -d '{"room": "abby", "target": 20.0, "end_time": "18:00"}'
+```
+
+**Response:**
+```json
+{"success": true}
+```
+
+---
+
+#### `pyheat_cancel_override` - Cancel Active Override
+
+Cancel any active override for a room, returning it to scheduled/manual control.
+
+**Parameters:**
+- `room` (string, required) - Room ID
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_cancel_override \
+  -H "Content-Type: application/json" \
+  -d '{"room": "lounge"}'
+```
+
+**Response:**
+```json
+{"success": true}
+```
+
+---
+
+#### `pyheat_set_mode` - Set Room Operating Mode
+
+Change a room's operating mode between auto (scheduled), manual, or off.
+
+**Parameters:**
+- `room` (string, required) - Room ID
+- `mode` (string, required) - Operating mode: `"auto"`, `"manual"`, or `"off"`
+- `manual_setpoint` (float, optional) - Target temperature for manual mode (defaults to 20.0°C)
+
+**Examples:**
+```bash
+# Switch to auto mode (uses schedule)
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_set_mode \
+  -H "Content-Type: application/json" \
+  -d '{"room": "lounge", "mode": "auto"}'
+
+# Switch to manual mode with specific setpoint
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_set_mode \
+  -H "Content-Type: application/json" \
+  -d '{"room": "office", "mode": "manual", "manual_setpoint": 22.5}'
+
+# Turn off heating for room
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_set_mode \
+  -H "Content-Type: application/json" \
+  -d '{"room": "guest", "mode": "off"}'
+```
+
+**Response:**
+```json
+{"success": true}
+```
+
+---
+
+#### `pyheat_set_default_target` - Update Default Temperature
+
+Update a room's default target temperature in schedules.yaml.
+
+**Parameters:**
+- `room` (string, required) - Room ID
+- `target` (float, required) - New default temperature in °C
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_set_default_target \
+  -H "Content-Type: application/json" \
+  -d '{"room": "lounge", "target": 19.5}'
+```
+
+**Response:**
+```json
+{"success": true}
+```
+
+---
+
+### Status Endpoints
+
+#### `pyheat_get_status` - Get Complete System Status
+
+Get comprehensive status for all rooms and system state. This is the primary endpoint for monitoring.
+
+**Parameters:** None (empty object)
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_status \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response:**
+```json
+{
+  "rooms": [
+    {
+      "id": "lounge",
+      "name": "Lounge",
+      "temp": 19.8,
+      "target": 21.0,
+      "mode": "auto",
+      "calling_for_heat": true,
+      "valve_percent": 70,
+      "is_stale": false,
+      "status_text": "Auto: 21.0° until 22:00 on Mon (19.5°)",
+      "formatted_status": "Auto: 21.0° until 22:00 on Mon (19.5°)",
+      "manual_setpoint": null,
+      "valve_feedback_consistent": true,
+      "override_end_time": null,
+      "override_remaining_minutes": null,
+      "override_target": null,
+      "scheduled_temp": 19.5
+    },
+    {
+      "id": "pete",
+      "name": "Pete's Room",
+      "temp": 18.2,
+      "target": 20.5,
+      "mode": "auto",
+      "calling_for_heat": true,
+      "valve_percent": 100,
+      "is_stale": false,
+      "status_text": "Override: 20.5° (+2.0°)",
+      "formatted_status": "Override: 20.5° (+2.0°)",
+      "manual_setpoint": null,
+      "valve_feedback_consistent": true,
+      "override_end_time": "2025-11-13T22:30:00+00:00",
+      "override_remaining_minutes": 47,
+      "override_target": 20.5,
+      "scheduled_temp": 18.5
+    }
+  ],
+  "system": {
+    "master_enabled": true,
+    "holiday_mode": false,
+    "any_call_for_heat": true,
+    "boiler_state": "on",
+    "boiler_actual_state": "on",
+    "last_recompute": "2025-11-13T21:43:15+00:00",
+    "boiler_off_delay_end_time": null,
+    "boiler_min_on_end_time": "2025-11-13T21:48:00+00:00",
+    "boiler_min_off_end_time": null,
+    "boiler_pump_overrun_end_time": null
+  }
+}
+```
+
+**Field Descriptions:**
+
+*Room Fields:*
+- `id` - Room identifier (used in API calls)
+- `name` - Display name
+- `temp` - Current temperature (°C) or null if stale
+- `target` - Current target temperature (°C) or null if off
+- `mode` - Operating mode: "auto", "manual", or "off"
+- `calling_for_heat` - Whether room is actively demanding heat
+- `valve_percent` - TRV valve opening (0-100%)
+- `is_stale` - Whether temperature sensors are outdated
+- `status_text` - Human-readable status summary
+- `formatted_status` - Formatted status with schedule context
+- `manual_setpoint` - Manual mode setpoint (°C) or null
+- `valve_feedback_consistent` - Whether commanded valve matches actual
+- `override_end_time` - ISO 8601 timestamp when override expires (null if no override)
+- `override_remaining_minutes` - Minutes remaining on override (null if no override)
+- `override_target` - Override target temperature (null if no override)
+- `scheduled_temp` - Temperature from schedule (before any override)
+
+*System Fields:*
+- `master_enabled` - Whether PyHeat heating control is enabled
+- `holiday_mode` - Whether holiday mode is active
+- `any_call_for_heat` - Whether any room is calling for heat
+- `boiler_state` - Boiler state machine state: "off", "pending_on", "on", "pending_off", "pump_overrun", "interlock_blocked"
+- `boiler_actual_state` - Actual boiler status: "on" or "off"
+- `last_recompute` - ISO 8601 timestamp of last system update
+- `boiler_*_end_time` - ISO 8601 timestamps for active boiler timers (null if inactive)
+
+---
+
+#### `pyheat_get_history` - Get Room Temperature History
+
+Get historical temperature, setpoint, and heating activity data for a room.
+
+**Parameters:**
+- `room` (string, required) - Room ID
+- `period` (string, required) - Time period: `"today"`, `"yesterday"`, or `"recent_Nh"` (e.g., "recent_4h")
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_history \
+  -H "Content-Type: application/json" \
+  -d '{"room": "lounge", "period": "today"}'
+```
+
+**Response:**
+```json
+{
+  "temperature": [
+    {"time": "2025-11-13T00:00:00+00:00", "value": 18.5},
+    {"time": "2025-11-13T00:05:00+00:00", "value": 18.6},
+    ...
+  ],
+  "setpoint": [
+    {"time": "2025-11-13T00:00:00+00:00", "value": 19.0},
+    {"time": "2025-11-13T06:30:00+00:00", "value": 21.0},
+    ...
+  ],
+  "calling_for_heat": [
+    ["2025-11-13T06:30:00+00:00", "2025-11-13T08:15:00+00:00"],
+    ["2025-11-13T18:00:00+00:00", "2025-11-13T22:00:00+00:00"]
+  ]
+}
+```
+
+---
+
+#### `pyheat_get_boiler_history` - Get Boiler Operation History
+
+Get historical boiler on/off periods for a specific day.
+
+**Parameters:**
+- `days_ago` (integer, required) - Days ago (0 = today, 1 = yesterday, max 7)
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_boiler_history \
+  -H "Content-Type: application/json" \
+  -d '{"days_ago": 0}'
+```
+
+**Response:**
+```json
+{
+  "periods": [
+    {"start": "2025-11-13T06:30:00+00:00", "end": "2025-11-13T08:15:00+00:00", "state": "on"},
+    {"start": "2025-11-13T08:15:00+00:00", "end": "2025-11-13T18:00:00+00:00", "state": "off"},
+    {"start": "2025-11-13T18:00:00+00:00", "end": "2025-11-13T22:00:00+00:00", "state": "on"}
+  ],
+  "start_time": "2025-11-13T00:00:00+00:00",
+  "end_time": "2025-11-13T23:59:59+00:00"
+}
+```
+
+---
+
+### Configuration Endpoints
+
+#### `pyheat_get_schedules` - Get Current Schedules
+
+Retrieve the complete schedules configuration.
+
+**Parameters:** None (empty object)
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_schedules \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response:**
+```json
+{
+  "rooms": [
+    {
+      "id": "lounge",
+      "default_target": 19.5,
+      "week": {
+        "mon": [
+          {"start": "06:30", "target": 21.0},
+          {"start": "22:00", "target": 19.5}
+        ],
+        "tue": [...],
+        ...
+      }
+    },
+    ...
+  ]
+}
+```
+
+---
+
+#### `pyheat_get_rooms` - Get Rooms Configuration
+
+Retrieve the complete rooms configuration.
+
+**Parameters:** None (empty object)
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_rooms \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response:**
+```json
+{
+  "lounge": {
+    "name": "Lounge",
+    "sensors": [...],
+    "trv": {...},
+    "hysteresis": {...},
+    "valve_bands": {...},
+    ...
+  },
+  ...
+}
+```
+
+---
+
+#### `pyheat_replace_schedules` - Replace Schedules Configuration
+
+Atomically replace the entire schedules.yaml file. Used by pyheat-web's schedule editor.
+
+**Parameters:**
+- `schedule` (object, required) - Complete schedules configuration
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_replace_schedules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schedule": {
+      "lounge": {
+        "default_target": 19.5,
+        "week": {
+          "mon": [{"start": "06:30", "target": 21.0}],
+          ...
+        }
+      }
+    }
+  }'
+```
+
+**Response:**
+```json
+{"success": true}
+```
+
+**Note:** Changes take effect immediately without requiring a restart.
+
+---
+
+#### `pyheat_reload_config` - Reload Configuration
+
+Reload all PyHeat configuration from YAML files (rooms.yaml, schedules.yaml, boiler.yaml).
+
+**Parameters:** None (empty object)
+
+**Example:**
+```bash
+curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_reload_config \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response:**
+```json
+{"success": true}
+```
+
+---
+
+### Integration Example (Python)
+
+pyheat-web uses the API via an async HTTP client. See `pyheat-web/server/appdaemon_client.py` for a complete implementation example:
+
+```python
+import httpx
+
+class PyHeatClient:
+    def __init__(self, base_url: str):
+        self.base_url = base_url.rstrip("/")
+        self.client = httpx.AsyncClient(timeout=10.0)
+    
+    async def override(self, room: str, target: float, minutes: int):
+        response = await self.client.post(
+            f"{self.base_url}/api/appdaemon/pyheat_override",
+            json={"room": room, "target": target, "minutes": minutes}
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def get_status(self):
+        response = await self.client.post(
+            f"{self.base_url}/api/appdaemon/pyheat_get_status",
+            json={}
+        )
+        response.raise_for_status()
+        return response.json()
+```
+
+---
+
+### Home Assistant Services
+
+All API endpoints are also available as Home Assistant services via AppDaemon integration:
+
+```yaml
+# Example automation
+service: appdaemon.pyheat_override
+data:
+  room: lounge
+  target: 21.0
+  minutes: 120
+```
+
+Service names match API endpoint names with the `appdaemon.` prefix.
+
+---
 
 - **`pyheat_cancel_override`** - Cancel active override
   ```json

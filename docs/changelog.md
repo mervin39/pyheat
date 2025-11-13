@@ -1,6 +1,53 @@
 
 # PyHeat Changelog
 
+## 2025-11-13: REST API Documentation 📚
+
+**Summary:**
+Added comprehensive REST API documentation to README.md with complete examples, field descriptions, and integration guidance.
+
+**Documentation Added:**
+- **All 11 API endpoints** fully documented with:
+  - Complete parameter descriptions
+  - Request/response examples with curl
+  - Field-by-field response documentation
+  - Error handling patterns
+  - Integration examples (Python async client)
+- **Cross-referenced** with pyheat-web's actual implementation (appdaemon_client.py)
+- **Home Assistant service equivalents** documented
+
+**Endpoints Documented:**
+1. **Control:**
+   - `pyheat_override` - Flexible temperature override (target/delta, minutes/end_time)
+   - `pyheat_cancel_override` - Cancel active override
+   - `pyheat_set_mode` - Change room mode (auto/manual/off)
+   - `pyheat_set_default_target` - Update default temperature
+2. **Status:**
+   - `pyheat_get_status` - Complete system/room status (primary monitoring endpoint)
+   - `pyheat_get_history` - Room temperature/setpoint history
+   - `pyheat_get_boiler_history` - Boiler on/off timeline
+3. **Configuration:**
+   - `pyheat_get_schedules` - Retrieve schedules
+   - `pyheat_get_rooms` - Retrieve rooms config
+   - `pyheat_replace_schedules` - Atomic schedule update
+   - `pyheat_reload_config` - Reload YAML files
+
+**Key Details:**
+- All endpoints use POST method with JSON body
+- Comprehensive status endpoint response with 20+ fields per room
+- ISO 8601 timestamps for all time values
+- Timer end times for client-side countdowns
+- Override metadata (remaining time, target, scheduled temp)
+
+**Files Modified:**
+- `README.md` - Added "REST API Reference" section (500+ lines)
+- `docs/TODO.md` - Marked REST API documentation as complete
+- `docs/changelog.md` (this file)
+
+**Commit:** `git commit -m "docs: add comprehensive REST API documentation to README"`
+
+---
+
 ## 2025-11-12: Alert Manager - Critical Error Notifications 🚨
 
 **Summary:**
