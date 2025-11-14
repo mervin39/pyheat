@@ -8,7 +8,7 @@ PyHeat provides multi-room heating control with:
 - **Per-room temperature management** with individual schedules
 - **Smart TRV control** via zigbee2mqtt (TRVZB devices)
 - **Boiler management** with safety interlocks and anti-cycling
-- **Sensor fusion** with staleness detection
+- **Sensor fusion** with staleness detection and optional EMA smoothing
 - **Multiple control modes**: Auto (scheduled), Manual, and Off per room
 - **Override** functionality with flexible parameters (absolute/delta temp, duration/end time)
 - **Holiday mode** for energy savings
@@ -32,7 +32,7 @@ PyHeat provides multi-room heating control with:
 
 ### Heating Logic
 
-1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles and staleness detection
+1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles and staleness detection. Optional EMA smoothing reduces display noise for rooms with sensors in different locations.
 2. **Target Resolution**: Precedence: Off → Manual → Override → Schedule → Default
 3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override response
 4. **Valve Control**: Stepped bands (0%, low%, mid%, max%) based on temperature error with multi-band jump optimization

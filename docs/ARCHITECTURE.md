@@ -39,6 +39,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    ├─ Update sensor values and timestamps                                    │
 │    ├─ Check staleness (timeout_m threshold)                                  │
 │    ├─ Average available sensors by role priority                             │
+│    ├─ Apply EMA smoothing (optional, per-room configurable)                  │
 │    └─ Return: (fused_temp, is_stale)                                         │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
@@ -196,6 +197,7 @@ The `SensorManager` class (`sensor_manager.py`) implements a robust sensor fusio
 **Key Features:**
 - Multiple sensors per room with primary/fallback roles
 - Automatic averaging of available sensors
+- EMA (Exponential Moving Average) smoothing for multi-sensor rooms
 - Staleness detection with configurable timeouts
 - Graceful degradation when sensors fail
 - State restoration on AppDaemon restart
@@ -321,6 +323,58 @@ avg_temp = sum(temps) / len(temps)  # → 21.53°C
 | 21.5°C, 21.8°C (both fresh) | - | **21.65°C** (average primaries) |
 | 21.5°C (stale) | 20.0°C (fresh) | **20.0°C** (fallback) |
 | 21.5°C (stale) | 20.0°C (stale) | **None** (all stale) |
+
+### Temperature Smoothing (EMA)
+
+For rooms with multiple sensors (especially sensors in different locations), the raw averaged temperature can fluctuate as individual sensors report slightly different readings. This is particularly noticeable when sensors are intentionally placed in different spots to capture room-wide temperature gradients.
+
+**EMA Smoothing** (Exponential Moving Average) reduces these fluctuations by blending the new fused temperature reading with the historical smoothed value:
+
+```python
+smoothed = alpha * raw_fused + (1 - alpha) * previous_smoothed
+```
+
+**Configuration** (per-room in `rooms.yaml`):
+```yaml
+rooms:
+  - id: lounge
+    name: Lounge
+    smoothing:
+      enabled: true
+      alpha: 0.3    # 30% new reading, 70% historical (default: 0.3)
+    sensors:
+      - entity_id: sensor.lounge_xiaomi_temp    # Cool side of room (~16.0°C)
+        role: primary
+      - entity_id: sensor.lounge_awair_temp     # Warm side of room (~16.9°C)
+        role: primary
+```
+
+**Smoothing Parameters:**
+- `alpha`: Weighting factor (0.0 to 1.0)
+  - Lower alpha (e.g., 0.1-0.3): More smoothing, slower response to changes
+  - Higher alpha (e.g., 0.5-0.9): Less smoothing, faster response to changes
+  - Default: 0.3 (recommended for most multi-sensor rooms)
+  - Alpha = 0.3 → 95% response time ≈ 10 sensor updates
+
+**Behavior:**
+- Smoothing is applied AFTER sensor fusion (averaging)
+- Smoothing state is initialized on first reading (no historical value)
+- Smoothing is applied consistently to both:
+  - Real-time display updates (`sensor.pyheat_<room>_temperature`)
+  - Control logic (deadband checks, heating decisions)
+- When smoothing is disabled, raw fused temperature is used directly
+- Smoothing state persists across sensor updates but resets on AppDaemon restart
+
+**When to Use:**
+- **Enable for multi-sensor rooms** where sensors are in different locations
+- Reduces visible "bouncing" in temperature displays (e.g., 16.4 ↔ 16.5 ↔ 16.6)
+- Prevents unnecessary heating state changes near temperature boundaries
+- Particularly useful with sensors that have different calibration or response times
+
+**When NOT to Use:**
+- Single-sensor rooms (no benefit, adds unnecessary lag)
+- Rooms requiring rapid response to temperature changes
+- Sensors that are co-located (already naturally stable)
 
 ### Entity State Tracking
 

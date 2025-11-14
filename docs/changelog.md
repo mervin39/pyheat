@@ -7,7 +7,9 @@
 Added optional exponential moving average (EMA) smoothing for displayed room temperatures to reduce visual noise when multiple sensors in different room locations cause the fused average to flip across rounding boundaries.
 
 **CRITICAL FIX (later same day):**
-Fixed bug where smoothing was only applied to display but not to deadband check, causing recomputes to still trigger on raw temperature changes. Smoothing now applied consistently to both display AND control logic.
+1. Fixed bug where smoothing configuration was never loaded from rooms.yaml due to missing key in config_loader.py's room_cfg dictionary
+2. Fixed bug where smoothing was only applied to display but not to deadband check, causing recomputes to still trigger on raw temperature changes
+3. Smoothing now applied consistently to both display AND control logic BEFORE deadband check
 
 **Problem:**
 Rooms with multiple sensors in different locations (e.g., one near window, one near radiator) intentionally report different temperatures for spatial averaging. When these sensors fluctuate by small amounts:
@@ -48,7 +50,7 @@ Implemented optional per-room EMA smoothing applied AFTER sensor fusion:
 - **Preserves spatial averaging** - all sensors still contribute equally to fusion
 - **Reduces temporal noise** - small fluctuations don't cause immediate display changes
 - **Still responsive** - real temperature trends show through within 1-2 minutes
-- **Heating control unchanged** - smoothing only affects display, not control logic
+- **Affects both display and control** - smoothing applied BEFORE deadband check and heating decisions
 - **Per-room tunable** - can adjust alpha or disable per room
 
 **When to Enable:**

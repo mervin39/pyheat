@@ -40,6 +40,7 @@
   - [x] Fall back to fallback sensors if primaries unavailable
   - [x] Detect stale sensors based on timeout_m
   - [x] Mark rooms as stale if all sensors unavailable
+  - [x] Optional EMA smoothing for multi-sensor rooms (2025-11-14) ✅
 
 - [x] **Schedule Resolution** (`get_scheduled_target()`)
   - [x] Parse weekly schedule for current day/time
