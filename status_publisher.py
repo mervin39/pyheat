@@ -48,12 +48,8 @@ class StatusPublisher:
         room_config = self.config.rooms.get(room_id, {})
         smoothing_config = room_config.get('smoothing', {})
         
-        # Debug: Log what we found in config
-        self.ad.log(f"Room '{room_id}': smoothing_config={smoothing_config}", level="DEBUG")
-        
         # Check if smoothing is enabled for this room
         if not smoothing_config.get('enabled', False):
-            self.ad.log(f"Room '{room_id}': Smoothing DISABLED or not configured", level="DEBUG")
             return raw_temp
         
         # Get smoothing factor (alpha) with fallback to default
@@ -65,7 +61,6 @@ class StatusPublisher:
         # First reading for this room - no history to smooth with
         if room_id not in self.smoothed_temps:
             self.smoothed_temps[room_id] = raw_temp
-            self.ad.log(f"Room '{room_id}': Smoothing initialized at {raw_temp:.2f}C", level="DEBUG")
             return raw_temp
         
         # Apply EMA: smoothed = alpha * new + (1 - alpha) * previous
@@ -74,8 +69,6 @@ class StatusPublisher:
         
         # Store for next iteration
         self.smoothed_temps[room_id] = smoothed
-        
-        self.ad.log(f"Room '{room_id}': Smoothing {raw_temp:.2f}C → {smoothed:.2f}C (α={alpha})", level="DEBUG")
         
         return smoothed
     
