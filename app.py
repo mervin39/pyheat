@@ -259,6 +259,9 @@ class PyHeat(hass.Hass):
         displayed (precision-rounded) temperature value. This reduces unnecessary
         recomputes by 80-90% when sensors report small fluctuations.
         
+        Temperature entity updates happen immediately on every sensor change for
+        real-time visibility in Home Assistant, independent of recompute logic.
+        
         Deadband threshold: To prevent boundary flipping when fused sensors hover
         around rounding boundaries (e.g., 17.745C <-> 17.755C flipping between
         17.7C and 17.8C), only trigger recompute if the change exceeds 0.5 * precision.
@@ -277,6 +280,10 @@ class PyHeat(hass.Hass):
                 # Get room precision and fused temperature
                 precision = self.config.rooms[room_id].get('precision', 1)
                 fused_temp, is_stale = self.sensors.get_room_temperature(room_id, now)
+                
+                # Always update temperature entity immediately (real-time display)
+                # This happens BEFORE recompute decision, ensuring instant UI updates
+                self.status.update_room_temperature(room_id, fused_temp, is_stale)
                 
                 # Always recompute if sensors are stale (safety)
                 if fused_temp is None or is_stale:

@@ -27,6 +27,34 @@ class StatusPublisher:
         self.ad = ad
         self.config = config
     
+    def update_room_temperature(self, room_id: str, temp: float, is_stale: bool) -> None:
+        """Update just the temperature sensor entity (lightweight operation).
+        
+        This is a lightweight method that only updates the temperature sensor entity
+        without touching other room entities. Called on every source sensor change
+        to provide real-time temperature updates independent of recompute logic.
+        
+        Args:
+            room_id: Room identifier
+            temp: Fused temperature in °C (or None if unavailable)
+            is_stale: Whether all sensors are stale/unavailable
+        """
+        room_config = self.config.rooms.get(room_id, {})
+        precision = room_config.get('precision', 1)
+        temp_entity = f"sensor.pyheat_{room_id}_temperature"
+        
+        if temp is not None:
+            self.ad.set_state(temp_entity, 
+                             state=round(temp, precision),
+                             attributes={
+                                 'unit_of_measurement': '°C',
+                                 'device_class': 'temperature',
+                                 'state_class': 'measurement',
+                                 'is_stale': is_stale
+                             })
+        else:
+            self.ad.set_state(temp_entity, state="unavailable")
+    
     def _check_if_forever(self, room_id: str) -> bool:
         """Check if schedule is set to run forever (no blocks on any day).
         
@@ -237,19 +265,8 @@ class StatusPublisher:
         room_name = room_config.get('name', room_id)
         precision = room_config.get('precision', 1)
         
-        # Temperature sensor
-        temp_entity = f"sensor.pyheat_{room_id}_temperature"
-        if data['temp'] is not None:
-            self.ad.set_state(temp_entity, 
-                         state=round(data['temp'], precision),
-                         attributes={
-                             'unit_of_measurement': '°C',
-                             'device_class': 'temperature',
-                             'state_class': 'measurement',
-                             'is_stale': data['is_stale']
-                         })
-        else:
-            self.ad.set_state(temp_entity, state="unavailable")
+        # Temperature sensor (using centralized method)
+        self.update_room_temperature(room_id, data['temp'], data['is_stale'])
         
         # Target sensor
         target_entity = f"sensor.pyheat_{room_id}_target"

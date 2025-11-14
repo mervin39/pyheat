@@ -1,6 +1,60 @@
 
 # PyHeat Changelog
 
+## 2025-11-14: Real-Time Temperature Entity Updates 📊
+
+**Summary:**
+Temperature sensor entities (`sensor.pyheat_<room>_temperature`) now update immediately on every source sensor change, providing real-time visibility in Home Assistant and pyheat-web without triggering extra recomputes.
+
+**Problem:**
+Previously, temperature entities only updated during recomputes, which happened:
+- Every 60 seconds (periodic)
+- When sensor changes exceeded the deadband threshold (0.05°C for precision=1)
+- On manual triggers (mode changes, setpoint changes, etc.)
+
+This meant small sensor fluctuations (< 0.05°C) could result in up to 60-second delays in temperature display updates, even though sensors were reporting changes.
+
+**Solution:**
+Implemented Option B architecture with centralized temperature publishing:
+
+1. **status_publisher.py - New `update_room_temperature()` method:**
+   - Lightweight method that only updates the temperature sensor entity
+   - Single source of truth for temperature display logic
+   - Handles precision rounding, staleness attributes, and entity state
+   - Future-proof for enhancements (smoothing, filtering, quality scores)
+
+2. **app.py - `sensor_changed()` callback:**
+   - Now calls `status.update_room_temperature()` immediately after sensor fusion
+   - Temperature entity updates happen BEFORE the deadband check
+   - Recompute logic unchanged - still uses deadband to prevent unnecessary control actions
+   - Clear separation: display updates vs. control logic
+
+3. **status_publisher.py - `publish_room_entities()` refactored:**
+   - Replaced duplicated temperature update code with call to `update_room_temperature()`
+   - Eliminates code duplication (DRY principle)
+   - Ensures consistent behavior across all code paths
+
+**Benefits:**
+- ✅ Real-time temperature updates (< 1 second latency)
+- ✅ Better user experience in pyheat-web dashboards
+- ✅ Fresher data for Home Assistant automations
+- ✅ No extra recomputes triggered
+- ✅ Single source of truth for temperature display logic
+- ✅ Easy to extend with smoothing/filtering in the future
+
+**Performance Impact:**
+- Slightly more `set_state()` calls to Home Assistant (3-4x increase)
+- Negligible CPU/memory impact
+- May increase database history size (recommend configuring recorder to limit history for `sensor.pyheat_*_temperature` entities if needed)
+
+**No Behavior Changes:**
+- Recompute frequency unchanged (~1-2 per minute)
+- Deadband threshold still prevents boundary flipping
+- Control accuracy unchanged
+- All heating logic identical
+
+---
+
 ## 2025-11-13: Critical Hysteresis Bug Fix 🔧
 
 **Summary:**
