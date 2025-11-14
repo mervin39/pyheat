@@ -281,17 +281,21 @@ class PyHeat(hass.Hass):
                 precision = self.config.rooms[room_id].get('precision', 1)
                 fused_temp, is_stale = self.sensors.get_room_temperature(room_id, now)
                 
+                # Apply smoothing if configured (for both display AND deadband check)
+                # This ensures consistent behavior: what you see is what affects control
+                smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, fused_temp) if fused_temp is not None else None
+                
                 # Always update temperature entity immediately (real-time display)
                 # This happens BEFORE recompute decision, ensuring instant UI updates
-                self.status.update_room_temperature(room_id, fused_temp, is_stale)
+                self.status.update_room_temperature(room_id, smoothed_temp, is_stale)
                 
                 # Always recompute if sensors are stale (safety)
-                if fused_temp is None or is_stale:
+                if smoothed_temp is None or is_stale:
                     self.trigger_recompute(f"sensor_{room_id}_changed")
                     return
                 
-                # Round fused temp to display precision
-                new_rounded = round(fused_temp, precision)
+                # Round smoothed temp to display precision for deadband check
+                new_rounded = round(smoothed_temp, precision)
                 old_rounded = self.last_published_temps.get(room_id)
                 
                 # Deadband: Only recompute if change exceeds half a display unit

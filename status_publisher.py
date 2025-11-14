@@ -61,6 +61,7 @@ class StatusPublisher:
         # First reading for this room - no history to smooth with
         if room_id not in self.smoothed_temps:
             self.smoothed_temps[room_id] = raw_temp
+            self.ad.log(f"Room '{room_id}': Smoothing initialized at {raw_temp:.2f}C", level="DEBUG")
             return raw_temp
         
         # Apply EMA: smoothed = alpha * new + (1 - alpha) * previous
@@ -70,7 +71,21 @@ class StatusPublisher:
         # Store for next iteration
         self.smoothed_temps[room_id] = smoothed
         
+        self.ad.log(f"Room '{room_id}': Smoothing {raw_temp:.2f}C → {smoothed:.2f}C (α={alpha})", level="DEBUG")
+        
         return smoothed
+    
+    def apply_smoothing_if_enabled(self, room_id: str, raw_temp: float) -> float:
+        """Public method to apply smoothing - used by app.py for deadband check.
+        
+        Args:
+            room_id: Room identifier
+            raw_temp: Raw fused temperature in °C
+            
+        Returns:
+            Smoothed temperature if enabled, otherwise raw temperature
+        """
+        return self._apply_smoothing(room_id, raw_temp)
     
     def update_room_temperature(self, room_id: str, temp: float, is_stale: bool) -> None:
         """Update just the temperature sensor entity (lightweight operation).
@@ -79,9 +94,12 @@ class StatusPublisher:
         without touching other room entities. Called on every source sensor change
         to provide real-time temperature updates independent of recompute logic.
         
+        NOTE: Expects temperature to already be smoothed if smoothing is enabled.
+        Smoothing is applied in app.py sensor_changed() before calling this method.
+        
         Args:
             room_id: Room identifier
-            temp: Fused temperature in °C (or None if unavailable)
+            temp: Temperature in °C (already smoothed if applicable, or None if unavailable)
             is_stale: Whether all sensors are stale/unavailable
         """
         room_config = self.config.rooms.get(room_id, {})
@@ -89,11 +107,9 @@ class StatusPublisher:
         temp_entity = f"sensor.pyheat_{room_id}_temperature"
         
         if temp is not None:
-            # Apply smoothing if configured
-            display_temp = self._apply_smoothing(room_id, temp)
-            
+            # Temperature is already smoothed (if enabled), just display it
             self.ad.set_state(temp_entity, 
-                             state=round(display_temp, precision),
+                             state=round(temp, precision),
                              attributes={
                                  'unit_of_measurement': '°C',
                                  'device_class': 'temperature',

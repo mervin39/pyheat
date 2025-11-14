@@ -6,6 +6,9 @@
 **Summary:**
 Added optional exponential moving average (EMA) smoothing for displayed room temperatures to reduce visual noise when multiple sensors in different room locations cause the fused average to flip across rounding boundaries.
 
+**CRITICAL FIX (later same day):**
+Fixed bug where smoothing was only applied to display but not to deadband check, causing recomputes to still trigger on raw temperature changes. Smoothing now applied consistently to both display AND control logic.
+
 **Problem:**
 Rooms with multiple sensors in different locations (e.g., one near window, one near radiator) intentionally report different temperatures for spatial averaging. When these sensors fluctuate by small amounts:
 - Sensor A: 16.0°C (cool spot) → 16.1°C
