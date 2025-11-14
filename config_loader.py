@@ -71,6 +71,7 @@ class ConfigLoader:
                 'id': room_id,
                 'name': room.get('name', room_id.capitalize()),
                 'precision': room.get('precision', 1),
+                'smoothing': room.get('smoothing', {}),  # Optional temperature smoothing config
                 'sensors': room.get('sensors', []),
                 'trv': {
                     'entity_id': room['trv']['entity_id'],
