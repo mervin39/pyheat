@@ -1,6 +1,39 @@
 
 # PyHeat Changelog
 
+## 2025-11-14: Temperature Smoothing Configuration Added to All Rooms 🎛️
+
+**Summary:**
+Added smoothing configuration to all rooms in rooms.yaml with appropriate alpha values based on sensor count. Smoothing is disabled by default (no behavior change) but ready to enable per-room as needed.
+
+**Changes:**
+
+1. **All rooms now have smoothing configuration:**
+   - Multi-sensor rooms (Pete, Dining, Lounge): alpha=0.3 (stronger smoothing)
+   - Single-sensor rooms (Abby, Office, Bathroom): alpha=0.5 (faster response)
+   - Only Lounge has smoothing enabled (existing configuration)
+   - All others disabled by default - no behavior change
+
+2. **Updated rooms.yaml.example with comprehensive documentation:**
+   - Detailed explanation of when to use smoothing
+   - Alpha value guidelines for different scenarios
+   - Response time calculations based on sensor update frequency
+   - Examples for multi-sensor vs single-sensor rooms
+
+3. **Alpha value rationale:**
+   - **alpha=0.3** for multi-sensor rooms: Reduces spatial averaging noise effectively
+     * 95% response in ~9 sensor updates (~4.5 min with 30s sensors)
+   - **alpha=0.5** for single-sensor rooms: Lighter smoothing, faster response
+     * 95% response in ~6 sensor updates (~3 min with 30s sensors)
+   - Higher values provide faster response but less noise reduction
+
+**Migration:**
+- No action required - smoothing disabled by default for all rooms except lounge
+- To enable: Set `smoothing.enabled: true` in rooms.yaml for specific rooms
+- AppDaemon will auto-reload configuration (no restart needed)
+
+---
+
 ## 2025-11-14: Temperature Smoothing (EMA) for Multi-Sensor Rooms 📊
 
 **Summary:**

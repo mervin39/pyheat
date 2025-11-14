@@ -10,16 +10,46 @@ rooms:
   #              internal temperature sensor as an attribute rather than state
   #
   # Temperature Smoothing (optional):
-  # - smoothing.enabled: Enable EMA smoothing for displayed temperature
-  # - smoothing.alpha: Smoothing factor (0.0-1.0, default 0.3)
-  #     0.3 = 30% new reading, 70% history (recommended for rooms with multiple sensors)
-  #     1.0 = no smoothing (default if not specified)
-  #   Useful when multiple sensors in different room locations cause averaged temperature
-  #   to flip across rounding boundaries. Applied AFTER sensor fusion.
+  # Reduces visual noise when sensors fluctuate, especially helpful for:
+  # - Rooms with multiple sensors in different locations (spatial averaging noise)
+  # - Chatty sensors that report frequently (every 10-30 seconds)
+  # - Sensors near temperature boundaries causing display to flip (16.4 ↔ 16.5 ↔ 16.6)
+  #
+  # Configuration:
+  # - smoothing.enabled: true/false (default: false)
+  # - smoothing.alpha: Smoothing factor 0.0-1.0 (default: 0.3)
+  #
+  # Alpha Guidelines:
+  # - 0.3 (recommended for 2+ sensors): Strong smoothing, ~9 updates for 95% response
+  #   * With 30s sensor interval: 95% response in ~4.5 minutes
+  #   * Good for multi-sensor rooms with spatial averaging
+  # - 0.5 (good for 1 sensor): Moderate smoothing, ~6 updates for 95% response
+  #   * With 30s sensor interval: 95% response in ~3 minutes
+  #   * Use if single sensor is noisy but want faster response
+  # - 0.7+: Light smoothing, very fast response (3-4 updates)
+  #   * Use for minimal noise reduction with near-instant response
+  #
+  # Behavior:
+  # - Applied AFTER sensor fusion (averaging of multiple sensors)
+  # - Affects both display AND control logic (deadband checks, heating decisions)
+  # - Response time = (number of updates) × (sensor update interval)
+  # - Chatty sensors (10-30s interval) get faster response than slow sensors (60-120s)
+  #
+  # When to Enable:
+  # ✓ Multi-sensor rooms (2+ sensors) - recommended alpha: 0.3
+  # ✓ Displayed temperature bounces frequently (e.g., 16.4 ↔ 16.5 ↔ 16.6 every minute)
+  # ✓ Sensors in different room locations report different but valid temperatures
+  # ✗ Single-sensor rooms (unless sensor is very noisy)
+  # ✗ Need instant temperature display updates
+  # ✗ Sensors already report stable values
   #
   - id: pete
     name: "Pete's Room"
     precision: 1
+    # Smoothing recommended for multi-sensor rooms (2 sensors here)
+    smoothing:
+      enabled: false  # Set to true to enable
+      alpha: 0.3      # 30% new, 70% history (good for 2+ sensors)
     sensors:
       - entity_id: sensor.roomtemp_pete
         role: primary
@@ -45,6 +75,10 @@ rooms:
   - id: games
     name: "Dining Room"
     precision: 1
+    # Optional: Enable smoothing if temperature display bounces
+    smoothing:
+      enabled: false  # Set to true to enable
+      alpha: 0.5      # 50% new, 50% history (single sensor - faster response)
     sensors:
       - entity_id: sensor.roomtemp_games
         role: primary
@@ -54,10 +88,11 @@ rooms:
   - id: lounge
     name: "Living Room"
     precision: 1
-    # Example: Enable smoothing for rooms with multiple sensors in different locations
+    # Example: Smoothing enabled for room with sensors in different locations
+    # One sensor near window (cool), one near radiator (warm) = spatial averaging
     smoothing:
-      enabled: true
-      alpha: 0.3  # 30% new, 70% history - reduces boundary flipping
+      enabled: true   # Enabled to reduce boundary flipping
+      alpha: 0.3      # 30% new, 70% history - good for 2+ sensors
     sensors:
       - entity_id: sensor.roomtemp_lounge
         role: primary
@@ -70,6 +105,10 @@ rooms:
   - id: abby
     name: "Abby's Room"
     precision: 1
+    # Optional: Enable smoothing for noisy single sensors
+    smoothing:
+      enabled: false  # Usually not needed for single stable sensor
+      alpha: 0.5      # 50% new, 50% history (faster response for single sensor)
     sensors:
       - entity_id: sensor.abby_xiaomi_temperature
         role: primary
