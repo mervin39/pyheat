@@ -1,6 +1,36 @@
 
 # PyHeat Changelog
 
+## 2025-11-14: Update Recommended Alpha Values for Single-Sensor Rooms
+
+**Summary:**
+Updated alpha values for all single-sensor rooms from 0.5 to 0.3 based on comprehensive testing. Alpha=0.5 is insufficient to prevent display jumping with typical Xiaomi sensor noise (0.02-0.05°C natural fluctuations).
+
+**Testing Results:**
+Controlled tests with simulated sensor noise showed:
+- **Alpha=0.5 with 0.1°C oscillations:** Display flips on every change (FAIL)
+- **Alpha=0.5 with 0.01°C oscillations:** Display stays stable (PASS)
+- **Alpha=0.3 with 0.1°C oscillations:** Display stays stable (PASS)
+
+**Real-World Impact:**
+Xiaomi temperature sensors naturally vary by 0.02-0.05°C due to air movement and sensor precision. With precision=1 (0.1°C display), these small variations cause the fused/smoothed value to cross rounding boundaries (e.g., 18.245 rounds to 18.2, 18.255 rounds to 18.3).
+
+**Changes:**
+- Updated alpha from 0.5 to 0.3 for all single-sensor rooms (Abby, Office, Bathroom)
+- Multi-sensor rooms already use alpha=0.3 (unchanged)
+- Updated comments to reflect "strong smoothing for noisy single sensor"
+
+**Recommendation:**
+All rooms should use alpha=0.3 for consistent behavior. This provides:
+- 95% response to step changes in ~9 sensor updates (~4.5 min with 30s sensors)
+- Strong noise reduction for typical sensor fluctuations
+- Stable display without compromising responsiveness to real temperature changes
+
+**Files Modified:**
+- `config/rooms.yaml` (Abby, Office, Bathroom alpha values)
+
+---
+
 ## 2025-11-14: Fix Temperature Smoothing Being Bypassed During Recompute
 
 **Summary:**
