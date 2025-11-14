@@ -212,6 +212,27 @@ STARTUP_INITIAL_DELAY_S = 2   # Initial recompute delay
 STARTUP_SECOND_DELAY_S = 10   # Second recompute for late-restoring sensors
 
 # ============================================================================
+# Temperature Smoothing (Exponential Moving Average)
+# ============================================================================
+
+# Default EMA smoothing parameters for fused temperature display
+# Smoothing reduces visual noise when sensors in different room locations
+# report slightly different temperatures that cause averaged result to flip
+# across rounding boundaries.
+#
+# Applied AFTER sensor fusion, preserves spatial averaging intent while
+# reducing temporal noise in the displayed temperature.
+#
+# alpha = smoothing factor (0.0 to 1.0)
+#   - 0.0 = maximum smoothing (100% history, 0% new reading) - TOO SLOW
+#   - 1.0 = no smoothing (0% history, 100% new reading) - current behavior
+#   - 0.3 = recommended (30% new, 70% history) - balances responsiveness and stability
+#
+# Time constant: ~3 sensor updates for 95% of step change to reflect
+# With sensors updating every 30-60s, this means 1.5-3 minutes to fully respond
+TEMPERATURE_SMOOTHING_ALPHA_DEFAULT = 0.3
+
+# ============================================================================
 # Logging
 # ============================================================================
 

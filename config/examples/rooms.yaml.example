@@ -9,6 +9,14 @@ rooms:
   #     Example: For climate entities, use "current_temperature" to read the TRV's
   #              internal temperature sensor as an attribute rather than state
   #
+  # Temperature Smoothing (optional):
+  # - smoothing.enabled: Enable EMA smoothing for displayed temperature
+  # - smoothing.alpha: Smoothing factor (0.0-1.0, default 0.3)
+  #     0.3 = 30% new reading, 70% history (recommended for rooms with multiple sensors)
+  #     1.0 = no smoothing (default if not specified)
+  #   Useful when multiple sensors in different room locations cause averaged temperature
+  #   to flip across rounding boundaries. Applied AFTER sensor fusion.
+  #
   - id: pete
     name: "Pete's Room"
     precision: 1
@@ -46,6 +54,10 @@ rooms:
   - id: lounge
     name: "Living Room"
     precision: 1
+    # Example: Enable smoothing for rooms with multiple sensors in different locations
+    smoothing:
+      enabled: true
+      alpha: 0.3  # 30% new, 70% history - reduces boundary flipping
     sensors:
       - entity_id: sensor.roomtemp_lounge
         role: primary

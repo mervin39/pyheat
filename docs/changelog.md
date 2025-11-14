@@ -1,6 +1,76 @@
 
 # PyHeat Changelog
 
+## 2025-11-14: Temperature Smoothing (EMA) for Multi-Sensor Rooms 📊
+
+**Summary:**
+Added optional exponential moving average (EMA) smoothing for displayed room temperatures to reduce visual noise when multiple sensors in different room locations cause the fused average to flip across rounding boundaries.
+
+**Problem:**
+Rooms with multiple sensors in different locations (e.g., one near window, one near radiator) intentionally report different temperatures for spatial averaging. When these sensors fluctuate by small amounts:
+- Sensor A: 16.0°C (cool spot) → 16.1°C
+- Sensor B: 17.0°C (warm spot) → stays at 17.0°C
+- Fused average: 16.5°C → 16.55°C → rounds to 16.6°C
+
+This causes the displayed temperature to "bounce" between values (16.4 ↔ 16.5 ↔ 16.6) every 30-60 seconds as sensors naturally fluctuate, even though the room's actual average temperature is stable.
+
+**Solution:**
+Implemented optional per-room EMA smoothing applied AFTER sensor fusion:
+
+1. **constants.py - New smoothing constant:**
+   - `TEMPERATURE_SMOOTHING_ALPHA_DEFAULT = 0.3`
+   - 30% new reading, 70% history
+   - Time constant: ~3 sensor updates (1.5-3 minutes) for 95% of step change
+
+2. **rooms.yaml - New optional configuration:**
+   ```yaml
+   - id: lounge
+     smoothing:
+       enabled: true
+       alpha: 0.3  # Tune per room (0.0-1.0)
+   ```
+
+3. **status_publisher.py - Implementation:**
+   - New `_apply_smoothing()` method implementing EMA algorithm
+   - Integrated into `update_room_temperature()` before rounding
+   - Stores smoothed history per room in `self.smoothed_temps`
+   - Clamps alpha to [0.0, 1.0] range for safety
+   - Disabled by default (no behavior change for existing rooms)
+
+4. **Config examples updated:**
+   - Documented smoothing parameters in `rooms.yaml.example`
+   - Added example configuration for lounge room
+
+**Behavior:**
+- **Preserves spatial averaging** - all sensors still contribute equally to fusion
+- **Reduces temporal noise** - small fluctuations don't cause immediate display changes
+- **Still responsive** - real temperature trends show through within 1-2 minutes
+- **Heating control unchanged** - smoothing only affects display, not control logic
+- **Per-room tunable** - can adjust alpha or disable per room
+
+**When to Enable:**
+- Rooms with 2+ sensors in different locations
+- Displayed temperature "bounces" frequently (± 0.1°C every minute)
+- Sensors report slightly different but correct temperatures for their location
+
+**When NOT to Enable:**
+- Single sensor rooms (no benefit)
+- Need instant temperature display response
+- Sensors are already stable
+
+**Performance:**
+- Minimal impact: one floating point calculation per temperature update
+- No additional history storage (just previous smoothed value)
+
+**Example for Lounge:**
+Enabled smoothing with alpha=0.3 to reduce boundary flipping from:
+- Xiaomi sensor (cool area): ~16.0-16.1°C
+- Awair sensor (warm area): ~16.9-17.1°C
+- Raw average bounces between 16.4-16.6°C
+- Smoothed average stable at 16.5°C until real trend emerges
+
+---
+
 ## 2025-11-14: Real-Time Temperature Entity Updates 📊
 
 **Summary:**

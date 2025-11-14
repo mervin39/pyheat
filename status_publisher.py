@@ -26,6 +26,51 @@ class StatusPublisher:
         """
         self.ad = ad
         self.config = config
+        
+        # EMA smoothing state: {room_id: smoothed_temperature}
+        # Stores the previous smoothed value for each room to compute moving average
+        self.smoothed_temps = {}
+    
+    def _apply_smoothing(self, room_id: str, raw_temp: float) -> float:
+        """Apply exponential moving average smoothing to temperature.
+        
+        Smooths the fused temperature to reduce visual noise when sensors in
+        different room locations report slightly different temperatures that
+        cause averaged result to flip across rounding boundaries.
+        
+        Args:
+            room_id: Room identifier
+            raw_temp: Raw fused temperature in °C
+            
+        Returns:
+            Smoothed temperature in °C
+        """
+        room_config = self.config.rooms.get(room_id, {})
+        smoothing_config = room_config.get('smoothing', {})
+        
+        # Check if smoothing is enabled for this room
+        if not smoothing_config.get('enabled', False):
+            return raw_temp
+        
+        # Get smoothing factor (alpha) with fallback to default
+        alpha = smoothing_config.get('alpha', C.TEMPERATURE_SMOOTHING_ALPHA_DEFAULT)
+        
+        # Clamp alpha to valid range [0.0, 1.0]
+        alpha = max(0.0, min(1.0, alpha))
+        
+        # First reading for this room - no history to smooth with
+        if room_id not in self.smoothed_temps:
+            self.smoothed_temps[room_id] = raw_temp
+            return raw_temp
+        
+        # Apply EMA: smoothed = alpha * new + (1 - alpha) * previous
+        previous = self.smoothed_temps[room_id]
+        smoothed = alpha * raw_temp + (1.0 - alpha) * previous
+        
+        # Store for next iteration
+        self.smoothed_temps[room_id] = smoothed
+        
+        return smoothed
     
     def update_room_temperature(self, room_id: str, temp: float, is_stale: bool) -> None:
         """Update just the temperature sensor entity (lightweight operation).
@@ -44,8 +89,11 @@ class StatusPublisher:
         temp_entity = f"sensor.pyheat_{room_id}_temperature"
         
         if temp is not None:
+            # Apply smoothing if configured
+            display_temp = self._apply_smoothing(room_id, temp)
+            
             self.ad.set_state(temp_entity, 
-                             state=round(temp, precision),
+                             state=round(display_temp, precision),
                              attributes={
                                  'unit_of_measurement': '°C',
                                  'device_class': 'temperature',
