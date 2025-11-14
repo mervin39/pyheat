@@ -1,6 +1,43 @@
 
 # PyHeat Changelog
 
+## 2025-11-14: Fix Temperature Smoothing Being Bypassed During Recompute
+
+**Summary:**
+Fixed critical bug where temperature smoothing was being bypassed during recompute cycles, causing smoothed temperature values to be overwritten with raw fused values. This resulted in displayed temperatures continuing to jump despite smoothing being enabled and configured correctly.
+
+**Problem:**
+Temperature smoothing was only applied in the `sensor_changed()` path. However, during periodic recomputes (every 60s) and when master enable was OFF, the temperature entity was being updated with raw unsmoothed values, overwriting the smoothed values. This caused the displayed temperature to jump even when smoothing was working correctly for sensor changes.
+
+**Root Cause:**
+Two code paths were updating temperature entities without applying smoothing:
+1. `publish_room_entities()` - called during every recompute, updated temperature entity with `data['temp']` (raw fused value)
+2. Master enable OFF path in `recompute_all()` - directly set temperature entity with raw fused value
+
+**Changes:**
+
+1. **status_publisher.py:**
+   - Removed temperature entity update from `publish_room_entities()` method
+   - Temperature entity is now ONLY updated by `sensor_changed()` with smoothing applied
+   - Added documentation explaining why temperature update was removed
+
+2. **app.py:**
+   - Updated master enable OFF path to apply smoothing using `status.apply_smoothing_if_enabled()`
+   - Changed to use centralized `status.update_room_temperature()` method for consistency
+   - Ensures smoothing is applied consistently across all code paths
+
+**Impact:**
+- Temperature smoothing now works correctly for all rooms
+- Displayed temperatures stabilize without jumping (e.g., lounge now stays at 16.5°C instead of jumping between 16.4-16.6°C)
+- No behavior change for rooms with smoothing disabled
+- Maintains real-time temperature updates on sensor changes
+
+**Files Modified:**
+- `app.py` (master enable OFF path)
+- `status_publisher.py` (publish_room_entities method)
+
+---
+
 ## 2025-11-14: Temperature Smoothing Configuration Added to All Rooms 🎛️
 
 **Summary:**

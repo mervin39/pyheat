@@ -317,6 +317,10 @@ class StatusPublisher:
     def publish_room_entities(self, room_id: str, data: Dict, now: datetime) -> None:
         """Publish per-room entities.
         
+        NOTE: Temperature sensor is NOT updated here - it's updated in real-time
+        by sensor_changed() with smoothing applied. This prevents recompute from
+        overwriting smoothed values with raw fused temperatures.
+        
         Args:
             room_id: Room identifier
             data: Room state dictionary
@@ -325,9 +329,6 @@ class StatusPublisher:
         room_config = self.config.rooms.get(room_id, {})
         room_name = room_config.get('name', room_id)
         precision = room_config.get('precision', 1)
-        
-        # Temperature sensor (using centralized method)
-        self.update_room_temperature(room_id, data['temp'], data['is_stale'])
         
         # Target sensor
         target_entity = f"sensor.pyheat_{room_id}_target"
