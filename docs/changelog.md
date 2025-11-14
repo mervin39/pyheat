@@ -6,6 +6,18 @@
 **Summary:**
 Temperature sensor entities (`sensor.pyheat_<room>_temperature`) now update immediately on every source sensor change, providing real-time visibility in Home Assistant and pyheat-web without triggering extra recomputes.
 
+**Changes:**
+
+1. **Real-time temperature updates:**
+   - Temperature entities now update within < 1 second of source sensor changes
+   - Separate from recompute logic - display updates happen before deadband check
+   - Implemented Option B architecture with centralized `StatusPublisher.update_room_temperature()` method
+
+2. **Reduced log spam:**
+   - Changed API handler boiler timer logs from INFO to DEBUG level
+   - These logs were firing on every pyheat-web API poll (every 2 seconds)
+   - Still available for debugging with DEBUG log level
+
 **Problem:**
 Previously, temperature entities only updated during recomputes, which happened:
 - Every 60 seconds (periodic)
@@ -34,6 +46,10 @@ Implemented Option B architecture with centralized temperature publishing:
    - Eliminates code duplication (DRY principle)
    - Ensures consistent behavior across all code paths
 
+4. **api_handler.py - Reduced log spam:**
+   - Changed boiler state and timer logs from INFO to DEBUG level
+   - Reduces noise in logs from frequent pyheat-web API polls
+
 **Benefits:**
 - ✅ Real-time temperature updates (< 1 second latency)
 - ✅ Better user experience in pyheat-web dashboards
@@ -41,6 +57,7 @@ Implemented Option B architecture with centralized temperature publishing:
 - ✅ No extra recomputes triggered
 - ✅ Single source of truth for temperature display logic
 - ✅ Easy to extend with smoothing/filtering in the future
+- ✅ Cleaner logs (API debug info only visible in DEBUG mode)
 
 **Performance Impact:**
 - Slightly more `set_state()` calls to Home Assistant (3-4x increase)
