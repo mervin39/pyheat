@@ -117,8 +117,19 @@ class PyHeat(hass.Hass):
         # Schedule config file monitoring (check every 30 seconds)
         self.run_every(self.check_config_files, "now+15", 30)
         
-        # Lock all TRV setpoints immediately
-        self.run_in(self.lock_all_trv_setpoints, 3)
+        # Check master enable state and apply appropriate startup behavior
+        master_enable = self.get_state(C.HELPER_MASTER_ENABLE)
+        if master_enable == "off":
+            # System is disabled at startup - apply master OFF behavior immediately
+            self.log("Master enable is OFF at startup - opening valves and shutting down")
+            now = self.get_now()
+            for room_id in self.config.rooms.keys():
+                self.rooms.set_room_valve(room_id, 100, now)
+            self.boiler._set_boiler_off()
+            # Do NOT lock TRV setpoints (allows manual control)
+        else:
+            # System is enabled - lock TRV setpoints for normal operation
+            self.run_in(self.lock_all_trv_setpoints, 3)
         
         # Perform initial recomputes (with delays for sensor restoration)
         self.run_in(self.initial_recompute, C.STARTUP_INITIAL_DELAY_S)
@@ -134,7 +145,7 @@ class PyHeat(hass.Hass):
         self.log(f"PyHeat initialized successfully")
         self.log(f"  Rooms: {len(self.config.rooms)}")
         self.log(f"  Schedules: {len(self.config.schedules)}")
-        master_enable = self.get_state(C.HELPER_MASTER_ENABLE)
+        # Note: master_enable already read during initialization above
         holiday_mode = self.get_state(C.HELPER_HOLIDAY_MODE)
         self.log(f"  Master enable: {master_enable}")
         self.log(f"  Holiday mode: {holiday_mode}")

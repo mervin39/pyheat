@@ -1,6 +1,65 @@
 
 # PyHeat Changelog
 
+## 2025-11-15: Fix Master Enable State Not Applied at Startup 🐛
+
+**Status:** FIXED ✅
+
+**Issue:**
+When PyHeat initialized with master enable already OFF (e.g., after AppDaemon restart, app reload, or if master was turned off while PyHeat was down), the system would:
+- ✅ Read and log the OFF state correctly
+- ❌ **Still lock TRV setpoints to 35°C** (should skip when OFF)
+- ❌ **Never open valves to 100%** (safety requirement when OFF)
+- ❌ **Never turn off boiler** (could leave boiler running!)
+
+The `master_enable_changed()` callback only fires on state *changes*, not on initial read. This meant the master OFF safety behavior was never applied if the switch was already OFF at startup.
+
+**Root Cause:**
+During `initialize()`, the code would:
+1. Read master enable state → "off"
+2. Unconditionally schedule `lock_all_trv_setpoints()` at 3 seconds
+3. Never apply the master OFF behavior (valve opening, boiler shutdown)
+
+**Impact:**
+- 🔴 **Safety risk**: Boiler could run with closed valves if master OFF during restart
+- 🔴 **Pressure buildup**: No safety valve opening when disabled at startup
+- 🔴 **Control interference**: TRVs locked even when manual control should be allowed
+
+**Fix:**
+Added conditional initialization logic to check master enable state and apply appropriate behavior:
+
+```python
+master_enable = self.get_state(C.HELPER_MASTER_ENABLE)
+if master_enable == "off":
+    # System disabled at startup - apply master OFF behavior
+    self.log("Master enable is OFF at startup - opening valves and shutting down")
+    now = self.get_now()
+    for room_id in self.config.rooms.keys():
+        self.rooms.set_room_valve(room_id, 100, now)
+    self.boiler._set_boiler_off()
+    # Do NOT lock TRV setpoints (allows manual control)
+else:
+    # System enabled - lock TRV setpoints for normal operation
+    self.run_in(self.lock_all_trv_setpoints, 3)
+```
+
+**Now works correctly:**
+- ✅ If master OFF at startup: Opens valves, turns off boiler, skips TRV locking
+- ✅ If master ON at startup: Locks TRVs, proceeds with normal operation
+- ✅ If master changes during operation: Callback handles it (already working)
+
+**Testing:**
+1. Set master enable OFF
+2. Restart AppDaemon or reload pyheat app
+3. Verify: valves open to 100%, boiler off, TRVs not locked
+
+**Files Modified:**
+- `app.py` - Added conditional initialization based on master enable state
+
+**Commit:** `git commit -m "fix: apply master enable state during initialization"`
+
+---
+
 ## 2025-11-15: Fix Boiler Not Turning Off When Master Enable Disabled 🐛
 
 **Status:** FIXED ✅
