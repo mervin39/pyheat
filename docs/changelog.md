@@ -1,6 +1,34 @@
 
 # PyHeat Changelog
 
+## 2025-11-15: Fix Safety Valve Override Triggering Incorrectly 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+The safety valve override was triggering when the climate entity state was "off", forcing the games room valve to 100% unnecessarily. This happened because:
+- The safety check was looking at `hvac_action` attribute (which can be "idle" even when state is "off")
+- It was also checking PyHeat's internal state, making it overly complex
+- The check should simply be: "Is the climate entity not off? AND are there no rooms calling for heat?"
+
+**Root Cause:**
+The `climate.opentherm_heating` entity can have `state="off"` but `hvac_action="idle"` simultaneously. The old logic checked `hvac_action in ("heating", "idle")` which incorrectly triggered when the entity was actually off.
+
+**Solution:**
+Simplified the safety check to only examine the climate entity's `state`:
+- If `state != "off"` AND no rooms calling → force safety valve open
+- This is simpler, more robust, and correctly handles the case where the entity is actually off
+
+**Why This Matters:**
+- Climate entity state "off" means it won't heat (safe)
+- Climate entity state "heat" means it could heat at any time (need valve path)
+- We don't need to check PyHeat's internal state machine - we just need to ensure a flow path exists whenever the climate entity could potentially heat
+
+**Files Modified:**
+- `boiler_controller.py` - Replaced `_get_hvac_action()` with `_get_boiler_entity_state()`, simplified safety check logic
+
+---
+
 ## 2025-11-15: Simplified Boiler Control - Use climate.turn_on/turn_off 🎯
 
 **Status:** COMPLETED ✅

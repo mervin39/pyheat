@@ -98,8 +98,8 @@ class BoilerController:
         # Check TRV feedback confirmation
         trv_feedback_ok = self._check_trv_feedback_confirmed(active_rooms, persisted_valves)
         
-        # Read current HVAC action
-        hvac_action = self._get_hvac_action()
+        # Read current boiler entity state (for safety check)
+        boiler_entity_state = self._get_boiler_entity_state()
         
         # Determine if we have demand
         has_demand = len(active_rooms) > 0
@@ -284,18 +284,16 @@ class BoilerController:
                     )
         
         # CRITICAL SAFETY: Emergency valve override
-        # If boiler is physically ON (heating) but no rooms calling for heat,
+        # If climate entity is not OFF (could heat at any time) but no rooms calling for heat,
         # force safety room valve open to ensure there's a path for hot water
         safety_room = self.config.boiler_config.get('safety_room')
-        if (safety_room and hvac_action in ("heating", "idle") and
-            self.boiler_state not in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN)):
-            if len(active_rooms) == 0:
-                # Boiler is ON but no demand - EMERGENCY!
-                persisted_valves[safety_room] = 100
-                self.ad.log(
-                    f"🔴 EMERGENCY: Boiler ON with no demand! Forcing {safety_room} valve to 100% for safety",
-                    level="ERROR"
-                )
+        if safety_room and boiler_entity_state != "off" and len(active_rooms) == 0:
+            # Climate entity is not off but no demand - force valve open for safety!
+            persisted_valves[safety_room] = 100
+            self.ad.log(
+                f"🔴 SAFETY: Climate entity is {boiler_entity_state} with no demand! Forcing {safety_room} valve to 100% for safety",
+                level="WARNING"
+            )
         
         return self.boiler_state, reason, persisted_valves, valves_must_stay_open
     
@@ -419,22 +417,19 @@ class BoilerController:
     # Helper Methods - Boiler Control
     # ========================================================================
     
-    def _get_hvac_action(self) -> str:
-        """Get the actual HVAC action from the boiler entity.
+    def _get_boiler_entity_state(self) -> str:
+        """Get the current state of the boiler climate entity.
         
         Returns:
-            'heating', 'idle', 'off', or 'unknown'
+            Entity state: 'off', 'heat', etc., or 'unknown' if unavailable
         """
         boiler_entity = self.config.boiler_config.get('entity_id')
         if not boiler_entity:
             return "unknown"
             
         try:
-            attrs = self.ad.get_state(boiler_entity, attribute="all")
-            if attrs and 'attributes' in attrs:
-                action = attrs['attributes'].get("hvac_action", "unknown")
-                return action
-            return "unknown"
+            state = self.ad.get_state(boiler_entity)
+            return state if state else "unknown"
         except Exception:
             return "unknown"
     
