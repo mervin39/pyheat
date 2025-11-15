@@ -120,30 +120,31 @@ class ConfigLoader:
             
             self.ad.log(f"Loaded schedule for room: {room_id}")
         
-        # Store boiler config with defaults
+        # Validate and apply defaults for boiler config
         bc = self.boiler_config
         
-        # Top-level defaults
-        bc.setdefault('entity_id', 'climate.boiler')
+        # Validate required fields
+        if 'entity_id' not in bc:
+            raise ValueError(
+                "Boiler configuration error: 'entity_id' is required in boiler.yaml. "
+                "This is the climate entity used for boiler control (e.g., climate.opentherm_heating)"
+            )
+        
+        # Apply optional defaults
         bc.setdefault('opentherm', False)
         bc.setdefault('pump_overrun_s', C.BOILER_PUMP_OVERRUN_DEFAULT)
         
-        # Binary control defaults
-        binary_cfg = bc.setdefault('binary_control', {})
-        binary_cfg.setdefault('on_setpoint_c', C.BOILER_BINARY_ON_SETPOINT_DEFAULT)
-        binary_cfg.setdefault('off_setpoint_c', C.BOILER_BINARY_OFF_SETPOINT_DEFAULT)
-        
-        # Anti-cycling defaults
+        # Anti-cycling defaults (reasonable defaults if not specified)
         anti_cfg = bc.setdefault('anti_cycling', {})
         anti_cfg.setdefault('min_on_time_s', C.BOILER_MIN_ON_TIME_DEFAULT)
         anti_cfg.setdefault('min_off_time_s', C.BOILER_MIN_OFF_TIME_DEFAULT)
         anti_cfg.setdefault('off_delay_s', C.BOILER_OFF_DELAY_DEFAULT)
         
-        # Interlock defaults
+        # Interlock defaults (reasonable default if not specified)
         interlock_cfg = bc.setdefault('interlock', {})
         interlock_cfg.setdefault('min_valve_open_percent', C.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT)
         
-        self.ad.log(f"Loaded boiler config")
+        self.ad.log(f"Loaded boiler config: entity_id={bc['entity_id']}")
         
     def check_for_changes(self) -> bool:
         """Check if any configuration files have been modified.

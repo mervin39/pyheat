@@ -1,6 +1,26 @@
 
 # PyHeat Changelog
 
+## 2025-11-15: Require Boiler Entity ID in Configuration 🔧
+
+**Status:** COMPLETED ✅
+
+**Change:**
+Removed default value for `boiler.entity_id` in config_loader. The boiler entity must now be explicitly set in `boiler.yaml`, which is the single source of truth for boiler configuration.
+
+**Why:**
+- Previous code had `entity_id` default to `'climate.boiler'`, which could mask configuration errors
+- If the entity ID is wrong or missing, PyHeat should fail fast with a clear error message
+- Forces explicit configuration, preventing subtle bugs from stale defaults
+
+**Also Removed:**
+- `binary_control` defaults (no longer used after switching to turn_on/turn_off services)
+
+**Files Modified:**
+- `config_loader.py` - Removed entity_id default, added validation to require it, removed binary_control defaults
+
+---
+
 ## 2025-11-15: Fix Safety Valve Override Triggering Incorrectly 🐛
 
 **Status:** FIXED ✅
