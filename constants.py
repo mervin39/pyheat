@@ -132,8 +132,6 @@ BOILER_MIN_ON_TIME_DEFAULT = 180             # 3 minutes minimum on time
 BOILER_MIN_OFF_TIME_DEFAULT = 180            # 3 minutes minimum off time
 BOILER_OFF_DELAY_DEFAULT = 30                # 30 second delay before turning off
 BOILER_PUMP_OVERRUN_DEFAULT = 180            # 3 minutes to dissipate residual heat
-BOILER_BINARY_ON_SETPOINT_DEFAULT = 30.0     # °C - setpoint to command when we want heat
-BOILER_BINARY_OFF_SETPOINT_DEFAULT = 5.0     # °C - setpoint to command when we want boiler off
 
 # Boiler State Machine States
 STATE_OFF = "off"
