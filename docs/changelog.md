@@ -1,7 +1,59 @@
 
 # PyHeat Changelog
 
+## 2025-11-15: Fix Boiler Not Turning Off When Master Enable Disabled 🐛
+
+**Status:** FIXED ✅
+
+**Issue:**
+When master enable was turned OFF, the system would:
+- ✅ Open all valves to 100% (working correctly)
+- ❌ Fail to turn off the boiler (bug)
+
+The boiler would continue running with all valves open, wasting energy and potentially overheating.
+
+**Root Cause:**
+The code in `app.py::master_enable_changed()` was checking for a non-existent constant `C.HELPER_BOILER_ACTOR`:
+```python
+if self.entity_exists(C.HELPER_BOILER_ACTOR):  # This constant doesn't exist!
+    if self.get_state(C.HELPER_BOILER_ACTOR) == "on":
+        self.call_service("input_boolean/turn_off", entity_id=C.HELPER_BOILER_ACTOR)
+```
+
+Since the constant was never defined in `constants.py`, the `entity_exists()` check would fail, and the boiler shutdown code would never execute.
+
+**Fix:**
+Changed to use the proper `BoilerController` method:
+```python
+# Turn off boiler using boiler controller
+self.boiler._set_boiler_off()
+```
+
+This properly:
+- Turns the boiler climate entity to 'off' mode
+- Logs the action
+- Handles any errors with alert notifications
+
+**Impact:**
+- ✅ Boiler now properly shuts off when master enable is turned OFF
+- ✅ System respects the master disable switch as intended
+- ✅ No more wasted energy from boiler running while disabled
+
+**Testing:**
+After fix, when master enable is turned OFF:
+1. All valves open to 100% ✅
+2. Boiler turns off via climate entity ✅
+3. System stops all heating control ✅
+
+**Files Modified:**
+- `app.py` - Fixed master_enable_changed() to use boiler._set_boiler_off()
+
+**Commit:** `git commit -m "fix: boiler not turning off when master enable disabled"`
+
+---
+
 ## 2025-11-14: Update Recommended Alpha Values for Single-Sensor Rooms
+
 
 **Summary:**
 Updated alpha values for all single-sensor rooms from 0.5 to 0.3 based on comprehensive testing. Alpha=0.5 is insufficient to prevent display jumping with typical Xiaomi sensor noise (0.02-0.05°C natural fluctuations).

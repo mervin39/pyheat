@@ -208,11 +208,8 @@ class PyHeat(hass.Hass):
             for room_id in self.config.rooms.keys():
                 self.rooms.set_room_valve(room_id, 100, now)
             
-            # Turn off boiler
-            if self.entity_exists(C.HELPER_BOILER_ACTOR):
-                if self.get_state(C.HELPER_BOILER_ACTOR) == "on":
-                    self.call_service("input_boolean/turn_off", entity_id=C.HELPER_BOILER_ACTOR)
-                    self.log("Boiler turned OFF (master disabled)")
+            # Turn off boiler using boiler controller
+            self.boiler._set_boiler_off()
         
         elif new == "on":
             # System being re-enabled - lock all setpoints and resume normal operation
