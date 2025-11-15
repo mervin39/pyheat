@@ -1,6 +1,73 @@
 
 # PyHeat Changelog
 
+## 2025-11-15: Fix Valve Status Sensors Not Updated When Master Enable Changes 🐛
+
+**Status:** FIXED ✅
+
+**Issue:**
+When master enable was turned OFF (or if PyHeat initialized with master OFF), the valves would be commanded to 100%, but the `sensor.pyheat_<room>_valve_percent` status sensors would never be updated. This caused:
+
+1. **Status mismatch**: Status sensors showed 0% while actual valves were at 100%
+2. **Confusion**: Monitoring/UI showed incorrect valve positions
+3. **Potential recompute issues**: Next recompute would see stale valve status
+
+**Example:**
+```
+Master OFF → Valves commanded to 100%
+BUT: sensor.pyheat_games_valve_percent still showed 0%
+Z2M: sensor.trv_games_valve_opening_degree_z2m correctly showed 100%
+```
+
+**Root Cause:**
+In `master_enable_changed()` and initialization, the code called:
+```python
+self.rooms.set_room_valve(room_id, 100, now)  # Commands the physical valve
+```
+
+But never called:
+```python
+self.status.publish_room_entities(room_id, room_data, now)  # Updates status sensors
+```
+
+The status sensors would only get updated on the next recompute, which would overwrite them with computed values (often 0% for non-calling rooms).
+
+**Fix:**
+Added status publishing immediately after valve commands in both places:
+
+1. **Master enable callback**: Update status sensors when opening valves to 100%
+2. **Initialization**: Update status sensors when master OFF at startup
+
+```python
+for room_id in self.config.rooms.keys():
+    self.rooms.set_room_valve(room_id, 100, now)
+    
+    # Update status sensor to reflect the 100% valve position
+    temp, is_stale = self.sensors.get_room_temperature(room_id, now)
+    smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, temp) if temp is not None else None
+    room_data_for_status = {
+        'valve_percent': 100,
+        'calling': False,
+        'target': None,
+        'mode': 'off',
+        'temp': smoothed_temp,
+        'is_stale': is_stale
+    }
+    self.status.publish_room_entities(room_id, room_data_for_status, now)
+```
+
+**Impact:**
+- ✅ Status sensors now accurately reflect commanded valve positions
+- ✅ Monitoring/UI shows correct valve state immediately
+- ✅ No more confusion between commanded vs displayed valve position
+
+**Files Modified:**
+- `app.py` - Added status publishing in master_enable_changed() and initialization
+
+**Commit:** `git commit -m "fix: update valve status sensors when master enable changes"`
+
+---
+
 ## 2025-11-15: Fix Master Enable State Not Applied at Startup 🐛
 
 **Status:** FIXED ✅

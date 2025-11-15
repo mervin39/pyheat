@@ -122,11 +122,29 @@ class PyHeat(hass.Hass):
         if master_enable == "off":
             # System is disabled at startup - apply master OFF behavior immediately
             self.log("Master enable is OFF at startup - opening valves and shutting down")
-            now = self.get_now()
+            now = datetime.now()  # Use naive datetime (consistent with rest of code)
             for room_id in self.config.rooms.keys():
-                self.rooms.set_room_valve(room_id, 100, now)
+                # Force valve to 100% using is_correction=True to bypass rate limiting and change checks
+                self.trvs.set_valve(room_id, 100, now, is_correction=True)
+                
+                # Update status sensor to reflect the 100% valve position
+                try:
+                    temp, is_stale = self.sensors.get_room_temperature(room_id, now)
+                    smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, temp) if temp is not None else None
+                    room_data_for_status = {
+                        'valve_percent': 100,
+                        'calling': False,
+                        'target': None,
+                        'mode': 'off',
+                        'temp': smoothed_temp,
+                        'is_stale': is_stale
+                    }
+                    self.status.publish_room_entities(room_id, room_data_for_status, now)
+                except Exception as e:
+                    self.log(f"Failed to update status for {room_id}: {e}", level="WARNING")
+                
             self.boiler._set_boiler_off()
-            # Do NOT lock TRV setpoints (allows manual control)
+            # DO NOT lock TRV setpoints (allows manual control)
         else:
             # System is enabled - lock TRV setpoints for normal operation
             self.run_in(self.lock_all_trv_setpoints, 3)
@@ -215,19 +233,37 @@ class PyHeat(hass.Hass):
             # System being disabled - open all valves to 100% for safe water circulation
             # This allows manual boiler control and prevents pressure buildup
             self.log("Master enable OFF - opening all valves to 100% and shutting down system")
-            now = self.get_now()
+            now = datetime.now()  # Use naive datetime (consistent with rest of code)
             for room_id in self.config.rooms.keys():
-                self.rooms.set_room_valve(room_id, 100, now)
+                # Force valve to 100% using is_correction=True to bypass rate limiting and change checks
+                self.trvs.set_valve(room_id, 100, now, is_correction=True)
+                
+                # Update status sensor to reflect the 100% valve position
+                try:
+                    temp, is_stale = self.sensors.get_room_temperature(room_id, now)
+                    smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, temp) if temp is not None else None
+                    room_data_for_status = {
+                        'valve_percent': 100,
+                        'calling': False,
+                        'target': None,
+                        'mode': 'off',
+                        'temp': smoothed_temp,
+                        'is_stale': is_stale
+                    }
+                    self.status.publish_room_entities(room_id, room_data_for_status, now)
+                except Exception as e:
+                    self.log(f"Failed to update status for {room_id}: {e}", level="WARNING")
             
             # Turn off boiler using boiler controller
             self.boiler._set_boiler_off()
+            # Don't trigger recompute - system is disabled and recompute would overwrite status
         
         elif new == "on":
             # System being re-enabled - lock all setpoints and resume normal operation
             self.log("Master enable ON - locking TRV setpoints to 35C and resuming operation")
             self.run_in(self.lock_all_trv_setpoints, 1)
-        
-        self.trigger_recompute("master_enable_changed")
+            # Trigger recompute to resume normal heating operation
+            self.trigger_recompute("master_enable_changed")
 
     def holiday_mode_changed(self, entity, attribute, old, new, kwargs):
         self.log(f"Holiday mode changed: {old} -> {new}")
