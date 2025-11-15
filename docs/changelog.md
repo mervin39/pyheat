@@ -1,6 +1,58 @@
 
 # PyHeat Changelog
 
+## 2025-11-15: Simplified Boiler Control - Use climate.turn_on/turn_off 🎯
+
+**Status:** COMPLETED ✅
+
+**Change:**
+Updated boiler control to use the new `climate.opentherm_heating` entity with simple `turn_on`/`turn_off` services instead of the previous `set_hvac_mode` + `set_temperature` approach.
+
+**Previous Method:**
+```python
+# Turn on
+call_service('climate/set_hvac_mode', hvac_mode='heat')
+call_service('climate/set_temperature', temperature=30.0)
+
+# Turn off
+call_service('climate/set_hvac_mode', hvac_mode='off')
+```
+
+**New Method:**
+```python
+# Turn on
+call_service('climate/turn_on', entity_id='climate.opentherm_heating')
+
+# Turn off
+call_service('climate/turn_off', entity_id='climate.opentherm_heating')
+```
+
+**Benefits:**
+- Simpler API - single service call instead of two
+- No need to manage setpoint values
+- Cleaner code and logic
+- Entity manages its own target temperature
+
+**Files Modified:**
+- `boiler_controller.py` - Updated `_set_boiler_on()` and `_set_boiler_off()` methods
+- `config/boiler.yaml` - Changed `entity_id` to `climate.opentherm_heating`, removed `binary_control` section
+- `config/examples/boiler.yaml.example` - Updated example config
+- `docs/ARCHITECTURE.md` - Updated documentation to reflect new control method
+
+**Configuration Changes:**
+Removed the `binary_control` section from boiler config as it's no longer needed:
+```yaml
+# OLD (removed):
+binary_control:
+  on_setpoint_c: 30.0
+  off_setpoint_c: 5.0
+
+# NEW: Just the entity_id
+entity_id: climate.opentherm_heating
+```
+
+---
+
 ## 2025-11-15: Fix Valve Status Sensors Not Updated When Master Enable Changes 🐛
 
 **Status:** FIXED ✅

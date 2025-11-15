@@ -3,22 +3,13 @@
 
 boiler:
   # Boiler control entity
-  # Currently: Nest Thermostat 3rd Gen via OpenTherm (binary on/off only)
-  # Future: Ihor Melnyk OT shield on ESP32 (full OpenTherm modulation)
-  # entity_id: climate.boiler
+  # OpenTherm heating control via climate.turn_on/turn_off services
   entity_id: climate.dummy
 
   # OpenTherm mode
-  # false: Binary on/off control via setpoint (Nest mode)
-  # true: Full OpenTherm modulation (future implementation)
+  # Note: The entity_id climate.opentherm_heating uses climate.turn_on/turn_off
+  # No setpoint needed - the entity manages its own target temperature
   opentherm: boiler
-  
-  # Binary on/off control settings (used when opentherm: false)
-  binary_control:
-    # Setpoint to command when we want heat
-    on_setpoint_c: 30.0
-    # Setpoint to command when we want boiler off
-    off_setpoint_c: 5.0
   
   # Pump overrun handling
   # Boiler pump continues to run after heating stops to dissipate residual heat

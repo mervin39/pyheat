@@ -439,25 +439,17 @@ class BoilerController:
             return "unknown"
     
     def _set_boiler_on(self) -> None:
-        """Turn boiler on (heat mode with setpoint)."""
-        binary_cfg = self.config.boiler_config.get('binary_control', {})
-        setpoint = binary_cfg.get('on_setpoint_c', C.BOILER_BINARY_ON_SETPOINT_DEFAULT)
-        
+        """Turn boiler on using climate.turn_on service."""
         boiler_entity = self.config.boiler_config.get('entity_id')
         if not boiler_entity:
             self.ad.log("No boiler entity configured", level="ERROR")
             return
         
         try:
-            # Set mode to heat first
-            self.ad.call_service('climate/set_hvac_mode',
-                            entity_id=boiler_entity,
-                            hvac_mode='heat')
-            # Then set temperature
-            self.ad.call_service('climate/set_temperature',
-                            entity_id=boiler_entity,
-                            temperature=setpoint)
-            self.ad.log(f"Boiler ON (setpoint={setpoint}C)")
+            # Turn on the climate entity (setpoint already configured on the entity)
+            self.ad.call_service('climate/turn_on',
+                            entity_id=boiler_entity)
+            self.ad.log(f"Boiler ON")
             # Clear any previous control failure alert
             if self.alert_manager:
                 from pyheat.alert_manager import AlertManager
@@ -476,17 +468,16 @@ class BoilerController:
                 )
     
     def _set_boiler_off(self) -> None:
-        """Turn boiler off."""
+        """Turn boiler off using climate.turn_off service."""
         boiler_entity = self.config.boiler_config.get('entity_id')
         if not boiler_entity:
             self.ad.log("No boiler entity configured", level="ERROR")
             return
         
         try:
-            # Set mode to off (temperature doesn't matter when off)
-            self.ad.call_service('climate/set_hvac_mode',
-                            entity_id=boiler_entity,
-                            hvac_mode='off')
+            # Turn off the climate entity
+            self.ad.call_service('climate/turn_off',
+                            entity_id=boiler_entity)
             self.ad.log(f"Boiler OFF")
             # Clear any previous control failure alert
             if self.alert_manager:

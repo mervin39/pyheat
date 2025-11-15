@@ -1987,7 +1987,7 @@ Special transitions (from any state):
 **Condition:** Boiler actively heating, valves confirmed open, demand exists.
 
 **Entry Actions:**
-- `set_boiler_on()` - Set HVAC mode to 'heat' with 30°C setpoint
+- `set_boiler_on()` - Call climate.turn_on service
 - Start `min_on_time` timer (180s)
 - Log reason and room list
 
@@ -2045,7 +2045,7 @@ This ensures we have recent positions for pump overrun even if demand suddenly d
 **Condition:** Boiler commanded off, pump running, valves forced open to dissipate residual heat.
 
 **Entry Actions:**
-- `set_boiler_off()` - Set HVAC mode to 'off'
+- `set_boiler_off()` - Call climate.turn_off service
 - Start `pump_overrun_timer` (180s default)
 - Start `min_off_time` timer (180s)
 - Save valve positions to helper entity (survives restarts)
@@ -2288,7 +2288,7 @@ anti_cycling:
    - Save all current valve positions: boiler_last_valve_positions
 
 2. During PUMP_OVERRUN:
-   - Boiler commanded off (HVAC mode = 'off')
+   - Boiler commanded off (via climate.turn_off)
    - Valves forced to stay at saved positions (valve persistence)
    - Pump continues running (inherent in boiler hardware)
    - Water circulates through open TRVs
@@ -2388,21 +2388,19 @@ if persisted_valves:
 
 **Turn On:**
 ```python
-call_service('climate/set_hvac_mode', entity_id=boiler, hvac_mode='heat')
-call_service('climate/set_temperature', entity_id=boiler, temperature=30.0)
+call_service('climate/turn_on', entity_id='climate.opentherm_heating')
 ```
 
 **Turn Off:**
 ```python
-call_service('climate/set_hvac_mode', entity_id=boiler, hvac_mode='off')
+call_service('climate/turn_off', entity_id='climate.opentherm_heating')
 ```
 
-**Why 30°C Setpoint?**
-- Binary on/off control via setpoint manipulation
-- Nest thermostat doesn't support true modulation
-- 30°C > any reasonable room temp → always calls for heat
-- 5°C < any room temp → never calls for heat
-- Future: Full OpenTherm modulation (different approach)
+**Control Method:**
+- Direct on/off control via climate entity services
+- Entity `climate.opentherm_heating` manages its own setpoint
+- No need to set temperature during on/off commands
+- Simpler and cleaner than previous setpoint-based control
 
 **HVAC Action Monitoring:**
 ```python
@@ -2416,11 +2414,7 @@ hvac_action = boiler.attributes.hvac_action
 **Complete Example:**
 ```yaml
 boiler:
-  entity_id: climate.boiler
-  
-  binary_control:
-    on_setpoint_c: 30.0   # Setpoint for "heat" mode
-    off_setpoint_c: 5.0   # Not used (mode='off')
+  entity_id: climate.opentherm_heating
   
   pump_overrun_s: 180     # 3 minutes
   
@@ -2939,8 +2933,8 @@ PyHeat requires specific Home Assistant helper entities to be created. These are
 PyHeat calls various Home Assistant services to control devices:
 
 **Climate Control:**
-- `climate.set_hvac_mode` - Turn boiler on/off
-- `climate.set_temperature` - Set boiler setpoint
+- `climate.turn_on` - Turn boiler on
+- `climate.turn_off` - Turn boiler off
 
 **Number Entities (TRV Valves):**
 - `number.set_value` - Command TRV valve positions
