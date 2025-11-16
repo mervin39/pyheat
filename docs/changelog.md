@@ -1,6 +1,45 @@
 
 # PyHeat Changelog
 
+## 2025-11-16: Minor Issue #1 Fixed - Sensor Timeout Validation ✅
+
+**Status:** COMPLETED ✅
+
+**Issue:**
+Audit identified that `TIMEOUT_MIN_M = 1` was defined in constants.py but no validation existed to enforce it.
+
+**Fix:**
+Added validation in `config_loader.py` during room configuration loading:
+```python
+# Validate sensor timeout_m (must be >= TIMEOUT_MIN_M)
+for sensor in room_cfg['sensors']:
+    timeout_m = sensor.get('timeout_m', 180)
+    if timeout_m < C.TIMEOUT_MIN_M:
+        raise ValueError(
+            f"Room '{room_id}' sensor '{sensor.get('entity_id', 'unknown')}': "
+            f"timeout_m ({timeout_m}) must be >= {C.TIMEOUT_MIN_M} minute(s)"
+        )
+```
+
+**Testing:**
+- ✅ AppDaemon restarted successfully
+- ✅ All rooms loaded without errors
+- ✅ System continues to operate normally
+- ✅ Monitored logs for 65+ seconds - no issues
+
+**Impact:**
+- Prevents invalid sensor timeout configurations
+- Provides clear error message if invalid timeout specified
+- Fails fast at configuration load time rather than runtime
+
+**Remaining Minor Issues:** 3
+1. ~~Timeout Minimum Not Enforced~~ ✅ **FIXED**
+2. Hysteresis Default Mismatch (documentation)
+3. Valve Band Percentages Mismatch (documentation)
+4. EMA Smoothing Not Fully Documented (documentation)
+
+---
+
 ## 2025-11-16: Documentation Gaps Filled - Master Enable & State Desync 📚
 
 **Status:** COMPLETED ✅

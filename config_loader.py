@@ -102,6 +102,15 @@ class ConfigLoader:
             if 'min_interval_s' not in vu:
                 vu['min_interval_s'] = C.VALVE_UPDATE_DEFAULT['min_interval_s']
             
+            # Validate sensor timeout_m (must be >= TIMEOUT_MIN_M)
+            for sensor in room_cfg['sensors']:
+                timeout_m = sensor.get('timeout_m', 180)
+                if timeout_m < C.TIMEOUT_MIN_M:
+                    raise ValueError(
+                        f"Room '{room_id}' sensor '{sensor.get('entity_id', 'unknown')}': "
+                        f"timeout_m ({timeout_m}) must be >= {C.TIMEOUT_MIN_M} minute(s)"
+                    )
+            
             self.rooms[room_id] = room_cfg
             
             self.ad.log(f"Loaded room config: {room_id} ({room_cfg['name']})")
