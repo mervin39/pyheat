@@ -1,6 +1,50 @@
 
 # PyHeat Changelog
 
+## 2025-11-16: Minor Issue #4 Fixed - Document Sensor Change Deadband ✅
+
+**Status:** COMPLETED ✅
+
+**Issue:**
+EMA smoothing was documented, but the interaction with sensor change deadband and recompute optimization was not explained.
+
+**Solution:**
+Added comprehensive "Sensor Change Deadband Optimization" section to ARCHITECTURE.md covering:
+- Problem: Unnecessary recomputes when sensors hover around rounding boundaries
+- Automatic deadband calculation: 0.5 × display precision (0.05°C for precision=1)
+- Implementation details and example timeline
+- Interaction with EMA smoothing (double filtering)
+- Safety analysis: Why deadband doesn't affect heating control
+- Performance benefits: 80-90% reduction in unnecessary recomputes
+- Edge cases: First update, sensor availability changes, precision changes
+
+**Content Added:**
+- ~100 lines of detailed documentation
+- Examples showing deadband behavior with actual temperature values
+- Explanation of why 0.5 × precision is safe and optimal
+- Flow diagrams showing interaction with EMA smoothing
+- Performance impact analysis
+
+**Impact:**
+- Users and maintainers now understand this important optimization
+- Documents why system is highly efficient despite frequent sensor updates
+- Explains interaction between multiple temperature processing layers
+- No code changes - purely documentation
+
+**All Minor Issues Resolved:** ✅
+1. ~~Timeout Minimum Not Enforced~~ ✅ **FIXED** (code validation)
+2. ~~Hysteresis Default Mismatch~~ ✅ **FIXED** (documentation)
+3. ~~Valve Band Percentages Mismatch~~ ✅ **FIXED** (documentation)
+4. ~~EMA Smoothing Not Fully Documented~~ ✅ **FIXED** (documentation)
+
+**Audit Report Status:**
+- Critical Issues: 0
+- Major Issues: 0 (both resolved via documentation)
+- Minor Issues: 0 (all 4 resolved)
+- Remaining: Info items only (already documented features)
+
+---
+
 ## 2025-11-16: Minor Issues #2 & #3 Fixed - Documentation Corrections ✅
 
 **Status:** COMPLETED ✅
