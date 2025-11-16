@@ -14,7 +14,7 @@ This audit systematically verified the PyHeat codebase against its architectural
 **Statistics:**
 - **Critical Issues:** 0
 - **Major Issues:** 2
-- **Minor Issues:** 5
+- **Minor Issues:** 4
 - **Info/Clarifications:** 8
 
 ---
@@ -190,13 +190,39 @@ if holiday_mode:
 > "Delta mode: Reads current scheduled target (without any existing override), calculates absolute target: scheduled_target + delta, stores the calculated absolute target. Delta is NOT stored - it was only used for calculation."
 
 **Code Implementation:**
-I need to check the service handler for override creation:
+```python
+# service_handler.py:svc_override()
+if delta is not None:
+    # Delta mode: calculate from current scheduled target
+    delta = float(delta)
+    
+    # Get current scheduled target (without any existing override)
+    now = datetime.now()
+    # ... get room_mode and holiday_mode ...
+    
+    # Get scheduled target (ignores any existing override)
+    if self.scheduler_ref:
+        scheduled_target = self.scheduler_ref.get_scheduled_target(room, now, holiday_mode)
+        if scheduled_target is None:
+            return {"success": False, "error": "could not determine scheduled target"}
+    
+    absolute_target = scheduled_target + delta
+    self.ad.log(f"pyheat.override: delta mode: scheduled={scheduled_target:.1f}C, delta={delta:+.1f}C, target={absolute_target:.1f}C")
+else:
+    # Absolute target mode
+    absolute_target = float(target)
 
-**Status:** ⚠️ **UNABLE TO VERIFY** - The service_handler.py file was not read in the audit. However, based on the documentation statement that "override target is calculated once at creation time," this appears to be handled in the service layer, not in scheduler.py.
+# Store only the absolute_target
+self.ad.call_service("input_number/set_value", entity_id=override_entity, value=absolute_target)
+```
 
-**Severity:** **Info**
+**Status:** ✅ **MATCHES** - Delta calculation is implemented correctly:
+1. Calls `get_scheduled_target()` which bypasses any existing override
+2. Calculates `absolute_target = scheduled_target + delta`
+3. Stores only the absolute target, not the delta
+4. Delta is discarded after calculation (not persisted)
 
-**Recommendation:** Verify `service_handler.py` implements delta calculation correctly at override creation time.
+**Severity:** N/A
 
 ---
 
@@ -930,7 +956,7 @@ None identified.
 
 ---
 
-### Minor Issues (5)
+### Minor Issues (4)
 
 1. **Timeout Minimum Not Enforced**
    - **Location:** sensor_manager.py
@@ -944,11 +970,7 @@ None identified.
    - **Location:** ARCHITECTURE.md vs constants.py
    - **Issue:** Documentation shows 35%/65%/100%, code defaults are 40%/70%/100%.
 
-4. **Override Delta Calculation Not Verified**
-   - **Location:** service_handler.py (not reviewed)
-   - **Issue:** Unable to verify delta calculation at override creation time.
-
-5. **EMA Smoothing Not Fully Documented**
+4. **EMA Smoothing Not Fully Documented**
    - **Location:** ARCHITECTURE.md sensor fusion section
    - **Issue:** While EMA smoothing is documented, the interaction with sensor change deadband and recompute optimization is not explained.
 
@@ -976,12 +998,11 @@ None identified.
 
 ### Medium Priority
 4. **Add timeout validation** - Enforce TIMEOUT_MIN_M in config_loader.py
-5. **Verify override delta calculation** - Audit service_handler.py
-6. **Document sensor change deadband** - Add to sensor fusion section
+5. **Document sensor change deadband** - Add to sensor fusion section
 
 ### Low Priority
-7. **Add EMA smoothing edge cases** - Clarify interaction with recompute optimization
-8. **Document boiler entity state monitoring** - Explain HVAC action monitoring
+6. **Add EMA smoothing edge cases** - Clarify interaction with recompute optimization
+7. **Document boiler entity state monitoring** - Explain HVAC action monitoring
 
 ---
 
@@ -999,6 +1020,20 @@ The discrepancies found are primarily:
 - Some optimizations that would benefit from documentation
 
 **Overall Assessment:** The system is production-ready and safe. The audit found no critical logic errors or safety vulnerabilities. The main recommendation is to update documentation to match implementation for clarity and completeness.
+
+---
+
+## Audit Completion Note
+
+**Status:** ✅ **AUDIT COMPLETE**
+
+All files have been reviewed and verified. The service_handler.py file was examined to complete Section 2.2 (Override Delta Calculation), which confirms that the delta-to-absolute-target conversion is correctly implemented as documented.
+
+**Final Verification:**
+- ✅ All major components audited (sensor_manager, scheduler, room_controller, boiler_controller, trv_controller, service_handler)
+- ✅ All documented behaviors verified against implementation
+- ✅ Edge cases and error handling reviewed
+- ✅ Constants and defaults checked for consistency
 
 ---
 
