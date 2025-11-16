@@ -69,8 +69,8 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    │    • Between deltas             → maintain previous state               │
 │    ├─ Valve percentage (stepped bands with hysteresis):                      │
 │    │    • Band 0 (0%):  error < 0.30°C                                       │
-│    │    • Band 1 (35%): 0.30°C ≤ error < 0.80°C                              │
-│    │    • Band 2 (65%): 0.80°C ≤ error < 1.50°C                              │
+│    │    • Band 1 (40%): 0.30°C ≤ error < 0.80°C                              │
+│    │    • Band 2 (70%): 0.80°C ≤ error < 1.50°C                              │
 │    │    • Band 3 (100%): error ≥ 1.50°C                                      │
 │    │    • Band transitions require step_hysteresis (0.05°C) crossing         │
 │    └─ Return: {temp, target, calling, valve_percent, error, mode}            │
@@ -993,8 +993,8 @@ Prevents rapid on/off cycling by using different thresholds for turning on vs. t
 **Configuration (per room):**
 ```yaml
 hysteresis:
-  on_delta_c: 0.40    # Start heating when 0.40°C below target
-  off_delta_c: 0.10   # Stop heating when 0.10°C above target
+  on_delta_c: 0.30    # Start heating when 0.30°C below target (default)
+  off_delta_c: 0.10   # Stop heating when 0.10°C above target (default)
 ```
 
 **Key Concept:**
@@ -1159,8 +1159,8 @@ valve_bands:
 Error (target - temp)     Band    Valve Opening
 ─────────────────────────────────────────────────
 < 0.30°C                  0       0%     (not calling)
-0.30 - 0.80°C             1       35%    (low heat)
-0.80 - 1.50°C             2       65%    (medium heat)
+0.30 - 0.80°C             1       40%    (low heat)
+0.80 - 1.50°C             2       70%    (medium heat)
 ≥ 1.50°C                  3       100%   (max heat)
 ```
 
@@ -1171,11 +1171,11 @@ Error (°C below target)
         │
     1.5 ├────────────────────────────── t_max threshold
         │
-    2.0 ████████████████████ 65% (Band 2)
+    2.0 ████████████████████ 70% (Band 2)
         │
     0.8 ├────────────────────────────── t_mid threshold
         │
-    0.5 ███████ 35% (Band 1)
+    0.5 ███████ 40% (Band 1)
         │
     0.3 ├────────────────────────────── t_low threshold
         │
@@ -1186,7 +1186,7 @@ Error (°C below target)
 **Why Stepped Bands?**
 - **Proportional response** without PID complexity
 - **Fast response** to large errors (100% immediately)
-- **Gentle approach** near target (35% prevents overshoot)
+- **Gentle approach** near target (40% prevents overshoot)
 - **Simple tuning** (4 thresholds + 3 percentages)
 - **Predictable behavior** (discrete states easier to debug)
 
@@ -1222,15 +1222,15 @@ elif target_band < current_band:
 **Example Transition:**
 
 ```
-Current band: 1 (35%), error = 0.75°C
+Current band: 1 (40%), error = 0.75°C
 
 Temperature drops, error increases to 0.86°C:
   • t_mid (0.80) + step_hyst (0.05) = 0.85°C
-  • 0.86 > 0.85 → transition to band 2 (65%)
+  • 0.86 > 0.85 → transition to band 2 (70%)
 
 Temperature rises, error decreases to 0.74°C:
   • t_mid (0.80) - step_hyst (0.05) = 0.75°C
-  • 0.74 < 0.75 → transition to band 1 (35%)
+  • 0.74 < 0.75 → transition to band 1 (40%)
 ```
 
 **Hysteresis Gap:** Each threshold has a 0.1°C gap (±0.05°C) where band won't change.
@@ -1244,7 +1244,7 @@ Temperature rises, error decreases to 0.74°C:
 error = 3.5°C
 
 # Without multi-band jump:
-Band 0 → Band 1 (35%) → Band 2 (65%) → Band 3 (100%)
+Band 0 → Band 1 (40%) → Band 2 (70%) → Band 3 (100%)
   Takes 3 recompute cycles to reach full heat
 
 # With multi-band jump:

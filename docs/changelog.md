@@ -1,6 +1,45 @@
 
 # PyHeat Changelog
 
+## 2025-11-16: Minor Issues #2 & #3 Fixed - Documentation Corrections ✅
+
+**Status:** COMPLETED ✅
+
+**Issues Fixed:**
+
+**Issue #2: Hysteresis Default Mismatch**
+- Documentation examples showed `on_delta_c: 0.40`, but code default is `0.30`
+- Updated all references in ARCHITECTURE.md to reflect actual default: `0.30°C`
+
+**Issue #3: Valve Band Percentages Mismatch**
+- Documentation showed valve percentages as 35%/65%/100%
+- Code defaults are 40%/70%/100%
+- Updated all references in ARCHITECTURE.md:
+  - Band 1: 35% → 40%
+  - Band 2: 65% → 70%
+  - Band 3: 100% (unchanged)
+
+**Changes Made:**
+- Updated configuration example in hysteresis section
+- Updated valve band mapping table
+- Updated visual representation diagram
+- Updated example transitions
+- Updated high-level data flow diagram
+- All references now match actual code defaults
+
+**Impact:**
+- Documentation now accurately reflects implementation
+- Users see correct default values
+- No code changes required - purely documentation
+
+**Remaining Minor Issues:** 1
+1. ~~Timeout Minimum Not Enforced~~ ✅ **FIXED**
+2. ~~Hysteresis Default Mismatch~~ ✅ **FIXED**
+3. ~~Valve Band Percentages Mismatch~~ ✅ **FIXED**
+4. EMA Smoothing Not Fully Documented (documentation)
+
+---
+
 ## 2025-11-16: Minor Issue #1 Fixed - Sensor Timeout Validation ✅
 
 **Status:** COMPLETED ✅
