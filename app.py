@@ -254,8 +254,18 @@ class PyHeat(hass.Hass):
                 except Exception as e:
                     self.log(f"Failed to update status for {room_id}: {e}", level="WARNING")
             
-            # Turn off boiler using boiler controller
+            # Turn off boiler and reset state machine to prevent desync
             self.boiler._set_boiler_off()
+            # CRITICAL: Reset boiler state machine to STATE_OFF to prevent state desync
+            # when master enable is turned back on. Without this, the state machine
+            # remains in its previous state (e.g., STATE_ON) and won't send turn_on
+            # command when master enable is re-enabled.
+            self.boiler._transition_to(C.STATE_OFF, now, "master enable disabled")
+            # Cancel all boiler timers to fully reset state
+            self.boiler._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
+            self.boiler._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
+            self.boiler._cancel_timer(C.HELPER_PUMP_OVERRUN_TIMER)
+            self.boiler._cancel_timer(C.HELPER_BOILER_MIN_OFF_TIMER)
             # Don't trigger recompute - system is disabled and recompute would overwrite status
         
         elif new == "on":

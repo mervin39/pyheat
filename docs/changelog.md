@@ -1,6 +1,74 @@
 
 # PyHeat Changelog
 
+## 2025-11-16: Fix Boiler State Machine Desync on Master Enable Toggle 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+After toggling master enable OFF then back ON, the boiler would not turn on even when rooms were calling for heat. The system showed `boiler_state=on` in PyHeat status, but the actual `climate.opentherm_heating` entity remained `state=off`.
+
+**Root Cause:**
+When master enable was turned OFF, the code called `_set_boiler_off()` which sent `climate/turn_off` to the hardware BUT did not update the boiler state machine. The state machine remained in `STATE_ON`. When master enable was turned back ON and recompute ran:
+1. State machine thought it was already in STATE_ON
+2. Therefore did not transition through PENDING_ON → ON 
+3. Never sent the `climate/turn_on` command
+4. Boiler stayed off while PyHeat thought it was on
+
+**Example Timeline:**
+```
+10:18:07 - Master enable OFF → climate/turn_off sent, but state machine still STATE_ON
+10:44:48 - Master enable ON → recompute runs, sees STATE_ON, doesn't send turn_on
+Result: Lounge calling for heat, but boiler stays off
+```
+
+**Solution Implemented:**
+Two complementary fixes for defense in depth:
+
+**Fix 1: Proper State Reset on Master Disable** (`app.py`)
+When master enable turns OFF, now properly resets the boiler state machine:
+- Transition to STATE_OFF with reason "master enable disabled"
+- Cancel all boiler timers (min_on, off_delay, pump_overrun, min_off)
+- Ensures clean slate when master enable is turned back on
+
+**Fix 2: State Desync Detection and Auto-Correction** (`boiler_controller.py`)
+Added safety check at start of `update_state()`:
+- Detects when state machine shows STATE_ON but entity is actually "off"
+- Automatically resets to STATE_OFF with warning log
+- Cancels stale timers that may be from previous state
+- Does NOT interfere with valve positions (respects rate limiting)
+- Allows normal recompute to proceed and re-ignite boiler properly
+
+**Why Both Fixes:**
+- Fix 1 prevents the issue at the source (master enable toggle)
+- Fix 2 provides safety net for other scenarios (AppDaemon restart during operation, etc.)
+- Together they ensure the system can always recover from state desynchronization
+
+**Benefits:**
+- No more "stuck thinking boiler is on when it's off" scenarios
+- System automatically detects and corrects state mismatches
+- Proper state machine hygiene when master enable toggled
+- Defensive programming - if desync happens for any reason, it's caught and fixed
+
+**Testing:**
+To verify the fix works:
+1. Toggle master enable OFF → ON with rooms calling for heat
+2. Check that boiler actually turns on (climate entity state becomes "heat")
+3. Verify no false "already on" logic prevents ignition
+
+**Files Modified:**
+- `app.py` - Reset boiler state machine properly in `master_enable_changed()` when turning OFF
+- `boiler_controller.py` - Add state desync detection/correction in `update_state()`
+- `docs/changelog.md` - This entry
+
+**Important Notes:**
+- The desync check only corrects the state machine, not valve positions
+- Valve positions are handled by normal recompute logic with rate limiting
+- This prevents any risk of valve command loops or excessive commands
+- The correction is logged as WARNING for visibility and debugging
+
+---
+
 ## 2025-11-15: Require Boiler Entity ID in Configuration 🔧
 
 **Status:** COMPLETED ✅
