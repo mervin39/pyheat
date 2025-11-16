@@ -1,6 +1,56 @@
 
 # PyHeat Changelog
 
+## 2025-11-16: Documentation Gaps Filled - Master Enable & State Desync 📚
+
+**Status:** COMPLETED ✅
+
+**Background:**
+Architecture audit identified two major documentation gaps for behaviors that were correctly implemented but not documented.
+
+**Changes Made:**
+
+1. **Added "State Desynchronization Detection" Section** (docs/ARCHITECTURE.md)
+   - Location: After "Error Handling", before "Logging and Diagnostics" in Boiler Control section
+   - Documents automatic detection and recovery when FSM state doesn't match boiler entity state
+   - Explains causes: master enable toggle, AppDaemon restart, manual control, command failures
+   - Details detection logic: checks STATE_ON vs entity "off" on every cycle
+   - Documents automatic correction: reset to STATE_OFF, cancel stale timers
+   - Includes common causes table and safety impact analysis
+   - **Verified:** Code behavior matches documentation exactly
+
+2. **Added "Master Enable Control" Section** (docs/ARCHITECTURE.md)
+   - Location: New major section before "Service Interface"
+   - Documents complete master enable OFF behavior:
+     - All valves forced to 100% for manual control
+     - Boiler turned off
+     - State machine reset to STATE_OFF
+     - All timers cancelled
+     - Status sensors updated
+     - No recompute triggered (preserves 100% positions)
+   - Documents master enable ON behavior:
+     - Lock all TRV setpoints to 35°C (1s delay)
+     - Trigger full system recompute
+     - Resume normal operation
+   - Includes use cases, safety considerations, and interaction with other features
+   - **Verified:** Code behavior matches documentation exactly
+
+**Code Verification:**
+- `app.py:master_enable_changed()` - Confirmed all 7 steps during disable/enable
+- `boiler_controller.py:update_state()` - Confirmed desync detection at cycle start
+- Both implementations are safe, correct, and well-designed
+
+**Audit Report Impact:**
+- Major Issues: 2 → 0 ✅
+- All documentation gaps now filled
+- Architecture documentation is now complete and accurate
+
+**Files Modified:**
+- `docs/ARCHITECTURE.md` - Added 2 new sections (~300 lines of documentation)
+- `docs/changelog.md` - This entry
+
+---
+
 ## 2025-11-16: Architecture Audit Report Completed 📋
 
 **Status:** AUDIT COMPLETED ✅

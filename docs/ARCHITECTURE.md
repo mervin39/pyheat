@@ -2488,6 +2488,87 @@ except Exception as e:
     return {}, False, "calculation error"
 ```
 
+### State Desynchronization Detection
+
+**Purpose:** Automatically detect and recover from state machine desynchronization where the FSM state doesn't match the actual boiler entity state.
+
+**Problem Scenario:**
+State desynchronization can occur when:
+- Master enable is toggled OFF then ON
+- AppDaemon restarts while boiler is heating
+- Manual intervention via Home Assistant UI
+- Network issues cause command delivery failure
+
+**Symptom:**
+```
+State Machine: STATE_ON
+Boiler Entity: off (not heating)
+
+Result: System thinks it already commanded boiler on,
+        so it won't send turn_on command again.
+        Heating is stuck disabled.
+```
+
+**Detection Logic:**
+```python
+# In boiler_controller.py:update_state()
+# Runs at start of every state update cycle
+
+boiler_entity_state = get_state('climate.opentherm_heating')
+
+if self.boiler_state == STATE_ON and boiler_entity_state == "off":
+    # DESYNC DETECTED!
+    log WARNING: "Boiler state desync detected"
+    
+    # Automatic correction
+    transition_to(STATE_OFF, now, "state desync correction - entity is off")
+    
+    # Cancel stale timers that may prevent proper restart
+    cancel_timer(HELPER_BOILER_MIN_ON_TIMER)
+    cancel_timer(HELPER_BOILER_OFF_DELAY_TIMER)
+    
+    # Next cycle will re-evaluate from STATE_OFF and command ON if needed
+```
+
+**Why This Works:**
+1. Detection happens before any state transition logic
+2. Forces state machine back to known-good state (OFF)
+3. Cancels timers that assumed continuous operation
+4. Next recompute cycle will properly evaluate demand
+5. If demand exists, normal OFF → PENDING_ON → ON transition occurs
+
+**Logging:**
+```
+WARNING: ⚠️ Boiler state desync detected: state machine=ON but climate entity=off.
+WARNING: This can occur after master enable toggle or system restart.
+WARNING: Resetting state machine to STATE_OFF to allow proper re-ignition.
+```
+
+**Edge Cases Handled:**
+- **Multiple consecutive desyncs:** Each cycle will correct until synchronized
+- **Entity state unknown/unavailable:** No correction (wait for valid state)
+- **Other states (PENDING_ON, PUMP_OVERRUN):** Only checks STATE_ON (most critical)
+
+**Why Only STATE_ON:**
+- STATE_ON expects entity to be actively heating
+- Other states have more ambiguous entity expectations
+- False positives in other states would cause unnecessary disruption
+- STATE_ON desync is the most dangerous (blocked heating)
+
+**Common Causes:**
+
+| Cause | How It Happens | Recovery |
+|-------|----------------|----------|
+| Master enable toggle | Master OFF forces entity off but FSM may not update instantly | Immediate on next cycle |
+| AppDaemon restart | FSM state lost, initialized from entity state, but can be wrong | Immediate on next cycle |
+| Manual boiler control | User turns off via HA UI while FSM thinks ON | Immediate on next cycle |
+| Command delivery failure | turn_on service call fails but FSM transitions anyway | Detected and corrected |
+
+**Safety Impact:**
+- **Without detection:** Heating can be stuck disabled indefinitely
+- **With detection:** Automatic recovery within 60 seconds (one recompute cycle)
+- **No false shutdowns:** Only corrects when clear desync detected
+
 ### Logging and Diagnostics
 
 **State Transitions:**
@@ -2517,6 +2598,300 @@ ERROR: 🔴 EMERGENCY: Boiler ON with no demand! Forcing games valve to 100%
 DEBUG: Boiler: saved valve positions: {'pete': 65, 'lounge': 35}
 DEBUG: Boiler: STATE_PENDING_OFF using saved positions: {...}
 DEBUG: Boiler: total valve opening 120% >= min 100%, using valve bands
+```
+
+---
+
+## Master Enable Control
+
+### Overview
+
+The master enable switch (`input_boolean.pyheat_master_enable`) provides a global on/off control for the entire PyHeat system. When disabled, the system enters a safe state that allows manual boiler operation while protecting radiators and maintaining safe water circulation.
+
+**Entity:** `input_boolean.pyheat_master_enable`
+
+**Purpose:**
+- Emergency system shutdown
+- Maintenance mode (manual boiler control)
+- Seasonal disable (summer months)
+- Testing and debugging
+
+### Behavior When Master Enable = OFF
+
+When the master enable is turned OFF, PyHeat executes a coordinated shutdown sequence:
+
+**1. All Valves Forced to 100%**
+```python
+for room_id in rooms:
+    set_valve(room_id, 100, now, is_correction=True)
+```
+
+**Why 100%?**
+- Allows manual boiler operation without PyHeat control
+- Ensures all radiators can receive heat if boiler runs
+- Prevents pressure buildup in heating system
+- Provides safe water circulation paths
+- User can manually control boiler via Home Assistant or physical controls
+
+**2. Boiler Turned Off**
+```python
+call_service('climate/turn_off', entity_id='climate.opentherm_heating')
+```
+
+**3. State Machine Reset**
+```python
+transition_to(STATE_OFF, now, "master enable disabled")
+```
+
+**Critical:** State machine MUST be reset to `STATE_OFF`. Without this:
+- FSM remains in previous state (e.g., `STATE_ON`)
+- When master enable turns back ON, FSM thinks it already commanded boiler
+- No `turn_on` command sent → heating remains off
+- State desync detection would eventually correct, but explicit reset is cleaner
+
+**4. All Timers Cancelled**
+```python
+cancel_timer(HELPER_BOILER_MIN_ON_TIMER)
+cancel_timer(HELPER_BOILER_OFF_DELAY_TIMER)
+cancel_timer(HELPER_PUMP_OVERRUN_TIMER)
+cancel_timer(HELPER_BOILER_MIN_OFF_TIMER)
+```
+
+**Why?** Stale timers from previous operation could interfere with restart.
+
+**5. TRV Setpoints Remain at 35°C**
+
+Note: When master enable is OFF, TRV setpoints are NOT unlocked. This is intentional:
+- Setpoints already at 35°C (locked during normal operation)
+- No need to change them
+- Prevents TRVs from closing valves to their internal setpoint
+- Maintains 100% valve opening for manual control
+
+**6. Status Sensors Updated**
+```python
+for room_id in rooms:
+    publish_room_entities(room_id, {
+        'valve_percent': 100,
+        'calling': False,
+        'target': None,
+        'mode': 'off',
+        'temp': current_temp,
+        'is_stale': is_stale
+    })
+```
+
+**System status:** `master_off`
+
+**7. No Recompute Triggered**
+
+Critical: After disabling, NO recompute is triggered. Why?
+- Recompute would overwrite the 100% valve positions
+- Status already updated manually
+- System is disabled, no control decisions needed
+
+### Behavior When Master Enable = ON
+
+When master enable is turned back ON, PyHeat resumes normal operation:
+
+**1. Lock All TRV Setpoints to 35°C**
+```python
+run_in(lock_all_trv_setpoints, 1)  # 1 second delay
+
+def lock_all_trv_setpoints():
+    for room_id, room_config in rooms.items():
+        trv_config = room_config['trv']
+        climate_entity = trv_config['climate_entity']
+        call_service('climate/set_temperature',
+                    entity_id=climate_entity,
+                    temperature=35.0)
+```
+
+**Why 1 second delay?**
+- Allows Home Assistant to process the input_boolean state change
+- Prevents overwhelming HA with simultaneous service calls
+- TRV climate entities need time to become available
+
+**2. Trigger Full System Recompute**
+```python
+trigger_recompute("master_enable_changed")
+```
+
+**What happens:**
+- All room temperatures re-evaluated
+- Targets recalculated (schedules, overrides, modes)
+- Call-for-heat decisions made
+- Valve percentages computed
+- Boiler FSM evaluates demand
+- Normal operation resumes
+
+**Initial State After Enable:**
+- Boiler FSM: `STATE_OFF` (from explicit reset during disable)
+- Room states: Re-initialized from current conditions
+- Valves: Will be commanded to calculated positions (likely not 100% anymore)
+- Boiler: Will turn on if demand exists and interlocks satisfied
+
+### Implementation Details
+
+**Callback Registration:**
+```python
+# In app.py:initialize()
+listen_state(master_enable_changed, 'input_boolean.pyheat_master_enable')
+```
+
+**Full Callback Code:**
+```python
+def master_enable_changed(entity, attribute, old, new, kwargs):
+    log(f"Master enable changed: {old} -> {new}")
+    
+    if new == "off":
+        log("Master enable OFF - opening all valves to 100% and shutting down system")
+        now = datetime.now()
+        
+        # Force all valves to 100%
+        for room_id in rooms.keys():
+            # is_correction=True bypasses rate limiting
+            trvs.set_valve(room_id, 100, now, is_correction=True)
+            
+            # Update status sensors
+            temp, is_stale = sensors.get_room_temperature(room_id, now)
+            smoothed_temp = status.apply_smoothing_if_enabled(room_id, temp)
+            room_data = {
+                'valve_percent': 100,
+                'calling': False,
+                'target': None,
+                'mode': 'off',
+                'temp': smoothed_temp,
+                'is_stale': is_stale
+            }
+            status.publish_room_entities(room_id, room_data, now)
+        
+        # Shut down boiler
+        boiler._set_boiler_off()
+        boiler._transition_to(STATE_OFF, now, "master enable disabled")
+        
+        # Cancel all timers
+        boiler._cancel_timer(HELPER_BOILER_MIN_ON_TIMER)
+        boiler._cancel_timer(HELPER_BOILER_OFF_DELAY_TIMER)
+        boiler._cancel_timer(HELPER_PUMP_OVERRUN_TIMER)
+        boiler._cancel_timer(HELPER_BOILER_MIN_OFF_TIMER)
+        
+        # DO NOT trigger recompute
+    
+    elif new == "on":
+        log("Master enable ON - locking TRV setpoints and resuming operation")
+        
+        # Lock setpoints (1 second delay)
+        run_in(lock_all_trv_setpoints, 1)
+        
+        # Resume normal operation
+        trigger_recompute("master_enable_changed")
+```
+
+### Use Cases
+
+**1. Emergency Shutdown**
+```
+Scenario: Temperature sensor fails, room overheating
+Action: Turn off master enable
+Result: All valves 100%, boiler off, manual control possible
+```
+
+**2. Manual Boiler Control**
+```
+Scenario: Testing new boiler configuration
+Action: Disable master enable
+Result: Can manually control boiler via HA, all radiators available
+```
+
+**3. Seasonal Disable**
+```
+Scenario: Summer months, no heating needed
+Action: Turn off master enable
+Result: System fully disabled, no unnecessary valve commands or processing
+```
+
+**4. Maintenance Mode**
+```
+Scenario: Bleeding radiators, plumbing work
+Action: Disable master enable
+Result: All valves open, boiler off, safe for maintenance
+```
+
+**5. Debugging**
+```
+Scenario: Investigating system behavior
+Action: Toggle master enable to reset all state
+Result: Clean restart with known initial conditions
+```
+
+### Safety Considerations
+
+**Valve Forcing (100%):**
+- ✅ Allows emergency heat distribution if boiler runs
+- ✅ Prevents water hammer from closed valves
+- ✅ Maintains system pressure balance
+- ✅ Enables manual heating control
+- ⚠️ All rooms equally open (no zone control)
+
+**State Machine Reset:**
+- ✅ Prevents desync issues on re-enable
+- ✅ Clean slate for restart
+- ✅ Cancels stale timers
+- ℹ️ Loses FSM history (not usually needed)
+
+**No Recompute on Disable:**
+- ✅ Preserves 100% valve positions
+- ✅ Status already updated
+- ⚠️ System remains in disabled state until re-enabled
+
+**TRV Setpoint Behavior:**
+- ℹ️ Setpoints remain at 35°C when disabled
+- ℹ️ Re-locked to 35°C when re-enabled
+- ✅ Prevents TRV internal control from closing valves
+
+### Interaction with Other Features
+
+**Recompute Cycle:**
+```python
+# In app.py:recompute_all()
+if master_enable != "on":
+    # Skip all control logic
+    return
+```
+
+**Periodic Trigger:**
+```python
+# 60-second timer still fires, but recompute_all() exits early
+# Minimal CPU usage when disabled
+```
+
+**Service Calls:**
+```python
+# Services (override, set_mode, etc.) still accepted
+# But have no effect until master enable turned ON
+```
+
+**Configuration Reload:**
+```python
+# Config can be reloaded while disabled
+# Changes take effect when re-enabled
+```
+
+### Logging
+
+**Disable:**
+```
+INFO: Master enable changed: on -> off
+INFO: Master enable OFF - opening all valves to 100% and shutting down system
+INFO: Boiler: on → off (master enable disabled)
+```
+
+**Enable:**
+```
+INFO: Master enable changed: off -> on
+INFO: Master enable ON - locking TRV setpoints to 35C and resuming operation
+INFO: Locking TRV setpoints to 35C for all rooms
+INFO: Triggering recompute: master_enable_changed
 ```
 
 ---

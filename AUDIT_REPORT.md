@@ -13,7 +13,7 @@ This audit systematically verified the PyHeat codebase against its architectural
 
 **Statistics:**
 - **Critical Issues:** 0
-- **Major Issues:** 2
+- **Major Issues:** 0 (2 resolved via documentation)
 - **Minor Issues:** 4
 - **Info/Clarifications:** 8
 
@@ -940,19 +940,21 @@ None identified.
 
 ---
 
-### Major Issues (2)
+### Major Issues (0)
 
-1. **Master Enable Behavior Not Documented**
-   - **Location:** app.py:master_enable_changed()
-   - **Issue:** Master enable OFF forces all valves to 100%, turns off boiler, resets state machine, and skips setpoint locking. This is significant behavior affecting safety and manual control but is not documented in ARCHITECTURE.md.
-   - **Impact:** Users and maintainers unaware of this behavior.
-   - **Recommendation:** Add dedicated section explaining master enable behavior.
+**RESOLVED:** Both major documentation gaps have been filled (2025-11-16):
 
-2. **State Desync Detection Not Documented**
-   - **Location:** boiler_controller.py:update_state()
-   - **Issue:** Automatic detection and recovery from state machine desynchronization (state machine thinks ON but entity is OFF) is a critical safety feature not documented.
-   - **Impact:** Future maintainers may not understand why this check exists or how it protects the system.
-   - **Recommendation:** Document in boiler FSM section.
+1. **Master Enable Behavior Now Documented** ✅
+   - **Location:** Added new "Master Enable Control" section to docs/ARCHITECTURE.md
+   - **Content:** Comprehensive documentation of valve forcing (100%), boiler shutdown, state reset, timer cancellation, and resume behavior
+   - **Impact:** Users and maintainers now have complete understanding of this safety feature
+   - **Resolution:** Complete section added with use cases, safety considerations, and interaction details
+
+2. **State Desync Detection Now Documented** ✅
+   - **Location:** Added "State Desynchronization Detection" section to docs/ARCHITECTURE.md (in Boiler Control section)
+   - **Content:** Full documentation of detection logic, automatic recovery, common causes, and safety impact
+   - **Impact:** Future maintainers understand why this check exists and how it protects the system
+   - **Resolution:** Complete section added with causes table, edge cases, and safety analysis
 
 ---
 
@@ -992,8 +994,8 @@ None identified.
 ## Recommendations
 
 ### High Priority
-1. **Document master enable behavior** - Add section to ARCHITECTURE.md
-2. **Document state desync detection** - Add to boiler FSM section
+1. ~~**Document master enable behavior**~~ ✅ **COMPLETED (2025-11-16)** - Added comprehensive "Master Enable Control" section to ARCHITECTURE.md
+2. ~~**Document state desync detection**~~ ✅ **COMPLETED (2025-11-16)** - Added "State Desynchronization Detection" section to ARCHITECTURE.md
 3. **Fix default value mismatches** - Update documentation examples or code defaults
 
 ### Medium Priority
@@ -1025,15 +1027,25 @@ The discrepancies found are primarily:
 
 ## Audit Completion Note
 
-**Status:** ✅ **AUDIT COMPLETE**
+**Status:** ✅ **AUDIT COMPLETE + DOCUMENTATION GAPS FILLED**
 
 All files have been reviewed and verified. The service_handler.py file was examined to complete Section 2.2 (Override Delta Calculation), which confirms that the delta-to-absolute-target conversion is correctly implemented as documented.
+
+**Documentation Update (2025-11-16):**
+Both major documentation gaps identified in the audit have been resolved:
+- ✅ **Master Enable Control** - Complete section added to ARCHITECTURE.md documenting all behavior during enable/disable
+- ✅ **State Desynchronization Detection** - Complete section added to ARCHITECTURE.md documenting detection logic and recovery
 
 **Final Verification:**
 - ✅ All major components audited (sensor_manager, scheduler, room_controller, boiler_controller, trv_controller, service_handler)
 - ✅ All documented behaviors verified against implementation
 - ✅ Edge cases and error handling reviewed
 - ✅ Constants and defaults checked for consistency
+- ✅ All major documentation gaps filled
+
+**Remaining Work:**
+- Minor documentation mismatches (default values in examples vs code)
+- Optional enhancements (validation, additional documentation)
 
 ---
 
