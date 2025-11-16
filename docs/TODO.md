@@ -2,8 +2,10 @@
 
 ## Status: Production-Ready with HTTP API ✅
 
-**Last Updated**: 2025-11-13  
+**Last Updated**: 2025-11-16  
 **Current Phase**: Complete Heating Control with External API Integration
+
+**Architecture Review**: See `RESPONSIBILITY_ANALYSIS.md` for component responsibility audit (2025-11-16)
 
 ---
 
