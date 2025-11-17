@@ -71,6 +71,15 @@ Added proper alert manager integration for state desync detection:
 - Provides detailed context including state machine state, entity state, and corrective action taken
 - Uses debouncing (3 consecutive errors) to avoid false positives from transient state changes
 
+**Safety Room Alert Integration:**
+Added alert manager integration for safety room valve activation:
+- New alert type: `ALERT_SAFETY_ROOM_ACTIVE`
+- CRITICAL severity: Indicates boiler could heat without demand
+- Triggered when safety room valve is forced open to prevent no-flow condition
+- Alert auto-clears when normal demand resumes
+- Provides context on why safety valve was needed and possible causes
+- During the overnight incident, this would have alerted immediately when the safety valve activated at 23:35
+
 **Note:** During the overnight incident, the safety room valve logic successfully prevented a no-flow condition by opening the games room valve to 100%. The safety check operates independently of the state machine by reading `boiler_entity_state` directly, demonstrating excellent defensive programming.
 
 ---

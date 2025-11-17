@@ -360,6 +360,33 @@ class BoilerController:
                 f"🔴 SAFETY: Climate entity is {boiler_entity_state} with no demand! Forcing {safety_room} valve to 100% for safety",
                 level="WARNING"
             )
+            
+            # Report critical safety alert
+            if self.alert_manager:
+                from pyheat.alert_manager import AlertManager
+                room_name = self.config.rooms.get(safety_room, {}).get('name', safety_room)
+                self.alert_manager.report_error(
+                    AlertManager.ALERT_SAFETY_ROOM_ACTIVE,
+                    AlertManager.SEVERITY_CRITICAL,
+                    f"🔴 SAFETY: Emergency safety valve activated!\n\n"
+                    f"**Climate Entity State:** {boiler_entity_state}\n"
+                    f"**Rooms Calling for Heat:** None\n"
+                    f"**Safety Room:** {room_name}\n\n"
+                    f"The climate entity is not OFF but no rooms are calling for heat. "
+                    f"This is an abnormal condition that could indicate:\n\n"
+                    f"• State desynchronization (fixed automatically)\n"
+                    f"• Climate entity unavailability/recovery\n"
+                    f"• Manual control of the boiler\n\n"
+                    f"The {room_name} valve has been forced to 100% to prevent a dangerous "
+                    f"no-flow condition while the boiler could heat.",
+                    room_id=safety_room,
+                    auto_clear=True
+                )
+        else:
+            # Safety room not needed - clear any previous alerts
+            if self.alert_manager:
+                from pyheat.alert_manager import AlertManager
+                self.alert_manager.clear_error(AlertManager.ALERT_SAFETY_ROOM_ACTIVE)
         
         return self.boiler_state, reason, persisted_valves, valves_must_stay_open
     
