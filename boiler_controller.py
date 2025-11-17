@@ -122,6 +122,20 @@ class BoilerController:
                 # Cancel timers that may be stale
                 self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
                 self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
+                
+                # Report alert
+                if self.alert_manager:
+                    from pyheat.alert_manager import AlertManager
+                    self.alert_manager.report_error(
+                        AlertManager.ALERT_BOILER_STATE_DESYNC,
+                        AlertManager.SEVERITY_WARNING,
+                        f"Boiler state desynchronization detected and corrected.\n\n"
+                        f"**State Machine:** {self.boiler_state} (expected entity: {expected_entity_state})\n"
+                        f"**Climate Entity:** {boiler_entity_state}\n\n"
+                        f"**Action:** Reset state machine to OFF.\n\n"
+                        f"This can occur after master enable toggle, system restart, or entity unavailability.",
+                        auto_clear=True
+                    )
             elif self.boiler_state != C.STATE_ON and boiler_entity_state == "heat":
                 # State machine thinks OFF/PENDING/OVERRUN but entity is heating - turn entity off
                 self.ad.log(
@@ -132,6 +146,26 @@ class BoilerController:
                 self._set_boiler_off()
                 # If we were in a state with timers running, preserve them
                 # (e.g., PUMP_OVERRUN timer should continue)
+                
+                # Report critical alert
+                if self.alert_manager:
+                    from pyheat.alert_manager import AlertManager
+                    self.alert_manager.report_error(
+                        AlertManager.ALERT_BOILER_STATE_DESYNC,
+                        AlertManager.SEVERITY_CRITICAL,
+                        f"🔴 CRITICAL: Climate entity heating without state machine control!\n\n"
+                        f"**State Machine:** {self.boiler_state} (expected entity: {expected_entity_state})\n"
+                        f"**Climate Entity:** {boiler_entity_state}\n\n"
+                        f"**Action:** Turned off climate entity immediately.\n\n"
+                        f"This prevented uncontrolled heating. The climate entity may have returned from "
+                        f"unavailability with an unexpected state, or was manually controlled.",
+                        auto_clear=True
+                    )
+        else:
+            # No desync - clear any previous alerts
+            if self.alert_manager:
+                from pyheat.alert_manager import AlertManager
+                self.alert_manager.clear_error(AlertManager.ALERT_BOILER_STATE_DESYNC)
         
         # Determine if we have demand
         has_demand = len(active_rooms) > 0

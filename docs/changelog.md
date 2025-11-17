@@ -62,6 +62,17 @@ Now handles both cases:
 **Prevention:**
 This fix ensures that even if the climate entity experiences availability issues or state restoration problems, the system will detect and correct the desynchronization within one recompute cycle (60 seconds maximum).
 
+**Follow-up Alert Integration:**
+Added proper alert manager integration for state desync detection:
+- New alert type: `ALERT_BOILER_STATE_DESYNC`
+- WARNING severity for: state machine=ON but entity=off
+- CRITICAL severity for: state machine=off but entity=heat (the overnight bug case)
+- Alert auto-clears when synchronization is restored
+- Provides detailed context including state machine state, entity state, and corrective action taken
+- Uses debouncing (3 consecutive errors) to avoid false positives from transient state changes
+
+**Note:** During the overnight incident, the safety room valve logic successfully prevented a no-flow condition by opening the games room valve to 100%. The safety check operates independently of the state machine by reading `boiler_entity_state` directly, demonstrating excellent defensive programming.
+
 ---
 
 ## 2025-11-16: Minor Issue #4 Fixed - Document Sensor Change Deadband ✅

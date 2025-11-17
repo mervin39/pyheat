@@ -24,6 +24,7 @@ class AlertManager:
     
     # Alert types (unique identifiers)
     ALERT_BOILER_INTERLOCK_FAILURE = "boiler_interlock_failure"
+    ALERT_BOILER_STATE_DESYNC = "boiler_state_desync"
     ALERT_TRV_FEEDBACK_TIMEOUT = "trv_feedback_timeout"
     ALERT_TRV_UNAVAILABLE = "trv_unavailable"
     ALERT_CONFIG_LOAD_FAILURE = "config_load_failure"
