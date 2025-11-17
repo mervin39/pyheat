@@ -32,3 +32,4 @@ config/*.yaml
 # Ignore debug/log files produced by the debug monitor
 debug_monitor.log
 test*.log
+debug/
