@@ -102,23 +102,36 @@ class BoilerController:
         boiler_entity_state = self._get_boiler_entity_state()
         
         # SAFETY CHECK: Detect and correct state desynchronization
-        # This can happen if master enable is toggled or AppDaemon restarts during operation.
-        # If state machine thinks boiler is ON but entity is actually OFF, reset to OFF state.
-        # This prevents the system from getting stuck thinking it commanded the boiler on
-        # when the actual hardware is off.
-        if self.boiler_state == C.STATE_ON and boiler_entity_state == "off":
+        # This can happen if master enable is toggled, AppDaemon restarts, or the climate
+        # entity goes unavailable and returns with an unexpected state.
+        # Compare expected entity state vs actual entity state and correct if needed.
+        expected_entity_state = "heat" if self.boiler_state == C.STATE_ON else "off"
+        
+        if boiler_entity_state not in [expected_entity_state, "unknown", "unavailable"]:
             self.ad.log(
-                "⚠️ Boiler state desync detected: state machine=ON but climate entity=off. "
-                "This can occur after master enable toggle or system restart. "
-                "Resetting state machine to STATE_OFF to allow proper re-ignition.",
+                f"⚠️ Boiler state desync detected: state machine={self.boiler_state} "
+                f"(expects entity={expected_entity_state}) but climate entity={boiler_entity_state}. "
+                f"This can occur after master enable toggle, system restart, or entity unavailability. "
+                f"Correcting desynchronization...",
                 level="WARNING"
             )
-            self._transition_to(C.STATE_OFF, now, "state desync correction - entity is off")
-            # Cancel timers that may be stale
-            self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
-            self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
-            # Note: We don't reset valve positions here - they're handled by normal recompute
-            # and we don't want to interfere with rate limiting or cause unnecessary valve commands
+            
+            if self.boiler_state == C.STATE_ON and boiler_entity_state == "off":
+                # State machine thinks ON but entity is OFF - reset state machine to OFF
+                self._transition_to(C.STATE_OFF, now, "state desync correction - entity is off")
+                # Cancel timers that may be stale
+                self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
+                self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
+            elif self.boiler_state != C.STATE_ON and boiler_entity_state == "heat":
+                # State machine thinks OFF/PENDING/OVERRUN but entity is heating - turn entity off
+                self.ad.log(
+                    f"🔴 CRITICAL: Climate entity is heating when state machine is {self.boiler_state}. "
+                    f"Turning off climate entity immediately.",
+                    level="ERROR"
+                )
+                self._set_boiler_off()
+                # If we were in a state with timers running, preserve them
+                # (e.g., PUMP_OVERRUN timer should continue)
         
         # Determine if we have demand
         has_demand = len(active_rooms) > 0

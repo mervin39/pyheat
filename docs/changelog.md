@@ -1,6 +1,69 @@
 
 # PyHeat Changelog
 
+## 2025-11-17: CRITICAL BUG FIX - Bidirectional Boiler State Desync Detection 🔧
+
+**Status:** COMPLETED ✅
+
+**Issue:**
+Boiler state desynchronization detection was incomplete and one-directional. The system only checked if the state machine thought the boiler was ON but the climate entity was off. It did NOT check the reverse case: state machine thinks boiler should be OFF but climate entity is heating.
+
+**Discovery:**
+On 2025-11-16 overnight, the OpenTherm Gateway integration experienced connectivity issues, causing `climate.opentherm_heating` to go `unavailable` three times between 22:45-22:57. When the entity came back from unavailable at 23:35, it returned as `state=heat` even though all rooms had stopped calling for heat at 23:33. The incomplete desync detection failed to catch this, resulting in the boiler heating unnecessarily for **5.5 hours** (23:35 to 05:05) with zero demand.
+
+**Root Cause:**
+```python
+# OLD CODE - only checked one direction
+if self.boiler_state == C.STATE_ON and boiler_entity_state == "off":
+    # Reset state machine to OFF
+```
+
+This only detected when:
+- State machine thinks: **ON**  
+- Entity actually is: **OFF**
+
+But failed to detect:
+- State machine thinks: **OFF/PENDING_OFF/PUMP_OVERRUN/etc**
+- Entity actually is: **HEAT** ← This is what happened!
+
+**Solution:**
+Implemented proper bidirectional state synchronization that compares expected vs actual entity state:
+
+```python
+# NEW CODE - bidirectional check
+expected_entity_state = "heat" if self.boiler_state == C.STATE_ON else "off"
+
+if boiler_entity_state not in [expected_entity_state, "unknown", "unavailable"]:
+    # Desync detected - correct it in both directions
+```
+
+Now handles both cases:
+1. ✅ State machine=ON, entity=off → Reset state machine to OFF
+2. ✅ State machine=OFF/PENDING_OFF/PUMP_OVERRUN, entity=heat → Turn entity off immediately
+
+**Changes:**
+- `boiler_controller.py` lines 104-127: Replaced one-way check with bidirectional synchronization
+- Added detailed logging showing both state machine state and entity state
+- Added CRITICAL error log when entity is heating unexpectedly
+- Preserves existing timers when correcting entity state (e.g., PUMP_OVERRUN timer continues)
+
+**Testing:**
+- Code reloaded successfully in AppDaemon
+- No errors in logs
+- System continues normal operation
+- Will automatically detect and correct any future desync within 60 seconds (periodic recompute interval)
+
+**Impact:**
+- Prevents wasted energy from boiler running without demand
+- Protects against climate entity state desynchronization from any cause (connectivity issues, master enable toggles, restarts)
+- Provides better diagnostics with detailed logging of desync events
+- Consistent with existing TRV synchronization patterns (which were already bidirectional)
+
+**Prevention:**
+This fix ensures that even if the climate entity experiences availability issues or state restoration problems, the system will detect and correct the desynchronization within one recompute cycle (60 seconds maximum).
+
+---
+
 ## 2025-11-16: Minor Issue #4 Fixed - Document Sensor Change Deadband ✅
 
 **Status:** COMPLETED ✅
