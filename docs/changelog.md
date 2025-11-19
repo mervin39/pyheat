@@ -1,6 +1,48 @@
 
 # PyHeat Changelog
 
+## 2025-11-19: TRV ENCAPSULATION ATTEMPT & ROLLBACK 🔄
+
+**Status:** ROLLED BACK ❌
+
+**Attempted Change:**
+Tried to implement Part A of RESPONSIBILITY_ANALYSIS.md Issue #5 - TRV Responsibility Encapsulation. The goal was to centralize all TRV sensor access in `trv_controller.py` with three new methods:
+- `get_valve_feedback()` - cached TRV position reads (5s TTL)
+- `get_valve_command()` - return last commanded position
+- `is_valve_feedback_consistent()` - validate feedback matches command
+
+**Critical Bug Discovered:**
+The implementation broke the boiler control logic. The boiler feedback validation in `boiler_controller._check_trv_feedback_confirmed()` was checking TRV feedback against **NEW desired valve positions** (`valve_persistence`) instead of **LAST COMMANDED positions** (`trv_last_commanded`).
+
+**Symptom:**
+- System would not turn boiler on
+- All valves showed 100% open but no rooms calling for heat
+- Targets showing as "unavailable"
+- Boiler staying off despite heating demand
+
+**Root Cause:**
+The feedback check was comparing "what the TRV currently reports" against "what we're about to send next" instead of "what we sent previously". This always failed because the TRVs hadn't received the new commands yet.
+
+**Resolution:**
+- Performed git bisect to identify breaking commit: e3d9334 (TRV encapsulation)
+- Discovered bea2d2d (supposed "last known good") was also broken (missing RoomController import)
+- Found actual working version: 95e690d (import fix + all features)
+- Created `stable-working` branch and `working-2025-11-19` tag
+- Reset `main` branch to point to 95e690d
+- Cleaned up all experimental branches
+
+**Current State:**
+- System operational at commit 95e690d (stable-working)
+- Part B (Hysteresis Persistence) from Issue #5 is working correctly ✅
+- Part A (TRV Encapsulation) remains incomplete and can be re-attempted with proper feedback validation logic
+
+**Lessons Learned:**
+- TRV feedback must always check against **last commanded** positions, not **desired future** positions
+- Git tags are valuable for marking known-good versions during complex refactoring
+- Testing valve feedback logic requires careful attention to state timing
+
+---
+
 ## 2025-11-19: HYSTERESIS STATE PERSISTENCE - Survive Restarts in Deadband 💾
 
 **Status:** COMPLETED ✅
