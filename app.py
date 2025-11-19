@@ -103,7 +103,7 @@ class PyHeat(hass.Hass):
         now = datetime.now()
         for room_id in self.config.rooms.keys():
             precision = self.config.rooms[room_id].get('precision', 1)
-            temp, is_stale = self.sensors.get_room_temperature(room_id, now)
+            temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
             if temp is not None:
                 self.last_published_temps[room_id] = round(temp, precision)
         
@@ -131,14 +131,13 @@ class PyHeat(hass.Hass):
                 
                 # Update status sensor to reflect the 100% valve position
                 try:
-                    temp, is_stale = self.sensors.get_room_temperature(room_id, now)
-                    smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, temp) if temp is not None else None
+                    temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
                     room_data_for_status = {
                         'valve_percent': 100,
                         'calling': False,
                         'target': None,
                         'mode': 'off',
-                        'temp': smoothed_temp,
+                        'temp': temp,
                         'is_stale': is_stale
                     }
                     self.status.publish_room_entities(room_id, room_data_for_status, now)
@@ -242,14 +241,13 @@ class PyHeat(hass.Hass):
                 
                 # Update status sensor to reflect the 100% valve position
                 try:
-                    temp, is_stale = self.sensors.get_room_temperature(room_id, now)
-                    smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, temp) if temp is not None else None
+                    temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
                     room_data_for_status = {
                         'valve_percent': 100,
                         'calling': False,
                         'target': None,
                         'mode': 'off',
-                        'temp': smoothed_temp,
+                        'temp': temp,
                         'is_stale': is_stale
                     }
                     self.status.publish_room_entities(room_id, room_data_for_status, now)
@@ -335,11 +333,7 @@ class PyHeat(hass.Hass):
                 
                 # Get room precision and fused temperature
                 precision = self.config.rooms[room_id].get('precision', 1)
-                fused_temp, is_stale = self.sensors.get_room_temperature(room_id, now)
-                
-                # Apply smoothing if configured (for both display AND deadband check)
-                # This ensures consistent behavior: what you see is what affects control
-                smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, fused_temp) if fused_temp is not None else None
+                smoothed_temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
                 
                 # Always update temperature entity immediately (real-time display)
                 # This happens BEFORE recompute decision, ensuring instant UI updates
@@ -494,14 +488,11 @@ class PyHeat(hass.Hass):
                 # System is disabled - only update temperature sensors for HA automations
                 # No heating control, valve commands, or boiler management
                 for room_id in self.config.rooms.keys():
-                    # Get fused temperature
-                    temp, is_stale = self.sensors.get_room_temperature(room_id, now)
-                    
-                    # Apply smoothing if configured (consistent with sensor_changed path)
-                    smoothed_temp = self.status.apply_smoothing_if_enabled(room_id, temp) if temp is not None else None
+                    # Get smoothed fused temperature
+                    temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
                     
                     # Update temperature entity with smoothed value
-                    self.status.update_room_temperature(room_id, smoothed_temp, is_stale)
+                    self.status.update_room_temperature(room_id, temp, is_stale)
                 
                 # System is idle - no further processing
                 return

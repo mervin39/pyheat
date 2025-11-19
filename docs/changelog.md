@@ -1,6 +1,88 @@
 
 # PyHeat Changelog
 
+## 2025-11-19: ARCHITECTURE FIX - Move Temperature Smoothing to SensorManager 🔧
+
+**Status:** COMPLETED ✅
+
+**Issue:**
+Temperature smoothing was incorrectly located in `status_publisher.py`, creating an architectural violation and control inconsistency:
+
+**Problem 1: Architectural Misplacement**
+- Smoothing is a **sensor processing function** but lived in status publisher
+- Status publisher should only format and publish data, not transform it
+- Smoothing state affects **control decisions**, not just display
+
+**Problem 2: Control Inconsistency**
+- Deadband check (in `sensor_changed()`) used **smoothed** temperature
+- Hysteresis logic (in `room_controller.compute_call_for_heat()`) used **raw** temperature
+- Valve band calculations used **raw** temperature
+- This created scenarios where display showed one value but control used another
+
+**Example Scenario:**
+```
+Room has 2 sensors: 19.8°C and 20.2°C
+Raw fused average: 20.0°C
+With smoothing (alpha=0.3, previous=19.5°C): 19.65°C
+Target: 20.0°C
+
+BEFORE FIX:
+  - Deadband sees 19.65°C → might not trigger recompute
+  - Hysteresis sees 20.0°C → different heating decision
+  - INCONSISTENT BEHAVIOR
+
+AFTER FIX:
+  - Deadband sees 19.65°C
+  - Hysteresis sees 19.65°C
+  - CONSISTENT BEHAVIOR
+```
+
+**Solution:**
+Moved all smoothing logic from `status_publisher` to `sensor_manager` where it belongs.
+
+**Changes Made:**
+
+1. **Updated `sensor_manager.py`:**
+   - Added `smoothed_temps` dict to track EMA state per room
+   - Moved `_apply_smoothing()` method from status_publisher
+   - Created new `get_room_temperature_smoothed()` method as main interface
+   - Updated docstring to reflect new responsibility
+   - Smoothing now applied to temperature used for BOTH display AND control
+
+2. **Updated `status_publisher.py`:**
+   - Removed `smoothed_temps` dict
+   - Removed `_apply_smoothing()` method
+   - Removed `apply_smoothing_if_enabled()` method
+   - Now purely handles publishing, no data transformation
+
+3. **Updated `app.py`:**
+   - Changed all calls from `sensors.get_room_temperature()` + `status.apply_smoothing_if_enabled()` 
+     to single call: `sensors.get_room_temperature_smoothed()`
+   - Updated 5 locations: initialize(), master_enable_changed(), sensor_changed(), recompute_all()
+   - Simplified code by removing intermediate smoothing step
+
+4. **Updated `room_controller.py`:**
+   - Changed `compute_room()` to use `sensors.get_room_temperature_smoothed()`
+   - Now hysteresis and valve bands use smoothed temperature
+   - Ensures consistent control behavior with display
+
+**Result:**
+- ✅ Smoothing is now in the correct architectural layer (sensor processing)
+- ✅ All control decisions use the same smoothed temperature
+- ✅ Display shows exactly what affects heating control
+- ✅ Cleaner separation of concerns: sensor_manager transforms, status_publisher publishes
+
+**Files Modified:**
+- `sensor_manager.py` - Added smoothing logic
+- `status_publisher.py` - Removed smoothing logic  
+- `app.py` - Updated to use new smoothing method
+- `room_controller.py` - Updated to use smoothed temperature
+- `docs/changelog.md` - Documented change
+- `docs/ARCHITECTURE.md` - Updated component responsibilities
+- `debug/RESPONSIBILITY_ANALYSIS.md` - Marked issue #3 as resolved
+
+---
+
 ## 2025-11-19: ARCHITECTURE REFACTOR - ValveCoordinator for Clean Separation of Concerns 🏗️
 
 **Status:** COMPLETED ✅

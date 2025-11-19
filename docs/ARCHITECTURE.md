@@ -177,7 +177,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 ### Core Components
 
 - **app.py** - Main AppDaemon application and orchestration
-- **sensor_manager.py** - Temperature sensor fusion with staleness detection
+- **sensor_manager.py** - Temperature sensor fusion, EMA smoothing, and staleness detection
 - **scheduler.py** - Schedule parsing and time-based target calculation
 - **room_controller.py** - Per-room heating logic and target resolution
 - **valve_coordinator.py** - Single authority for valve command decisions with priority handling
@@ -196,12 +196,13 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 
 ### Overview
 
-The `SensorManager` class (`sensor_manager.py`) implements a robust sensor fusion system that combines multiple temperature sensors per room with staleness detection and role-based prioritization. This provides reliable temperature readings even when individual sensors fail or become temporarily unavailable.
+The `SensorManager` class (`sensor_manager.py`) implements a robust sensor fusion system that combines multiple temperature sensors per room with staleness detection, role-based prioritization, and exponential moving average (EMA) smoothing. This provides reliable and stable temperature readings even when individual sensors fail or when multiple sensors report slightly different values.
 
 **Key Features:**
 - Multiple sensors per room with primary/fallback roles
 - Automatic averaging of available sensors
-- EMA (Exponential Moving Average) smoothing for multi-sensor rooms
+- EMA (Exponential Moving Average) smoothing applied to fused temperatures
+- Smoothing used for BOTH display AND control decisions (consistent behavior)
 - Staleness detection with configurable timeouts
 - Graceful degradation when sensors fail
 - State restoration on AppDaemon restart
@@ -3153,14 +3154,13 @@ def master_enable_changed(entity, attribute, old, new, kwargs):
             trvs.set_valve(room_id, 100, now, is_correction=True)
             
             # Update status sensors
-            temp, is_stale = sensors.get_room_temperature(room_id, now)
-            smoothed_temp = status.apply_smoothing_if_enabled(room_id, temp)
+            temp, is_stale = sensors.get_room_temperature_smoothed(room_id, now)
             room_data = {
                 'valve_percent': 100,
                 'calling': False,
                 'target': None,
                 'mode': 'off',
-                'temp': smoothed_temp,
+                'temp': temp,
                 'is_stale': is_stale
             }
             status.publish_room_entities(room_id, room_data, now)

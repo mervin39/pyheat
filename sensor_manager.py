@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""
-sensor_manager.py - Temperature sensor fusion and staleness tracking
+"""sensor_manager.py - Temperature sensor fusion and staleness tracking
 
 Responsibilities:
 - Track sensor values and timestamps
 - Implement sensor fusion (primary/fallback, averaging)
+- Apply exponential moving average smoothing to fused temperatures
 - Detect stale sensors
 - Initialize sensor state from Home Assistant
 """
@@ -27,6 +27,10 @@ class SensorManager:
         self.config = config
         self.sensor_last_values = {}  # {entity_id: (value, timestamp)}
         self.sensor_attributes = {}  # {entity_id: temperature_attribute or None}
+        
+        # EMA smoothing state: {room_id: smoothed_temperature}
+        # Stores the previous smoothed value for each room to compute moving average
+        self.smoothed_temps = {}
         
         # Build attribute mapping from config
         self._build_attribute_map()
@@ -154,3 +158,72 @@ class SensorManager:
             return avg_temp, False
         else:
             return None, True
+    
+    def _apply_smoothing(self, room_id: str, raw_temp: float) -> float:
+        """Apply exponential moving average smoothing to temperature.
+        
+        Smooths the fused temperature to reduce noise and prevent control
+        instability when sensors report slightly different values that cause
+        the averaged result to flip across decision boundaries.
+        
+        CRITICAL: Smoothing is applied to the temperature used for BOTH display
+        AND control decisions (hysteresis, valve bands). This ensures consistent
+        behavior - what you see is what affects heating control.
+        
+        Args:
+            room_id: Room identifier
+            raw_temp: Raw fused temperature in °C
+            
+        Returns:
+            Smoothed temperature in °C
+        """
+        room_config = self.config.rooms.get(room_id, {})
+        smoothing_config = room_config.get('smoothing', {})
+        
+        # Check if smoothing is enabled for this room
+        if not smoothing_config.get('enabled', False):
+            return raw_temp
+        
+        # Get smoothing factor (alpha) with fallback to default
+        import pyheat.constants as C
+        alpha = smoothing_config.get('alpha', C.TEMPERATURE_SMOOTHING_ALPHA_DEFAULT)
+        
+        # Clamp alpha to valid range [0.0, 1.0]
+        alpha = max(0.0, min(1.0, alpha))
+        
+        # First reading for this room - no history to smooth with
+        if room_id not in self.smoothed_temps:
+            self.smoothed_temps[room_id] = raw_temp
+            return raw_temp
+        
+        # Apply EMA: smoothed = alpha * new + (1 - alpha) * previous
+        previous = self.smoothed_temps[room_id]
+        smoothed = alpha * raw_temp + (1.0 - alpha) * previous
+        
+        # Store for next iteration
+        self.smoothed_temps[room_id] = smoothed
+        
+        return smoothed
+    
+    def get_room_temperature_smoothed(self, room_id: str, now: datetime) -> Tuple[Optional[float], bool]:
+        """Get smoothed fused temperature for a room.
+        
+        This is the main method used by control logic. It applies smoothing to
+        the fused temperature to ensure consistent control behavior.
+        
+        Args:
+            room_id: Room identifier
+            now: Current datetime
+            
+        Returns:
+            Tuple of (smoothed_temperature, is_stale)
+            - smoothed_temperature: Smoothed average of available sensors, or None if all stale
+            - is_stale: True if all sensors are stale or unavailable
+        """
+        raw_temp, is_stale = self.get_room_temperature(room_id, now)
+        
+        if raw_temp is None:
+            return None, is_stale
+        
+        smoothed_temp = self._apply_smoothing(room_id, raw_temp)
+        return smoothed_temp, is_stale

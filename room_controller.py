@@ -117,8 +117,8 @@ class RoomController:
         if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
             holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
         
-        # Get temperature
-        temp, is_stale = self.sensors.get_room_temperature(room_id, now)
+        # Get temperature (smoothed for consistent control and display)
+        temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
         
         # Get target
         target = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
