@@ -17,15 +17,17 @@ import pyheat.constants as C
 class Scheduler:
     """Handles schedule resolution and target temperature determination."""
     
-    def __init__(self, ad, config):
+    def __init__(self, ad, config, override_manager=None):
         """Initialize the scheduler.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
+            override_manager: OverrideManager instance (optional, for override checking)
         """
         self.ad = ad
         self.config = config
+        self.override_manager = override_manager
         
     def resolve_room_target(self, room_id: str, now: datetime, room_mode: str, 
                            holiday_mode: bool, is_stale: bool) -> Optional[float]:
@@ -64,22 +66,12 @@ class Scheduler:
         
         # Auto mode → check for override, then schedule
         
-        # Check for active override
-        timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
-        if self.ad.entity_exists(timer_entity):
-            timer_state = self.ad.get_state(timer_entity)
-            if timer_state in ["active", "paused"]:
-                # Override is active, get the target
-                target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
-                if self.ad.entity_exists(target_entity):
-                    try:
-                        override_target = float(self.ad.get_state(target_entity))
-                        # Sentinel value 0 means cleared (entity min is 5)
-                        if override_target >= C.TARGET_MIN_C:
-                            precision = self.config.rooms[room_id].get('precision', 1)
-                            return round(override_target, precision)
-                    except (ValueError, TypeError):
-                        self.ad.log(f"Invalid override target for room '{room_id}'", level="WARNING")
+        # Check for active override via override manager
+        if self.override_manager:
+            override_target = self.override_manager.get_override_target(room_id)
+            if override_target is not None:
+                precision = self.config.rooms[room_id].get('precision', 1)
+                return round(override_target, precision)
         
         # No override → get scheduled target
         scheduled_target = self.get_scheduled_target(room_id, now, holiday_mode)

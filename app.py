@@ -26,13 +26,15 @@ from typing import Dict, List, Optional
 from pyheat.config_loader import ConfigLoader
 from pyheat.sensor_manager import SensorManager
 from pyheat.scheduler import Scheduler
-from pyheat.trv_controller import TRVController
+from pyheat.override_manager import OverrideManager
 from pyheat.trv_controller import TRVController
 from pyheat.valve_coordinator import ValveCoordinator
 from pyheat.boiler_controller import BoilerController
 from pyheat.status_publisher import StatusPublisher
 from pyheat.service_handler import ServiceHandler
 from pyheat.api_handler import APIHandler
+from pyheat.alert_manager import AlertManager
+import pyheat.constants as C
 from pyheat.alert_manager import AlertManager
 import pyheat.constants as C
 
@@ -55,14 +57,15 @@ class PyHeat(hass.Hass):
         self.config = ConfigLoader(self)
         self.alerts = AlertManager(self)  # Initialize alert manager first
         self.sensors = SensorManager(self, self.config)
-        self.scheduler = Scheduler(self, self.config)
+        self.overrides = OverrideManager(self, self.config)
+        self.scheduler = Scheduler(self, self.config, self.overrides)
         self.trvs = TRVController(self, self.config, self.alerts)
         self.valve_coordinator = ValveCoordinator(self, self.trvs)
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
-        self.services = ServiceHandler(self, self.config)
+        self.services = ServiceHandler(self, self.config, self.overrides)
         self.api = APIHandler(self, self.services)
         
         # Timing and state tracking
@@ -296,14 +299,8 @@ class PyHeat(hass.Hass):
                 self.log(f"Room '{room_id}' override started")
             elif old in ["active", "paused"] and new == "idle":
                 self.log(f"Room '{room_id}' override expired")
-                # Clear the override target
-                target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
-                if self.entity_exists(target_entity):
-                    # Set to sentinel value (entity min is 5, so 0 indicates cleared)
-                    self.call_service("input_number/set_value",
-                                    entity_id=target_entity, value=0)
-                # Clear the override type to ensure status is updated
-                self.service_handler._set_override_type(room_id, "none")
+                # Clear override via override manager
+                self.overrides.handle_timer_expired(room_id)
             self.trigger_recompute(f"room_{room_id}_timer_changed")
 
     def sensor_changed(self, entity, attribute, old, new, kwargs):

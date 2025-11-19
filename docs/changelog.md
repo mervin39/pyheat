@@ -1,6 +1,114 @@
 
 # PyHeat Changelog
 
+## 2025-11-19: ARCHITECTURE REFACTOR - Create OverrideManager for Clean Separation 🏗️
+
+**Status:** COMPLETED ✅
+
+**Issue:**
+Override logic was fragmented across multiple components, creating architectural coupling:
+- `scheduler.py` checked timer entities and read override targets
+- `service_handler.py` set override values by directly manipulating entities
+- `app.py` listened to timer changes and cleared override targets
+- Three components had explicit knowledge of timer entity names and structure
+
+This split responsibility made the code harder to maintain and violated separation of concerns.
+
+**Solution:**
+Created a new `OverrideManager` class as the single authority for override operations. This implements clean separation of concerns with encapsulated entity knowledge.
+
+**New Architecture:**
+```
+┌─────────────────────┐
+│ Scheduler           │ Checks if override active
+└──────┬──────────────┘
+       │ get_override_target()
+       ▼
+┌─────────────────────┐
+│ OverrideManager     │ ◄── Single authority for overrides
+│                     │     Encapsulates timer entity knowledge
+└──────┬──────────────┘
+       │ set_override(), cancel_override()
+       ▼
+┌─────────────────────┐
+│ ServiceHandler      │ Calls override operations
+└─────────────────────┘
+```
+
+**Changes Made:**
+
+1. **Created `override_manager.py`:**
+   - New component that owns all override operations
+   - Methods: `is_override_active()`, `get_override_target()`, `set_override()`, `cancel_override()`, `handle_timer_expired()`
+   - Encapsulates all timer entity and target entity knowledge
+   - Clean interface: other components don't need to know about entity structure
+
+2. **Updated `scheduler.py`:**
+   - Added `override_manager` parameter to `__init__()`
+   - Replaced direct entity checks with `override_manager.get_override_target()`
+   - Removed 16 lines of entity-checking code
+   - No longer needs to know about timer entity names
+
+3. **Updated `service_handler.py`:**
+   - Added `override_manager` parameter to `__init__()`
+   - Replaced direct entity manipulation with `override_manager.set_override()` and `cancel_override()`
+   - Simplified service implementations
+   - Removed duplicate entity name formatting
+
+4. **Updated `app.py`:**
+   - Added import for `OverrideManager`
+   - Instantiate `overrides = OverrideManager(self, self.config)` early in init
+   - Pass override manager to scheduler and service handler
+   - Simplified `room_timer_changed()` to use `override_manager.handle_timer_expired()`
+   - Removed direct entity manipulation code
+
+**Benefits:**
+
+✅ **Single Responsibility:**
+- Override manager owns all override state operations
+- Scheduler only reads override targets (via clean interface)
+- Service handler only requests override operations (via clean interface)
+- App only handles timer expiration events (via clean interface)
+
+✅ **Encapsulation:**
+- Entity name knowledge isolated to one class
+- If timer entity structure changes, only update one file
+- Other components don't see implementation details
+
+✅ **Testability:**
+- Override logic can be tested in isolation
+- Easy to mock OverrideManager in other component tests
+- Clear interface contract
+
+✅ **Maintainability:**
+- Future override features have clear home (OverrideManager)
+- Easy to add features like override history, limits, templates
+- No duplicate logic across components
+
+✅ **Consistency:**
+- Follows same pattern as ValveCoordinator refactor
+- Architectural consistency across codebase
+
+**Testing:**
+- Verified all override scenarios:
+  1. ✅ Set absolute override via service
+  2. ✅ Set delta override via service
+  3. ✅ Timer expiration clears override
+  4. ✅ Manual cancel clears override
+  5. ✅ Override checked correctly during target resolution
+- System running in production without errors
+
+**Files Modified:**
+- `override_manager.py` - NEW FILE (170 lines)
+- `scheduler.py` - Added override_manager parameter, simplified override checking
+- `service_handler.py` - Added override_manager parameter, simplified service implementations  
+- `app.py` - Added OverrideManager initialization and integration
+- `docs/changelog.md` - Documented change
+- `docs/ARCHITECTURE.md` - Updated component responsibilities
+- `debug/RESPONSIBILITY_ANALYSIS.md` - Marked issue #4 as resolved
+
+---
+
 ## 2025-11-19: LOG CLEANUP - Remove Noisy Deadband Debug Messages 🔇
 
 **Status:** COMPLETED ✅

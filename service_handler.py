@@ -19,15 +19,17 @@ import pyheat.constants as C
 class ServiceHandler:
     """Handles PyHeat service registration and callbacks."""
     
-    def __init__(self, ad, config):
+    def __init__(self, ad, config, override_manager=None):
         """Initialize the service handler.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
+            override_manager: OverrideManager instance (optional, for override operations)
         """
         self.ad = ad
         self.config = config
+        self.override_manager = override_manager
         self.trigger_recompute_callback = None  # Set by main app
         self.scheduler_ref = None  # Set by main app for override delta calculation
         
@@ -182,19 +184,14 @@ class ServiceHandler:
                     self.ad.log(f"pyheat.override: invalid end_time format: {e}", level="ERROR")
                     return {"success": False, "error": f"invalid end_time format: {e}"}
             
-            # Set override target in helper
-            override_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room)
-            if self.ad.entity_exists(override_entity):
-                self.ad.call_service("input_number/set_value", entity_id=override_entity, value=absolute_target)
+            # Set override via override manager
+            if self.override_manager:
+                success = self.override_manager.set_override(room, absolute_target, duration_seconds)
+                if not success:
+                    return {"success": False, "error": "Failed to set override"}
             else:
-                self.ad.log(f"pyheat.override: entity {override_entity} does not exist", level="WARNING")
-            
-            # Start override timer with calculated duration
-            timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room)
-            if self.ad.entity_exists(timer_entity):
-                self.ad.call_service("timer/start", entity_id=timer_entity, duration=str(duration_seconds))
-            else:
-                self.ad.log(f"pyheat.override: entity {timer_entity} does not exist", level="WARNING")
+                self.ad.log("pyheat.override: override_manager not available", level="ERROR")
+                return {"success": False, "error": "override_manager not available"}
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
@@ -239,10 +236,14 @@ class ServiceHandler:
         self.ad.log(f"pyheat.cancel_override: room={room}")
         
         try:
-            # Cancel override timer
-            timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room)
-            if self.ad.entity_exists(timer_entity):
-                self.ad.call_service("timer/cancel", entity_id=timer_entity)
+            # Cancel override via override manager
+            if self.override_manager:
+                success = self.override_manager.cancel_override(room)
+                if not success:
+                    return {"success": False, "error": "Failed to cancel override"}
+            else:
+                self.ad.log("pyheat.cancel_override: override_manager not available", level="ERROR")
+                return {"success": False, "error": "override_manager not available"}
             
             # Trigger immediate recompute
             if self.trigger_recompute_callback:

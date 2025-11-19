@@ -179,6 +179,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 - **app.py** - Main AppDaemon application and orchestration
 - **sensor_manager.py** - Temperature sensor fusion, EMA smoothing, and staleness detection
 - **scheduler.py** - Schedule parsing and time-based target calculation
+- **override_manager.py** - Temperature override management (timers and targets)
 - **room_controller.py** - Per-room heating logic and target resolution
 - **valve_coordinator.py** - Single authority for valve command decisions with priority handling
 - **trv_controller.py** - TRV valve commands and setpoint locking
@@ -678,6 +679,87 @@ Algorithm:
       06:30 - 07:00         19:00 - 21:00
       
 Timeline: [gap] → [block 1] → [gap] → [block 2] → [gap]
+```
+
+---
+
+## Override Management
+
+### Overview
+
+The `OverrideManager` class (`override_manager.py`) provides centralized management of temperature overrides. It encapsulates all knowledge of timer entities and override target entities, providing a clean interface for other components.
+
+**Responsibilities:**
+- Check if override is active for a room
+- Get override target temperature
+- Set override (target and timer)
+- Cancel active override
+- Handle timer expiration cleanup
+
+**Key Design:** Single source of truth for override operations - no other component directly manipulates timer or target entities.
+
+### Override Architecture
+
+**Component Interactions:**
+```
+┌──────────────┐
+│  Scheduler   │  Calls: get_override_target()
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│   Override   │  ◄── Single authority for overrides
+│   Manager    │      Encapsulates entity knowledge
+└──────┬───────┘
+       │
+       ├─→ Set/cancel via ServiceHandler
+       └─→ Timer expiry handled by app.py
+```
+
+**Benefits:**
+- Encapsulation: Entity structure hidden from other components
+- Testability: Override logic can be unit tested independently
+- Maintainability: Changes to entity structure only affect OverrideManager
+- Consistency: All override operations follow same code path
+
+### Public Interface
+
+```python
+class OverrideManager:
+    def is_override_active(room_id: str) -> bool:
+        """Check if override timer is active or paused."""
+    
+    def get_override_target(room_id: str) -> Optional[float]:
+        """Get override target temperature if active, None otherwise."""
+    
+    def set_override(room_id: str, target: float, duration_seconds: int) -> bool:
+        """Set override target and start timer. Returns success status."""
+    
+    def cancel_override(room_id: str) -> bool:
+        """Cancel active override. Returns success status."""
+    
+    def handle_timer_expired(room_id: str) -> None:
+        """Clean up when timer expires (clear target to sentinel value)."""
+```
+
+**Usage Examples:**
+
+```python
+# Scheduler checking for override
+override_target = override_manager.get_override_target(room_id)
+if override_target is not None:
+    return override_target  # Use override instead of schedule
+
+# Service handler setting override
+success = override_manager.set_override(
+    room='pete', 
+    target=21.5, 
+    duration_seconds=7200  # 2 hours
+)
+
+# App handling timer expiry
+if timer_state == "idle":
+    override_manager.handle_timer_expired(room_id)
 ```
 
 ### Override Mode
