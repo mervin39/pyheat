@@ -1,6 +1,101 @@
 
 # PyHeat Changelog
 
+## 2025-11-19: VALVE BAND REFACTOR - Fix 4-Band Bug & Improve Configuration 🎯
+
+**Status:** COMPLETED ✅
+
+**Issues:**
+1. **4-Band Configuration Bug:** Valve bands inadvertently created 4 bands instead of 3 due to threshold definitions. The `t_max` parameter was unnecessary and created a 4th implicit band.
+2. **"Calling with 0% Valve" Bug:** Rooms could be calling for heat but have 0% valve opening when temperature error was in the hysteresis deadband but below `t_low`. This caused stuck states where rooms never heated up.
+3. **Confusing Naming:** Parameters like `t_low`, `t_mid`, `t_max`, `low_percent`, `mid_percent`, `max_percent` were ambiguous and didn't scale well for future band additions.
+4. **Tight Coupling:** Old naming made it difficult to add or remove bands dynamically.
+
+**Solution:**
+Complete refactor of valve band configuration and logic with numbered, extensible naming scheme and proper 3-band implementation.
+
+**New Configuration Schema:**
+```yaml
+valve_bands:
+  # Thresholds (temperature error in °C below setpoint)
+  band_1_error: 0.30      # Band 1 applies when error < 0.30°C
+  band_2_error: 0.80      # Band 2 applies when 0.30 ≤ error < 0.80°C
+                          # Band Max applies when error ≥ 0.80°C
+  
+  # Valve openings (percentage 0-100)
+  band_0_percent: 0.0      # Not calling (default: 0.0, configurable)
+  band_1_percent: 35.0     # Close to target (gentle heating)
+  band_2_percent: 65.0     # Moderate distance (moderate heating)
+  band_max_percent: 100.0  # Far from target (maximum heating)
+  
+  step_hysteresis_c: 0.05  # Band transition hysteresis
+```
+
+**Band Logic (3 bands + Band 0):**
+- **Band 0:** Not calling → `band_0_percent` (0%)
+- **Band 1:** `error < band_1_error` → `band_1_percent` (gentle, close to target)
+- **Band 2:** `band_1_error ≤ error < band_2_error` → `band_2_percent` (moderate distance)
+- **Band Max:** `error ≥ band_2_error` → `band_max_percent` (far from target, full heat)
+
+**Key Features:**
+1. **Removed `t_max`** - Only 2 thresholds needed for 3 heating bands
+2. **Numbered naming** - `band_N_error` and `band_N_percent` for clarity and extensibility
+3. **Flexible structure** - Supports 0, 1, or 2 thresholds (0/1/2 bands)
+4. **Cascading defaults** - Missing percentages cascade to next higher band:
+   - `band_2_percent` missing → uses `band_max_percent`
+   - `band_1_percent` missing → uses `band_2_percent` (which may have cascaded)
+   - `band_0_percent` missing → defaults to 0.0 (never cascades)
+   - `band_max_percent` missing → defaults to 100.0
+5. **Invariant enforcement** - If `calling=True`, valve MUST be > 0% (fixes stuck state bug)
+
+**Changes Made:**
+
+1. **Updated `constants.py`:**
+   - Replaced `VALVE_BANDS_DEFAULT` with new naming scheme
+   - Removed `t_low`, `t_mid`, `t_max`, `low_percent`, `mid_percent`, `max_percent`
+   - Added `band_1_error`, `band_2_error`, `band_0_percent`, `band_1_percent`, `band_2_percent`, `band_max_percent`
+   - Updated documentation comments to explain new band logic
+
+2. **Updated `config_loader.py`:**
+   - Added `_load_valve_bands()` method with comprehensive validation
+   - Checks for old naming and raises helpful error for migration
+   - Validates thresholds are positive and ordered
+   - Implements cascading defaults for missing percentages
+   - Checks for orphaned percentages (percent defined but no threshold)
+   - Logs when cascading occurs (INFO level)
+   - Returns structured dict with `thresholds`, `percentages`, `step_hysteresis_c`, `num_bands`
+
+3. **Updated `room_controller.py`:**
+   - Completely rewrote `compute_valve_percent()` method
+   - Supports 0/1/2 threshold configurations
+   - Added `_apply_band_hysteresis()` helper method for cleaner hysteresis logic
+   - **CRITICAL FIX:** Enforces invariant that calling rooms must have valve > 0%
+   - If calculated valve is 0% while calling, forces to Band 1 (or Band Max if no bands defined)
+   - Logs enforcement actions at INFO level for visibility
+   - Better error logging with temperature error values
+
+4. **Updated Configuration Files:**
+   - `config/rooms.yaml` - Updated all 6 rooms to new naming
+   - `config/examples/rooms.yaml.example` - Updated example with detailed comments
+
+**Bug Fixes:**
+- ✅ **"Calling with 0% valve" bug FIXED** - Rooms can no longer be stuck calling for heat with 0% valve
+- ✅ **4-band bug FIXED** - Now properly implements 3 heating bands as intended
+- ✅ **Configuration error detection** - Old naming raises clear error with migration instructions
+
+**Benefits:**
+- Clearer, more maintainable configuration
+- Future-proof for adding more bands (band_3, band_4, etc.)
+- Graceful degradation with cascading defaults
+- Better logging and error messages
+- Prevents stuck states through invariant enforcement
+- Works with any user configuration (no restriction on threshold values)
+
+**Migration:**
+Old configs using `t_low`, `t_mid`, `t_max`, etc. will raise a clear error message directing users to update to the new naming scheme.
+
+---
+
 ## 2025-11-19: ARCHITECTURE REFACTOR - Create OverrideManager for Clean Separation 🏗️
 
 **Status:** COMPLETED ✅

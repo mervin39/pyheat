@@ -246,90 +246,169 @@ class RoomController:
 
     def compute_valve_percent(self, room_id: str, target: float, temp: float, 
                              calling: bool) -> int:
-        """Compute valve percentage using stepped bands with hysteresis.
+        """Compute valve percentage with 3-band proportional control.
+        
+        Band Logic (supports 0/1/2 thresholds):
+            error < band_1_error:              Band 1 (gentle, close to target)
+            band_1_error ≤ error < band_2_error: Band 2 (moderate distance)
+            error ≥ band_2_error:              Band Max (far from target)
+        
+        Band transitions use step_hysteresis_c to prevent oscillation.
+        
+        INVARIANT: If calling=True, valve MUST be > 0% (enforced at end)
         
         Args:
             room_id: Room identifier
-            target: Target temperature (C)
-            temp: Current temperature (C)
+            target: Target temperature (°C)
+            temp: Current temperature (°C)
             calling: Whether room is calling for heat
             
         Returns:
-            Valve percentage (0-100)
+            Valve opening percentage (0-100)
         """
+        bands = self.config.rooms[room_id]['valve_bands']
+        percentages = bands['percentages']
+        
+        # Not calling = valve closed
         if not calling:
             self.room_current_band[room_id] = 0
-            return 0
+            return int(percentages[0])
         
-        # Get valve band config
-        bands = self.config.rooms[room_id]['valve_bands']
-        t_low = bands['t_low']
-        t_mid = bands['t_mid']
-        t_max = bands['t_max']
-        low_pct = int(bands['low_percent'])
-        mid_pct = int(bands['mid_percent'])
-        max_pct = int(bands['max_percent'])
-        step_hyst = bands['step_hysteresis_c']
-        
-        # Calculate error (positive = below target)
+        # Calculate temperature error (positive = need heat)
         error = target - temp
         
-        # Get current band (default to 0 if not set)
+        # Get band configuration
+        thresholds = bands['thresholds']
+        num_bands = bands['num_bands']
+        step_hyst = bands['step_hysteresis_c']
+        
+        # Determine target band based on number of thresholds
+        if num_bands == 0:
+            # No bands: just 0 or max
+            target_band = 'max'
+            
+        elif num_bands == 1:
+            # One threshold: band_1 vs max
+            if error < thresholds['band_1']:
+                target_band = 1
+            else:
+                target_band = 'max'
+                
+        elif num_bands == 2:
+            # Two thresholds: band_1, band_2, or max
+            if error < thresholds['band_1']:
+                target_band = 1
+            elif error < thresholds['band_2']:
+                target_band = 2
+            else:
+                target_band = 'max'
+        else:
+            # Fallback: max
+            target_band = 'max'
+        
+        # Apply band hysteresis (if num_bands > 0)
         current_band = self.room_current_band.get(room_id, 0)
         
-        # Determine new band with hysteresis
-        new_band = current_band
-        
-        # Determine target band based on error (without hysteresis)
-        if error < t_low:
-            target_band = 0
-        elif error < t_mid:
-            target_band = 1
-        elif error < t_max:
-            target_band = 2
+        if num_bands == 0:
+            # No hysteresis needed
+            new_band = target_band
         else:
-            target_band = 3
+            new_band = self._apply_band_hysteresis(
+                room_id, current_band, target_band, error, 
+                thresholds, step_hyst, num_bands
+            )
         
-        # Apply hysteresis rules
-        if target_band > current_band:
-            # Increasing demand - check if we've crossed threshold + hysteresis
-            if target_band == 1 and error >= t_low + step_hyst:
+        # Get valve percentage
+        valve_pct = percentages[new_band]
+        
+        # ENFORCE INVARIANT: calling rooms must have open valves
+        # This handles the "calling with 0% valve" bug regardless of configuration
+        if calling and valve_pct == 0:
+            # Force to first available band
+            if num_bands >= 1:
+                valve_pct = percentages[1]
                 new_band = 1
-            elif target_band == 2 and error >= t_mid + step_hyst:
-                new_band = 2
-            elif target_band == 3 and error >= t_max + step_hyst:
-                new_band = 3
-        elif target_band < current_band:
-            # Decreasing demand - only drop one band at a time
-            if current_band == 3 and error < t_max - step_hyst:
-                new_band = 2
-            elif current_band == 2 and error < t_mid - step_hyst:
-                new_band = 1
-            elif current_band == 1 and error < t_low - step_hyst:
-                new_band = 0
-        
-        # Store new band
-        self.room_current_band[room_id] = new_band
-        
-        # Map band to percentage
-        band_to_percent = {
-            0: 0,
-            1: low_pct,
-            2: mid_pct,
-            3: max_pct
-        }
-        
-        valve_pct = band_to_percent[new_band]
+            else:
+                valve_pct = percentages['max']
+                new_band = 'max'
+            
+            self.ad.log(
+                f"Room '{room_id}': calling for heat with error {error:.2f}°C but calculated 0% valve. "
+                f"Forcing Band {new_band} ({valve_pct}%) to maintain heat demand.",
+                level="INFO"
+            )
         
         # Log band changes
         if new_band != current_band:
             self.ad.log(
                 f"Room '{room_id}': valve band {current_band} -> {new_band} "
-                f"(error={error:.2f}C, valve={valve_pct}%)",
+                f"(error={error:.2f}°C, valve={int(valve_pct)}%)",
                 level="INFO"
             )
         
-        return valve_pct
+        self.room_current_band[room_id] = new_band
+        return int(valve_pct)
+    
+    def _apply_band_hysteresis(self, room_id: str, current_band, target_band, 
+                               error: float, thresholds: dict, step_hyst: float,
+                               num_bands: int):
+        """Apply hysteresis to band transitions.
+        
+        Args:
+            room_id: Room identifier
+            current_band: Current band (0, 1, 2, or 'max')
+            target_band: Target band based on current error
+            error: Temperature error (target - temp)
+            thresholds: Dict of threshold values
+            step_hyst: Hysteresis step (°C)
+            num_bands: Number of defined bands (1 or 2)
+            
+        Returns:
+            New band after applying hysteresis
+        """
+        # Convert 'max' to numeric for comparison
+        max_band_num = num_bands + 1
+        curr_num = current_band if isinstance(current_band, int) else max_band_num
+        targ_num = target_band if isinstance(target_band, int) else max_band_num
+        
+        new_num = curr_num  # Default: stay in current band
+        
+        if targ_num > curr_num:
+            # Moving up (more heat) - need to exceed threshold
+            if num_bands == 1:
+                # Only band_1 threshold
+                if targ_num == 1 and error >= thresholds['band_1']:
+                    new_num = 1
+                elif targ_num == max_band_num and error >= thresholds['band_1']:
+                    new_num = max_band_num
+            elif num_bands == 2:
+                # Both band_1 and band_2 thresholds
+                if targ_num == 1 and error >= thresholds['band_1']:
+                    new_num = 1
+                elif targ_num == 2 and error >= thresholds['band_2']:
+                    new_num = 2
+                elif targ_num == max_band_num and error >= thresholds['band_2']:
+                    new_num = max_band_num
+                    
+        elif targ_num < curr_num:
+            # Moving down (less heat) - need to drop below threshold - hysteresis
+            if num_bands == 1:
+                # Only band_1 threshold
+                if curr_num == max_band_num and error < thresholds['band_1'] - step_hyst:
+                    new_num = 1
+                elif curr_num == 1 and error < thresholds['band_1'] - step_hyst:
+                    new_num = 0
+            elif num_bands == 2:
+                # Both band_1 and band_2 thresholds
+                if curr_num == max_band_num and error < thresholds['band_2'] - step_hyst:
+                    new_num = 2
+                elif curr_num == 2 and error < thresholds['band_1'] - step_hyst:
+                    new_num = 1
+                elif curr_num == 1 and error < thresholds['band_1'] - step_hyst:
+                    new_num = 0
+        
+        # Convert back to 'max' if needed
+        return new_num if new_num < max_band_num else 'max'
     
     def get_room_state(self, room_id: str) -> Dict:
         """Get current state for a room.

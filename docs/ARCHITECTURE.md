@@ -68,10 +68,10 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    │    • error ≤ off_delta (0.10°C) → stop calling                          │
 │    │    • Between deltas             → maintain previous state               │
 │    ├─ Valve percentage (stepped bands with hysteresis):                      │
-│    │    • Band 0 (0%):  error < 0.30°C                                       │
-│    │    • Band 1 (40%): 0.30°C ≤ error < 0.80°C                              │
-│    │    • Band 2 (70%): 0.80°C ≤ error < 1.50°C                              │
-│    │    • Band 3 (100%): error ≥ 1.50°C                                      │
+│    │    • Band 0 (0%):  Not calling (room satisfied)                         │
+│    │    • Band 1 (40%): error < 0.30°C  (gentle heating)                     │
+│    │    • Band 2 (70%): 0.30°C ≤ error < 0.80°C  (moderate)                  │
+│    │    • Band Max (100%): error ≥ 0.80°C  (maximum heating)                 │
 │    │    • Band transitions require step_hysteresis (0.05°C) crossing         │
 │    └─ Return: {temp, target, calling, valve_percent, error, mode}            │
 └──────────────────────┬──────────────────────────────────────────────────────┘
@@ -1613,120 +1613,111 @@ Deadband (0.1-0.3°C): No state change
 
 ### Stepped Valve Bands (Proportional Control)
 
-Instead of simple on/off, valve opening is calculated using **4 discrete bands** based on temperature error:
+Instead of simple on/off, valve opening is calculated using **3 discrete heating bands** (plus Band 0 for not calling) based on temperature error. This provides proportional control without PID complexity.
 
 **Configuration (per room):**
 ```yaml
 valve_bands:
-  t_low: 0.30           # Band threshold (°C below target)
-  t_mid: 0.80
-  t_max: 1.50
-  low_percent: 35.0     # Valve opening for each band
-  mid_percent: 65.0
-  max_percent: 100.0
+  # Thresholds (temperature error in °C below setpoint)
+  band_1_error: 0.30   # Band 1 applies when error < 0.30°C
+  band_2_error: 0.80   # Band 2 applies when 0.30 ≤ error < 0.80°C
+                       # Band Max applies when error ≥ 0.80°C
+  
+  # Valve openings (percentage 0-100)
+  band_0_percent: 0.0      # Not calling (default: 0.0)
+  band_1_percent: 40.0     # Close to target (gentle heating)
+  band_2_percent: 70.0     # Moderate distance (moderate heating)
+  band_max_percent: 100.0  # Far from target (maximum heating)
+  
   step_hysteresis_c: 0.05  # Band transition hysteresis
 ```
 
 **Band Mapping:**
 ```
-Error (target - temp)     Band    Valve Opening
-─────────────────────────────────────────────────
-< 0.30°C                  0       0%     (not calling)
-0.30 - 0.80°C             1       40%    (low heat)
-0.80 - 1.50°C             2       70%    (medium heat)
-≥ 1.50°C                  3       100%   (max heat)
+Error (target - temp)     Band       Valve Opening
+────────────────────────────────────────────────────
+Not calling               Band 0     0%     (room satisfied)
+< 0.30°C                  Band 1     40%    (gentle, close to target)
+0.30 - 0.80°C             Band 2     70%    (moderate distance)
+≥ 0.80°C                  Band Max   100%   (far from target)
 ```
 
 **Visual Representation:**
 ```
 Error (°C below target)
-    3.0 ████████████████████████████ 100% (Band 3)
+    2.0 ████████████████████████████ 100% (Band Max)
         │
-    1.5 ├────────────────────────────── t_max threshold
+    0.8 ├────────────────────────────── band_2_error threshold
         │
-    2.0 ████████████████████ 70% (Band 2)
+    0.5 ████████████████ 70% (Band 2)
         │
-    0.8 ├────────────────────────────── t_mid threshold
+    0.3 ├────────────────────────────── band_1_error threshold
         │
-    0.5 ███████ 40% (Band 1)
-        │
-    0.3 ├────────────────────────────── t_low threshold
-        │
-    0.1 ░░░░░░░ 0% (Band 0)
-    0.0 ─────────────────────────────────
+    0.15 ███████ 40% (Band 1)
+         │
+    0.0  ─────────────────────────────── setpoint
 ```
+
+**Key Features:**
+- **Numbered naming**: `band_N_error` and `band_N_percent` for clarity and extensibility
+- **Flexible structure**: Supports 0, 1, or 2 thresholds (0/1/2 heating bands)
+- **Cascading defaults**: Missing percentages cascade to next higher band
+- **Invariant enforcement**: If calling for heat, valve MUST be > 0% (prevents stuck states)
 
 **Why Stepped Bands?**
 - **Proportional response** without PID complexity
 - **Fast response** to large errors (100% immediately)
 - **Gentle approach** near target (40% prevents overshoot)
-- **Simple tuning** (4 thresholds + 3 percentages)
+- **Simple tuning** (2 thresholds + 3 percentages)
 - **Predictable behavior** (discrete states easier to debug)
 
 ### Band Transition Hysteresis
 
-Band changes also use hysteresis to prevent rapid switching between bands:
+Band changes use hysteresis to prevent rapid switching between bands:
 
 **Algorithm:**
 ```python
 # Determine target_band based on error (no hysteresis)
-if error < t_low:      target_band = 0
-elif error < t_mid:    target_band = 1
-elif error < t_max:    target_band = 2
-else:                  target_band = 3
+if error < band_1_error:           target_band = 1
+elif error < band_2_error:         target_band = 2
+else:                              target_band = 'max'
 
 # Apply hysteresis when changing bands
 if target_band > current_band:
-    # Increasing (need to cross threshold + hysteresis)
-    if error >= threshold + step_hysteresis_c:
+    # Increasing (need to cross threshold to move up)
+    if error >= threshold:
         new_band = target_band
         
 elif target_band < current_band:
-    # Decreasing (drop one band at a time)
+    # Decreasing (need to drop below threshold - hysteresis)
     if error < threshold - step_hysteresis_c:
-        new_band = current_band - 1  # Only drop one band
+        new_band = target_band  # Can drop multiple bands at once
 ```
 
 **Key Rules:**
-1. **Increasing demand**: Must exceed threshold + 0.05°C to jump bands
-2. **Decreasing demand**: Drop only ONE band at a time (gradual)
+1. **Increasing demand**: Must reach threshold to jump bands
+2. **Decreasing demand**: Must drop below threshold - 0.05°C to reduce
 3. **Prevents oscillation**: 0.05°C hysteresis on each threshold
 
 **Example Transition:**
 
 ```
-Current band: 1 (40%), error = 0.75°C
+Current band: Band 1 (40%), error = 0.28°C
 
-Temperature drops, error increases to 0.86°C:
-  • t_mid (0.80) + step_hyst (0.05) = 0.85°C
-  • 0.86 > 0.85 → transition to band 2 (70%)
+Temperature drops, error increases to 0.31°C:
+  • band_1_error (0.30) reached
+  • Transition to Band 2 (70%)
 
-Temperature rises, error decreases to 0.74°C:
-  • t_mid (0.80) - step_hyst (0.05) = 0.75°C
-  • 0.74 < 0.75 → transition to band 1 (40%)
+Temperature rises, error decreases to 0.24°C:
+  • band_1_error (0.30) - step_hyst (0.05) = 0.25°C
+  • 0.24 < 0.25 → transition to Band 1 (40%)
 ```
 
-**Hysteresis Gap:** Each threshold has a 0.1°C gap (±0.05°C) where band won't change.
-
-### Multi-Band Jump Optimization
-
-**Special Case:** When error is very large, system can jump directly to max band:
-
-```python
-# Example: Room at 16.0°C, target 19.5°C
-error = 3.5°C
-
-# Without multi-band jump:
-Band 0 → Band 1 (40%) → Band 2 (70%) → Band 3 (100%)
-  Takes 3 recompute cycles to reach full heat
-
-# With multi-band jump:
-Band 0 → Band 3 (100%) immediately
-  Reaches full heat in 1 cycle
-```
+**Hysteresis Gap:** Each threshold has a 0.05°C gap where band won't change when decreasing.
 
 **Implementation:**
 - System calculates target_band based on current error
+- Multi-band jumps allowed when increasing demand (fast response to large errors)
 - If `target_band == 3` (error ≥ 1.5°C), jumps directly
 - Provides fast response to large temperature errors
 - Gradually reduces as temperature approaches target
@@ -1794,12 +1785,12 @@ HYSTERESIS_DEFAULT = {
 }
 
 VALVE_BANDS_DEFAULT = {
-    "t_low": 0.30,
-    "t_mid": 0.80,
-    "t_max": 1.50,
-    "low_percent": 40,
-    "mid_percent": 70,
-    "max_percent": 100,
+    "band_1_error": 0.30,
+    "band_2_error": 0.80,
+    "band_0_percent": 0.0,
+    "band_1_percent": 40.0,
+    "band_2_percent": 70.0,
+    "band_max_percent": 100.0,
     "step_hysteresis_c": 0.05,
 }
 ```
@@ -1813,11 +1804,11 @@ rooms:
       on_delta_c: 0.20    # Tighter control for nursery
       off_delta_c: 0.10
     valve_bands:
-      max_percent: 80     # Limit max heat
-      # Other params inherit defaults
+      band_max_percent: 80     # Limit max heat
+      # Other params inherit defaults (with cascading)
 ```
 
-**Merging Logic:** Room-specific values override defaults, others inherited.
+**Merging Logic:** Room-specific values override defaults, missing percentages cascade to next higher band.
 
 ### Error Handling and Edge Cases
 
@@ -2597,13 +2588,13 @@ With persistence:
 **Example:**
 ```
 3 rooms calling:
-  • pete: 35% (band 1)
-  • lounge: 35% (band 1)
+  • pete: 40% (Band 1)
+  • lounge: 40% (Band 1)
   • abby: 0% (not calling)
-  • Total: 70%
+  • Total: 80%
 
 Min required: 100%
-Result: INTERLOCK_BLOCKED (70 < 100)
+Result: INTERLOCK_BLOCKED (80 < 100)
 ```
 
 ### Valve Interlock System

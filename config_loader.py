@@ -91,11 +91,9 @@ class ConfigLoader:
             if 'off_delta_c' not in h:
                 h['off_delta_c'] = C.HYSTERESIS_DEFAULT['off_delta_c']
             
-            # Validate and apply defaults for valve_bands
+            # Validate and apply defaults for valve_bands with cascading
             vb = room_cfg['valve_bands']
-            for key, default_val in C.VALVE_BANDS_DEFAULT.items():
-                if key not in vb:
-                    vb[key] = default_val
+            room_cfg['valve_bands'] = self._load_valve_bands(room_id, vb)
             
             # Validate and apply defaults for valve_update
             vu = room_cfg['valve_update']
@@ -154,6 +152,123 @@ class ConfigLoader:
         interlock_cfg.setdefault('min_valve_open_percent', C.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT)
         
         self.ad.log(f"Loaded boiler config: entity_id={bc['entity_id']}")
+    
+    def _load_valve_bands(self, room_id: str, bands_config: dict) -> dict:
+        """Load and validate valve band configuration with cascading defaults.
+        
+        Supports 0, 1, or 2 thresholds (flexible band structure):
+        - 0 thresholds: on/off only (band_0_percent, band_max_percent)
+        - 1 threshold: 3 states (band_0, band_1, band_max)
+        - 2 thresholds: 4 states (band_0, band_1, band_2, band_max)
+        
+        Missing percentages cascade to next higher band:
+        - band_2_percent missing → uses band_max_percent
+        - band_1_percent missing → uses band_2_percent (which may have cascaded)
+        - band_0_percent missing → defaults to 0.0 (never cascades)
+        - band_max_percent missing → defaults to 100.0
+        
+        Args:
+            room_id: Room identifier for error messages
+            bands_config: Raw valve_bands config dict from YAML
+            
+        Returns:
+            Validated and completed valve_bands dict
+            
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        # Discover which thresholds are defined
+        thresholds = {}
+        if 'band_1_error' in bands_config:
+            thresholds['band_1'] = bands_config['band_1_error']
+        if 'band_2_error' in bands_config:
+            thresholds['band_2'] = bands_config['band_2_error']
+        
+        # Check for old naming (migration helper)
+        old_keys = ['t_low', 't_mid', 't_max', 'low_percent', 'mid_percent', 'max_percent']
+        if any(key in bands_config for key in old_keys):
+            raise ValueError(
+                f"Room {room_id}: Old valve_bands naming detected. "
+                f"Please update config to use band_1_error, band_2_error, "
+                f"band_1_percent, band_2_percent, band_max_percent"
+            )
+        
+        # Validate thresholds are positive and ordered
+        if thresholds:
+            for name, val in thresholds.items():
+                if val <= 0:
+                    raise ValueError(
+                        f"Room {room_id}: {name}_error must be positive, got {val}"
+                    )
+            
+            # If multiple thresholds, ensure ordered
+            if len(thresholds) > 1:
+                if thresholds['band_2'] <= thresholds['band_1']:
+                    raise ValueError(
+                        f"Room {room_id}: band_2_error ({thresholds['band_2']}) "
+                        f"must be > band_1_error ({thresholds['band_1']})"
+                    )
+        
+        # Check for orphaned percentages (percent defined but no threshold)
+        if 'band_1_percent' in bands_config and 'band_1_error' not in bands_config:
+            raise ValueError(
+                f"Room {room_id}: band_1_percent defined but band_1_error missing"
+            )
+        
+        if 'band_2_percent' in bands_config and 'band_2_error' not in bands_config:
+            raise ValueError(
+                f"Room {room_id}: band_2_percent defined but band_2_error missing"
+            )
+        
+        # Resolve percentages with cascading defaults
+        band_max_pct = bands_config.get('band_max_percent', C.VALVE_BANDS_DEFAULT['band_max_percent'])
+        band_2_pct = bands_config.get('band_2_percent', band_max_pct)
+        band_1_pct = bands_config.get('band_1_percent', band_2_pct)
+        band_0_pct = bands_config.get('band_0_percent', C.VALVE_BANDS_DEFAULT['band_0_percent'])
+        
+        # Validate percentages are in range [0, 100]
+        for name, val in [('band_0_percent', band_0_pct), 
+                          ('band_1_percent', band_1_pct),
+                          ('band_2_percent', band_2_pct),
+                          ('band_max_percent', band_max_pct)]:
+            if not 0 <= val <= 100:
+                raise ValueError(
+                    f"Room {room_id}: {name} ({val}) must be between 0 and 100"
+                )
+        
+        # Log if cascading occurred
+        if 'band_1_percent' not in bands_config and 'band_1_error' in bands_config:
+            source = 'band_2_percent' if 'band_2_percent' in bands_config else 'band_max_percent'
+            self.ad.log(
+                f"Room {room_id}: band_1_percent not defined, using {band_1_pct}% "
+                f"(cascaded from {source})",
+                level="INFO"
+            )
+        
+        if 'band_2_percent' not in bands_config and 'band_2_error' in bands_config:
+            self.ad.log(
+                f"Room {room_id}: band_2_percent not defined, using {band_2_pct}% "
+                f"(cascaded from band_max_percent)",
+                level="INFO"
+            )
+        
+        # Get step hysteresis
+        step_hyst = bands_config.get('step_hysteresis_c', C.VALVE_BANDS_DEFAULT['step_hysteresis_c'])
+        
+        # Build complete config with resolved values
+        result = {
+            'thresholds': thresholds,  # {'band_1': 0.30, 'band_2': 0.80} or subset
+            'percentages': {
+                0: band_0_pct,
+                1: band_1_pct,
+                2: band_2_pct,
+                'max': band_max_pct
+            },
+            'step_hysteresis_c': step_hyst,
+            'num_bands': len(thresholds)  # 0, 1, or 2
+        }
+        
+        return result
         
     def check_for_changes(self) -> bool:
         """Check if any configuration files have been modified.

@@ -72,30 +72,32 @@ TARGET_CHANGE_EPSILON = 0.01  # °C - target changes smaller than this are ignor
 # Smart TRV Control - Valve Bands
 # ============================================================================
 
-# Stepped valve percentage control based on error from target
-# e = target - temp (°C; positive means below target)
+# Proportional valve control with 3 heating bands (0/1/2 thresholds supported)
+# error = target - temp (°C; positive means below target, negative means above)
 #
-# Bands:
-#   e < t_low           → valve = 0%
-#   t_low ≤ e < t_mid   → valve = low_percent
-#   t_mid ≤ e < t_max   → valve = mid_percent
-#   e ≥ t_max           → valve = max_percent
+# Band Logic (2 thresholds = 3 bands + Band 0):
+#   Band 0: not calling                    → band_0_percent (default 0%)
+#   Band 1: error < band_1_error           → band_1_percent (gentle, close to target)
+#   Band 2: band_1_error ≤ error < band_2_error → band_2_percent (moderate distance)
+#   Band Max: error ≥ band_2_error         → band_max_percent (far from target)
 #
-# step_hysteresis_c: requires crossing threshold by this amount before
-# changing bands (dampens flapping between bands)
+# Thresholds define UPPER bounds for gentler bands (not lower bounds)
+# Missing percentages cascade to next higher band (graceful degradation)
+# step_hysteresis_c dampens band transitions to prevent oscillation
 
 VALVE_BANDS_DEFAULT: Dict[str, float] = {
-    # Error thresholds (°C)
-    "t_low": 0.30,   # Threshold to start heating (low power)
-    "t_mid": 0.80,   # Threshold to increase to medium power
-    "t_max": 1.50,   # Threshold to go to maximum power
+    # Error thresholds (temperature °C below setpoint)
+    "band_1_error": 0.30,   # Band 1 applies when error < 0.30°C
+    "band_2_error": 0.80,   # Band 2 applies when 0.30 ≤ error < 0.80°C
+                            # Band Max applies when error ≥ 0.80°C
     
-    # Valve percentages (0-100)
-    "low_percent": 40,   # Gentle heat when slightly below target
-    "mid_percent": 70,   # Moderate heat when clearly below target
-    "max_percent": 100,  # Full heat when well below target
+    # Valve opening percentages (0-100)
+    "band_0_percent": 0.0,      # Not calling (default 0%, configurable for slight opening)
+    "band_1_percent": 40.0,     # Close to target (gentle heating)
+    "band_2_percent": 70.0,     # Moderate distance (moderate heating)
+    "band_max_percent": 100.0,  # Far from target (maximum heating)
     
-    # Step hysteresis (°C) - dampen band transitions
+    # Band transition hysteresis (°C) - prevents oscillation
     "step_hysteresis_c": 0.05,
 }
 

@@ -60,10 +60,10 @@
   - [x] Maintain previous state in deadband zone
 
 - [x] **Valve Band Calculation** (`compute_valve_percent()`)
-  - [x] Map error to valve bands (0%, low%, mid%, max%)
-  - [x] Stepped band selection with thresholds
+  - [x] Map error to 3 valve bands (Band 1: 40%, Band 2: 70%, Band Max: 100%)
+  - [x] Stepped band selection with 2 thresholds (band_1_error, band_2_error)
   - [x] Step hysteresis to prevent band flapping ✅
-  - [x] Multi-band jump optimization (up=fast, down=gradual) ✅
+  - [x] Multi-band jump optimization (fast increase response) ✅
 
 - [x] **TRV Valve Control** - COMPLETE ✅
   - [x] **TRV Setpoint Locking Strategy**
@@ -137,8 +137,8 @@
   - [x] TRV setpoint locking verified (locks to 35°C) ✅
   - [x] Non-blocking valve control verified (no warnings)
   - [x] Manual mode with 25°C setpoint test passed
-  - [x] Valve band transitions verified (0→1→2→3)
-  - [x] Hysteresis logic verified (multi-band up, single-band down)
+  - [x] Valve band transitions verified (Band 1→2→Max)
+  - [x] Hysteresis logic verified (multi-band up, with 0.05°C deadband)
   - [x] Minimum valve open interlock verified (35% → 100% override)
   - [x] Boiler state machine transitions verified
   - [x] TRV feedback confirmation verified

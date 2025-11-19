@@ -35,7 +35,7 @@ PyHeat provides multi-room heating control with:
 1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles and staleness detection. Optional EMA smoothing reduces display noise for rooms with sensors in different locations.
 2. **Target Resolution**: Precedence: Off → Manual → Override → Schedule → Default
 3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override response
-4. **Valve Control**: Stepped bands (0%, low%, mid%, max%) based on temperature error with multi-band jump optimization
+4. **Valve Control**: 3 stepped heating bands (Band 1: 40%, Band 2: 70%, Band Max: 100%) based on temperature error with hysteresis
 5. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 6. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
 
