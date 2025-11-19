@@ -65,14 +65,11 @@ Move **all valve persistence logic** into `boiler_controller.py`. It should:
 
 ---
 
-### 2. **RESOLVED ✅: Valve Command Responsibility Overlap (room_controller vs trv_controller)**
+### 2. **Valve Command Responsibility Overlap (room_controller vs trv_controller)**
 
-**Resolution Date:** 2025-11-19  
-**Solution:** Removed `set_room_valve()` from room_controller - see ValveCoordinator refactor
+**Problem**: `room_controller.set_room_valve()` acts as a middleware but adds confusing logic.
 
-**Original Problem (Now Fixed)**: `room_controller.set_room_valve()` acts as a middleware but adds confusing logic.
-
-**Old Flow (Now Removed)**:
+**Current Flow**:
 ```python
 # app.py calls:
 self.rooms.set_room_valve(room_id, valve_percent, now)
@@ -298,32 +295,24 @@ room_cfg['hysteresis'] = room.get('hysteresis', C.HYSTERESIS_DEFAULT.copy())
 
 ---
 
-### 10. **RESOLVED ✅: TRV Controller Checks Boiler State**
+### 10. **TRV Controller Checks Boiler State**
 
-**Resolution Date:** 2025-11-19  
-**Solution:** Replaced `boiler_state` parameter with `persistence_active` flag from ValveCoordinator
-
-**Old Implementation (Now Fixed)**:
+**In trv_controller.check_feedback_for_unexpected_position()** (line 276):
 ```python
-# OLD - cross-component coupling:
 if boiler_state and boiler_state in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN):
     return  # Don't trigger corrections during valve persistence
 ```
 
-**New Implementation**:
+**Problem**: TRV controller has knowledge of boiler states, creating coupling.
+
+**Recommendation**: 
+Pass a `valve_persistence_active` boolean flag instead of `boiler_state`:
 ```python
-# NEW - clean separation via ValveCoordinator:
 def check_feedback_for_unexpected_position(self, room_id, feedback_percent, now, 
-                                          persistence_active=False):
-    if persistence_active:
-        return  # Valve persistence is active
-
-# Called from app.py:
-persistence_active = self.valve_coordinator.is_persistence_active()
-self.trvs.check_feedback_for_unexpected_position(room_id, feedback_percent, now, persistence_active)
+                                          valve_persistence_active=False):
+    if valve_persistence_active:
+        return
 ```
-
-**Result**: TRV controller no longer has any knowledge of boiler states - coupling eliminated.
 
 ---
 
@@ -341,9 +330,9 @@ self.trvs.check_feedback_for_unexpected_position(room_id, feedback_percent, now,
 ## Summary of Recommendations
 
 ### High Priority (Prevent Conflicts)
-1. ✅ **RESOLVED: Valve persistence** - ValveCoordinator eliminates app.py orchestration
-2. ✅ **RESOLVED: Remove set_room_valve()** - method removed, ValveCoordinator handles coordination
-3. **Move temperature smoothing to sensor_manager** - not status_publisher (still TODO)
+1. **Move valve persistence entirely to boiler_controller** - eliminate app.py orchestration
+2. **Remove set_room_valve() from room_controller** - direct TRV calls from app.py
+3. **Move temperature smoothing to sensor_manager** - not status_publisher
 
 ### Medium Priority (Clean Architecture)
 4. **Create OverrideManager class** - decouple override handling
@@ -351,34 +340,25 @@ self.trvs.check_feedback_for_unexpected_position(room_id, feedback_percent, now,
 6. **Create HeatingCoordinator class** - move recompute logic from app.py
 
 ### Low Priority (Cleanup)
-7. ✅ **RESOLVED: Fix trv_controller boiler state coupling** - now uses persistence_active flag
-8. **Consolidate default value handling** - single source of truth (still TODO)
-9. **Add missing _set_override_type method** - or remove the call (still TODO)
+7. **Fix trv_controller boiler state coupling** - use boolean flags
+8. **Consolidate default value handling** - single source of truth
+9. **Add missing _set_override_type method** - or remove the call
 
 ---
 
 ## Conclusion
 
-**MAJOR UPDATE 2025-11-19:** The critical architectural issues (#1, #2, #10) have been **RESOLVED** through the ValveCoordinator refactor. The system now has:
+The codebase is **well-structured** compared to typical heating controllers, but there are **architectural debt items** that could cause:
 
-✅ **Clean separation of concerns** - No more valve persistence fragmentation  
-✅ **No component fighting** - Explicit priority handling prevents conflicts  
-✅ **Eliminated coupling** - TRV controller no longer knows about boiler states  
-✅ **Single authority** - ValveCoordinator is sole decision maker for valves  
+1. **Race conditions** during valve persistence (components fighting each other)
+2. **Difficult debugging** due to split responsibilities
+3. **Coupling** between modules that should be independent
 
-**Remaining Issues:**
+The critical issue is **valve persistence** during pump overrun and state transitions. The current workaround (checking boiler state in TRV controller) prevents problems but violates clean architecture principles.
 
-The codebase still has some **minor architectural debt items**:
+**Risk Assessment**:
+- Current system: **Works but fragile** - relies on careful state checking
+- Under stress: Could experience valve fighting during rapid state transitions
+- Maintenance: Difficult to modify without breaking assumptions
 
-1. **Temperature smoothing location** (Issue #3) - Should move to sensor_manager
-2. **Override management** (Issue #4) - Could benefit from dedicated OverrideManager
-3. **Status publisher scheduler reference** (Issue #6) - Pass data as parameters instead
-4. **app.py orchestration** (Issue #7) - Could create HeatingCoordinator (though less critical now)
-
-**Risk Assessment - UPDATED**:
-- **Previous**: Works but fragile - relies on careful state checking
-- **Current**: **Robust and maintainable** - clean architecture prevents conflicts
-- Under stress: **No valve fighting** - explicit priority system handles all edge cases
-- Maintenance: **Easy to modify** - clear responsibilities and no hidden coupling
-
-**Recommendation**: The critical valve persistence architecture has been addressed. Remaining issues are **minor improvements** that can be tackled as needed. System is now production-ready with solid architectural foundation.
+**Recommendation**: Address the valve persistence architecture before adding new features.
