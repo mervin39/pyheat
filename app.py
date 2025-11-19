@@ -27,14 +27,13 @@ from pyheat.config_loader import ConfigLoader
 from pyheat.sensor_manager import SensorManager
 from pyheat.scheduler import Scheduler
 from pyheat.override_manager import OverrideManager
+from pyheat.room_controller import RoomController
 from pyheat.trv_controller import TRVController
 from pyheat.valve_coordinator import ValveCoordinator
 from pyheat.boiler_controller import BoilerController
 from pyheat.status_publisher import StatusPublisher
 from pyheat.service_handler import ServiceHandler
 from pyheat.api_handler import APIHandler
-from pyheat.alert_manager import AlertManager
-import pyheat.constants as C
 from pyheat.alert_manager import AlertManager
 import pyheat.constants as C
 
