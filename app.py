@@ -335,22 +335,19 @@ class PyHeat(hass.Hass):
                 precision = self.config.rooms[room_id].get('precision', 1)
                 smoothed_temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
                 
+                # Always update temperature entity immediately (real-time display)
+                # This happens BEFORE recompute decision, ensuring instant UI updates
+                # and maintaining regular entity history for HA recorder/automations
+                self.status.update_room_temperature(room_id, smoothed_temp, is_stale)
+                
                 # Always recompute if sensors are stale (safety)
                 if smoothed_temp is None or is_stale:
-                    # Update temperature entity to show stale/unavailable state
-                    self.status.update_room_temperature(room_id, smoothed_temp, is_stale)
                     self.trigger_recompute(f"sensor_{room_id}_changed")
                     return
                 
                 # Round smoothed temp to display precision for deadband check
                 new_rounded = round(smoothed_temp, precision)
                 old_rounded = self.last_published_temps.get(room_id)
-                
-                # Check if rounded value has actually changed
-                # Only update HA entity if there's a visible change or first update
-                if old_rounded is None or new_rounded != old_rounded:
-                    # Update temperature entity (real-time display for visible changes)
-                    self.status.update_room_temperature(room_id, smoothed_temp, is_stale)
                 
                 # Deadband: Only recompute if change exceeds half a display unit
                 # Prevents flipping at boundaries (e.g., 17.745C vs 17.755C)
@@ -359,9 +356,8 @@ class PyHeat(hass.Hass):
                     temp_delta = abs(new_rounded - old_rounded)
                     
                     if temp_delta < deadband:
-                        self.log(f"Sensor {entity} update skipped - no visible change "
-                                f"({old_rounded}C, delta={temp_delta:.3f}C < {deadband:.3f}C)", 
-                                level="DEBUG")
+                        # Reduce log noise: only log at DEBUG level, no need for detailed message
+                        # Entity was updated above, but recompute is skipped (working as intended)
                         return
                 
                 # Temp changed significantly - update tracking and trigger recompute
