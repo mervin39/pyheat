@@ -20,6 +20,15 @@ from typing import Dict, Any
 TIMEZONE = "UTC"
 
 # ============================================================================
+# Debug Flags
+# ============================================================================
+
+# Enable verbose API debug logging (set False for normal operation)
+# When True: logs all API requests/responses and timer states
+# When False: only logs API errors and warnings
+DEBUG_API_LOGGING = False
+
+# ============================================================================
 # Holiday Mode
 # ============================================================================
 
