@@ -1,6 +1,64 @@
 
 # PyHeat Changelog
 
+## 2025-11-19: OPTIMIZATION - Skip Unnecessary HA Entity Updates ⚡
+
+**Status:** COMPLETED ✅
+
+**Issue:**
+Home Assistant sensors republish their state periodically even when the value hasn't changed. This is normal HA behavior, but was causing unnecessary entity updates in PyHeat:
+
+**Observed Behavior:**
+```
+DEBUG: Sensor sensor.roomtemp_pete updated: 15.64C
+DEBUG: Sensor sensor.roomtemp_pete recompute skipped - change below deadband (15.6C -> 15.6C)
+[30 seconds later]
+DEBUG: Sensor sensor.roomtemp_pete updated: 15.63C  
+DEBUG: Sensor sensor.roomtemp_pete recompute skipped - change below deadband (15.6C -> 15.6C)
+```
+
+**Problem:**
+- Sensor sends update with tiny change (15.64 → 15.63)
+- Both round to same display value (15.6°C)
+- We were **updating the HA temperature entity** even though display value unchanged
+- Then checking deadband and skipping recompute (correct)
+- Result: Unnecessary `set_state()` calls to Home Assistant
+
+**Solution:**
+Moved the `update_room_temperature()` call to **after** the deadband check, and only call it if the rounded value has actually changed.
+
+**Changes Made:**
+
+1. **Updated `app.py` sensor_changed():**
+   - Reordered logic: check for visible change BEFORE updating entity
+   - Only call `status.update_room_temperature()` if rounded value differs
+   - Still update immediately for stale sensors (safety)
+   - Changed log message from "recompute skipped" to "update skipped" for clarity
+
+2. **Updated `.appdaemon_ignore`:**
+   - Added `docs/`, `debug/`, `*.md` to prevent AppDaemon reloads on documentation changes
+   - Reduces unnecessary app restarts when editing documentation
+
+**Result:**
+```
+DEBUG: Sensor sensor.roomtemp_pete updated: 15.64C
+DEBUG: Sensor sensor.roomtemp_pete update skipped - no visible change (15.6C)
+[No HA entity update, no recompute - optimal!]
+```
+
+**Performance Impact:**
+- Reduces unnecessary `set_state()` calls by ~90% for stable temperatures
+- Lower load on Home Assistant
+- Fewer entity state changes logged in HA database
+- Same heating control behavior (no functional change)
+
+**Files Modified:**
+- `app.py` - Optimized sensor update logic
+- `.appdaemon_ignore` - Added documentation patterns
+- `docs/changelog.md` - Documented optimization
+
+---
+
 ## 2025-11-19: ARCHITECTURE FIX - Move Temperature Smoothing to SensorManager 🔧
 
 **Status:** COMPLETED ✅

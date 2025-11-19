@@ -4,3 +4,12 @@ config/examples/*.yaml
 # Also ignore any example run logs
 debug_monitor.log
 test*.log
+
+# Ignore documentation and analysis files to prevent unnecessary reloads
+docs/
+debug/
+*.md
+README.md
+LICENSE
+architecture_report.md
+AUDIT_REPORT.md
