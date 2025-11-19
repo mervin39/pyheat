@@ -8,6 +8,9 @@ __pycache__/
 # AppDaemon logs (symlinked)
 logs
 
+# Temporary analysis files
+docs/RESPONSIBILITY_ANALYSIS.md
+
 # IDE
 .vscode/
 .idea/
