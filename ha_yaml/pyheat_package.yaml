@@ -246,16 +246,16 @@ timer:
     icon: mdi:pump
 
 # ---------------------------------------------------------------------------
-# Input text - pump overrun persistence
+# Input text - room state persistence
 # ---------------------------------------------------------------------------
 input_text:
-  pyheat_pump_overrun_valves:
-    name: "PyHeat Pump Overrun Valve Positions"
+  pyheat_room_persistence:
+    name: "PyHeat Room State Persistence"
     initial: ""
     max: 255
 
-  pyheat_override_types:
-    name: "PyHeat Override Types"
+  pyheat_pump_overrun_valves:
+    name: "PyHeat Pump Overrun Valve Positions (deprecated - migrated to pyheat_room_persistence)"
     initial: ""
     max: 255
 

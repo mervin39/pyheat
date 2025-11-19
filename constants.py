@@ -190,7 +190,10 @@ HELPER_ROOM_OVERRIDE_TARGET = "input_number.pyheat_{room}_override_target"
 
 # Pump overrun persistence
 HELPER_PUMP_OVERRUN_TIMER = "timer.pyheat_boiler_pump_overrun_timer"
-HELPER_PUMP_OVERRUN_VALVES = "input_text.pyheat_pump_overrun_valves"
+HELPER_PUMP_OVERRUN_VALVES = "input_text.pyheat_pump_overrun_valves"  # Deprecated - use HELPER_ROOM_PERSISTENCE
+
+# Room state persistence (unified: valve positions + calling state)
+HELPER_ROOM_PERSISTENCE = "input_text.pyheat_room_persistence"
 
 # Boiler anti-cycling timers (event-driven using timer helpers)
 HELPER_BOILER_MIN_ON_TIMER = "timer.pyheat_boiler_min_on_timer"

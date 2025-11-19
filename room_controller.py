@@ -11,6 +11,7 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Dict, Tuple, Optional
+import json
 import pyheat.constants as C
 
 
@@ -87,6 +88,105 @@ class RoomController:
                     self.ad.log(f"Room {room_id}: Initialized target tracking at {current_target}C", level="DEBUG")
             except Exception as e:
                 self.ad.log(f"Failed to initialize target tracking for room {room_id}: {e}", level="WARNING")
+        
+        # Load persisted calling state from HA
+        self._load_persisted_state()
+        
+    def _load_persisted_state(self) -> None:
+        """Load last_calling state from HA persistence entity on init.
+        
+        Migrates data from old pyheat_pump_overrun_valves format if needed.
+        Format: {"pete": [valve_percent, last_calling], ...}
+        Array indices: [0]=valve_percent (0-100), [1]=last_calling (0=False, 1=True)
+        """
+        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
+            self.ad.log("Room persistence entity does not exist, skipping state load", level="DEBUG")
+            return
+            
+        try:
+            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
+            if not data_str or data_str in ['unknown', 'unavailable']:
+                # Try migrating from old format
+                self._migrate_from_old_format()
+                return
+                
+            data = json.loads(data_str)
+            for room_id, arr in data.items():
+                if len(arr) >= 2 and room_id in self.config.rooms:
+                    # Override valve-based heuristic with persisted state
+                    persisted_calling = bool(arr[1])
+                    self.room_call_for_heat[room_id] = persisted_calling
+                    self.ad.log(f"Room {room_id}: Loaded persisted calling state = {persisted_calling}", level="DEBUG")
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            self.ad.log(f"Failed to parse room persistence: {e}, using valve-based heuristic", level="WARNING")
+    
+    def _migrate_from_old_format(self) -> None:
+        """One-time migration from old pyheat_pump_overrun_valves format.
+        
+        Old format: {"pete": 70, "lounge": 100, ...}
+        New format: {"pete": [70, 0], "lounge": [100, 0], ...}
+        """
+        if not self.ad.entity_exists(C.HELPER_PUMP_OVERRUN_VALVES):
+            return
+            
+        try:
+            old_data_str = self.ad.get_state(C.HELPER_PUMP_OVERRUN_VALVES)
+            if not old_data_str or old_data_str in ['unknown', 'unavailable', '']:
+                return
+                
+            old_data = json.loads(old_data_str)
+            if not old_data:
+                return
+                
+            # Convert old format to new format
+            new_data = {}
+            for room_id, valve_percent in old_data.items():
+                if room_id in self.config.rooms:
+                    # Preserve valve position, initialize calling based on valve > 0
+                    calling = 1 if valve_percent > 0 else 0
+                    new_data[room_id] = [int(valve_percent), calling]
+            
+            # Save to new entity
+            if new_data:
+                self.ad.call_service("input_text/set_value",
+                    entity_id=C.HELPER_ROOM_PERSISTENCE,
+                    value=json.dumps(new_data, separators=(',', ':'))
+                )
+                self.ad.log(f"Migrated {len(new_data)} rooms from old persistence format", level="INFO")
+                
+                # Clear old entity
+                self.ad.call_service("input_text/set_value",
+                    entity_id=C.HELPER_PUMP_OVERRUN_VALVES,
+                    value=""
+                )
+        except (json.JSONDecodeError, ValueError, TypeError, Exception) as e:
+            self.ad.log(f"Failed to migrate from old persistence format: {e}", level="WARNING")
+    
+    def _persist_calling_state(self, room_id: str, calling: bool) -> None:
+        """Update last_calling in persistence entity.
+        
+        Preserves existing valve_percent while updating calling state.
+        """
+        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
+            return
+            
+        try:
+            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
+            data = json.loads(data_str) if data_str and data_str not in ['unknown', 'unavailable', ''] else {}
+            
+            # Initialize room entry if missing
+            if room_id not in data:
+                data[room_id] = [0, 0]
+            
+            # Update calling state (preserve valve_percent at index 0)
+            data[room_id][1] = 1 if calling else 0
+            
+            self.ad.call_service("input_text/set_value",
+                entity_id=C.HELPER_ROOM_PERSISTENCE,
+                value=json.dumps(data, separators=(',', ':'))
+            )
+        except (json.JSONDecodeError, ValueError, TypeError, Exception) as e:
+            self.ad.log(f"Failed to persist calling state for {room_id}: {e}", level="WARNING")
         
     def compute_room(self, room_id: str, now: datetime) -> Dict:
         """Compute heating requirements for a room.
@@ -178,7 +278,12 @@ class RoomController:
         # Compute call for heat
         calling = self.compute_call_for_heat(room_id, target, temp)
         result['calling'] = calling
+        
+        # Update and persist calling state if changed
+        prev_calling = self.room_call_for_heat.get(room_id, False)
         self.room_call_for_heat[room_id] = calling
+        if calling != prev_calling:
+            self._persist_calling_state(room_id, calling)
         
         # Compute valve percentage
         valve_percent = self.compute_valve_percent(room_id, target, temp, calling)

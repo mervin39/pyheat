@@ -680,29 +680,56 @@ class BoilerController:
     # ========================================================================
     
     def _save_pump_overrun_valves(self) -> None:
-        """Persist valve positions to survive AppDaemon reload during pump overrun."""
-        if not self.ad.entity_exists(C.HELPER_PUMP_OVERRUN_VALVES):
-            self.ad.log(f"Boiler: pump overrun valves entity {C.HELPER_PUMP_OVERRUN_VALVES} does not exist", level="DEBUG")
+        """Persist valve positions to unified room persistence entity.
+        
+        Updates valve_percent (index 0) while preserving last_calling (index 1).
+        Format: {"pete": [valve_percent, last_calling], ...}
+        """
+        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
+            self.ad.log(f"Boiler: room persistence entity {C.HELPER_ROOM_PERSISTENCE} does not exist", level="DEBUG")
             return
             
         try:
-            positions_json = json.dumps(self.boiler_last_valve_positions)
+            # Load existing data to preserve calling state
+            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
+            data = json.loads(data_str) if data_str and data_str not in ['unknown', 'unavailable', ''] else {}
+            
+            # Update valve positions (index 0), preserve calling state (index 1)
+            for room_id, valve_percent in self.boiler_last_valve_positions.items():
+                if room_id not in data:
+                    data[room_id] = [0, 0]
+                data[room_id][0] = int(valve_percent)
+                # Keep index 1 (calling state) unchanged
+            
             self.ad.call_service("input_text/set_value",
-                            entity_id=C.HELPER_PUMP_OVERRUN_VALVES,
-                            value=positions_json)
+                            entity_id=C.HELPER_ROOM_PERSISTENCE,
+                            value=json.dumps(data, separators=(',', ':')))
             self.ad.log(f"Boiler: saved pump overrun valves: {self.boiler_last_valve_positions}", level="DEBUG")
         except Exception as e:
             self.ad.log(f"Boiler: failed to save pump overrun valves: {e}", level="WARNING")
     
     def _clear_pump_overrun_valves(self) -> None:
-        """Clear persisted pump overrun valve positions."""
-        if not self.ad.entity_exists(C.HELPER_PUMP_OVERRUN_VALVES):
+        """Clear persisted valve positions in room persistence entity.
+        
+        Sets valve_percent (index 0) to 0, preserves last_calling (index 1).
+        """
+        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
             return
             
         try:
+            # Load existing data to preserve calling state
+            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
+            data = json.loads(data_str) if data_str and data_str not in ['unknown', 'unavailable', ''] else {}
+            
+            # Clear valve positions (index 0), preserve calling state (index 1)
+            for room_id in data.keys():
+                if isinstance(data[room_id], list) and len(data[room_id]) >= 2:
+                    data[room_id][0] = 0
+                    # Keep index 1 (calling state) unchanged
+            
             self.ad.call_service("input_text/set_value",
-                            entity_id=C.HELPER_PUMP_OVERRUN_VALVES,
-                            value="")
+                            entity_id=C.HELPER_ROOM_PERSISTENCE,
+                            value=json.dumps(data, separators=(',', ':')))
             self.ad.log("Boiler: cleared pump overrun valves", level="DEBUG")
         except Exception as e:
             self.ad.log(f"Boiler: failed to clear pump overrun valves: {e}", level="DEBUG")

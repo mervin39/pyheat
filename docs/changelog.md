@@ -1,6 +1,72 @@
 
 # PyHeat Changelog
 
+## 2025-11-19: HYSTERESIS STATE PERSISTENCE - Survive Restarts in Deadband 💾
+
+**Status:** COMPLETED ✅
+
+**Problem:**
+When AppDaemon restarts while a room temperature is in the hysteresis deadband (between on_delta and off_delta), the `room_call_for_heat` state was lost. The initialization heuristic (assume calling if valve > 0%) worked most of the time, but failed in edge cases where:
+- TRV valve closed quickly after reaching setpoint
+- Restart occurred during the narrow window between valve closing and temperature stabilizing
+- Result: Wrong initial state → spurious heating cycles or delayed heating response
+
+**Impact During Development:**
+- Frequent restarts during testing near setpoints triggered edge case repeatedly
+- Created confusing "hysteresis bugs" that were actually state loss on restart
+- Particularly problematic when testing deadband behavior
+
+**Solution:**
+Implemented unified room state persistence using compact array format in new `input_text.pyheat_room_persistence` entity.
+
+**Data Format:**
+```json
+{"pete": [70, 1], "lounge": [100, 0], "office": [40, 1]}
+```
+- Array structure: `[valve_percent, last_calling]`
+- Index 0: `valve_percent` (0-100) - for pump overrun persistence
+- Index 1: `last_calling` (0=False, 1=True) - for hysteresis persistence
+- Character budget: ~15 chars per room (6 rooms = ~90 chars, well under 255 limit)
+
+**Changes:**
+
+**constants.py:**
+- Added `HELPER_ROOM_PERSISTENCE = "input_text.pyheat_room_persistence"`
+- Marked `HELPER_PUMP_OVERRUN_VALVES` as deprecated
+
+**room_controller.py:**
+- Added `_load_persisted_state()` - loads calling state on init, overrides valve heuristic
+- Added `_migrate_from_old_format()` - one-time migration from old pump overrun format
+- Added `_persist_calling_state()` - saves calling state on every state change
+- Modified `compute_room()` - persists calling state when it changes
+- Added `import json`
+
+**boiler_controller.py:**
+- Updated `_save_pump_overrun_valves()` - writes to new entity, preserves calling state (index 1)
+- Updated `_clear_pump_overrun_valves()` - clears valve positions, preserves calling state
+
+**ha_yaml/pyheat_package.yaml:**
+- Added `input_text.pyheat_room_persistence` entity (max 255 chars)
+- Marked `input_text.pyheat_pump_overrun_valves` as deprecated (will migrate and remove later)
+- Removed unused `input_text.pyheat_override_types`
+
+**Benefits:**
+1. **Correct state after restart** - Hysteresis behavior preserved exactly
+2. **Eliminates development pain** - No more phantom bugs during testing near setpoints
+3. **Production robustness** - Rare crash scenarios don't corrupt system state
+4. **Unified design** - Single entity for related state (valves + calling)
+5. **Space efficient** - Compact JSON format uses <100 chars for 6 rooms
+6. **Automatic migration** - Seamlessly converts from old format on first run
+7. **Debuggable** - Persistence entity visible in HA Developer Tools
+
+**Testing:**
+- Restart during deadband → calling state correctly restored
+- Pump overrun + restart → valve positions preserved
+- Migration from old format → data converted seamlessly
+- Character budget → well under 255 limit with room to spare
+
+---
+
 ## 2025-11-19: VALVE BAND REFACTOR - Fix 4-Band Bug & Improve Configuration 🎯
 
 **Status:** COMPLETED ✅
