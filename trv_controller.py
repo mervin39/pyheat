@@ -51,7 +51,7 @@ class TRVController:
             except (ValueError, TypeError) as e:
                 self.ad.log(f"Could not initialize TRV {room_id}: {e}", level="WARNING")
                 
-    def set_valve(self, room_id: str, percent: int, now: datetime, is_correction: bool = False) -> None:
+    def set_valve(self, room_id: str, percent: int, now: datetime, is_correction: bool = False, persistence_active: bool = False) -> None:
         """Set TRV valve position with non-blocking feedback confirmation.
         
         Args:
@@ -59,6 +59,7 @@ class TRVController:
             percent: Desired valve percentage (0-100)
             now: Current datetime
             is_correction: If True, bypass rate limiting and change checks
+            persistence_active: If True, valve persistence is active (skip feedback checks)
         """
         room_config = self.config.rooms.get(room_id)
         if not room_config or room_config.get('disabled'):
@@ -249,20 +250,20 @@ class TRVController:
             self.ad.log(f"TRV {room_id}: Error checking feedback: {e}", level="ERROR")
             del self._valve_command_state[state_key]
     
-    def check_feedback_for_unexpected_position(self, room_id: str, feedback_percent: int, now: datetime, boiler_state: str = None) -> None:
-        """Check if TRV feedback shows unexpected valve position.
+    def check_feedback_for_unexpected_position(self, room_id: str, feedback_percent: int, now: datetime, persistence_active: bool = False) -> None:
+        """Check if TRV feedback matches expected position and trigger correction if needed.
         
         Args:
             room_id: Room identifier
             feedback_percent: Current valve position from feedback sensor
             now: Current datetime
-            boiler_state: Current boiler state (optional, for safety check)
+            persistence_active: If True, valve persistence is active (skip feedback checks)
         """
-        # CRITICAL: During PENDING_OFF and PUMP_OVERRUN states, valve persistence is active
-        # and feedback changes are expected as valves are forcibly held open. Don't trigger
-        # corrections during these states to avoid fighting with the persistence logic.
-        if boiler_state and boiler_state in (C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN):
-            self.ad.log(f"TRV feedback ignored during {boiler_state} (valve persistence active)", level="DEBUG")
+        # CRITICAL: During valve persistence, feedback changes are expected as valves
+        # are forcibly held open. Don't trigger corrections during persistence to avoid
+        # fighting with the persistence logic.
+        if persistence_active:
+            self.ad.log(f"TRV feedback ignored for '{room_id}' (valve persistence active)", level="DEBUG")
             return
         
         # Check if there's an active valve command in progress

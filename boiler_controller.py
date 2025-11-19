@@ -29,17 +29,19 @@ class BoilerController:
     - STATE_INTERLOCK_BLOCKED: Insufficient valve opening, cannot turn on
     """
     
-    def __init__(self, ad, config, alert_manager=None):
+    def __init__(self, ad, config, alert_manager=None, valve_coordinator=None):
         """Initialize the boiler controller.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
             alert_manager: Optional AlertManager instance for notifications
+            valve_coordinator: Optional ValveCoordinator instance for managing valve persistence
         """
         self.ad = ad
         self.config = config
         self.alert_manager = alert_manager
+        self.valve_coordinator = valve_coordinator
         
         # State machine state
         self.boiler_state = C.STATE_OFF
@@ -387,6 +389,16 @@ class BoilerController:
             if self.alert_manager:
                 from pyheat.alert_manager import AlertManager
                 self.alert_manager.clear_error(AlertManager.ALERT_SAFETY_ROOM_ACTIVE)
+        
+        # Update valve coordinator with persistence overrides (if coordinator is available)
+        if self.valve_coordinator:
+            if persisted_valves and valves_must_stay_open:
+                # Set persistence overrides in coordinator
+                persistence_reason = f"{self.boiler_state}: {reason}"
+                self.valve_coordinator.set_persistence_overrides(persisted_valves, persistence_reason)
+            elif not valves_must_stay_open:
+                # Clear persistence when no longer needed
+                self.valve_coordinator.clear_persistence_overrides()
         
         return self.boiler_state, reason, persisted_valves, valves_must_stay_open
     

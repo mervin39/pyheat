@@ -1,19 +1,25 @@
 # PyHeat Architecture & Responsibility Analysis Report
 
 **Date**: 16 November 2025  
-**Analysis Type**: Component Responsibility Review & Conflict Detection
+**Analysis Type**: Component Responsibility Review & Conflict Detection  
+**Status Update**: 19 November 2025 - Issue #1 RESOLVED ✅
 
 ## Executive Summary
 
 I've analyzed the PyHeat codebase against its documented architecture. Overall, the modular design is **well-implemented** with clear separation of concerns. However, I've identified **several issues** where code responsibilities are misplaced or where different components could fight each other.
 
+**UPDATE 2025-11-19:** Issue #1 (Critical valve persistence fragmentation) has been **RESOLVED** by implementing a new `ValveCoordinator` component. See changelog.md for full details.
+
 ---
 
 ## Critical Issues (Potential Component Conflicts)
 
-### 1. **CRITICAL: Valve Persistence Logic Split Between app.py and boiler_controller.py**
+### 1. **RESOLVED ✅: Valve Persistence Logic Split Between app.py and boiler_controller.py**
 
-**Problem**: Valve persistence responsibility is **fragmented** between two files, creating potential for conflicts.
+**Resolution Date:** 2025-11-19  
+**Solution:** Created `ValveCoordinator` class - see changelog.md
+
+**Original Problem (Now Fixed):** Valve persistence responsibility is **fragmented** between two files, creating potential for conflicts.
 
 **Current State**:
 - `boiler_controller.py` **decides** which valve positions to persist (`persisted_valves` dict)

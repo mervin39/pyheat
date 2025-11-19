@@ -27,7 +27,8 @@ from pyheat.config_loader import ConfigLoader
 from pyheat.sensor_manager import SensorManager
 from pyheat.scheduler import Scheduler
 from pyheat.trv_controller import TRVController
-from pyheat.room_controller import RoomController
+from pyheat.trv_controller import TRVController
+from pyheat.valve_coordinator import ValveCoordinator
 from pyheat.boiler_controller import BoilerController
 from pyheat.status_publisher import StatusPublisher
 from pyheat.service_handler import ServiceHandler
@@ -56,8 +57,9 @@ class PyHeat(hass.Hass):
         self.sensors = SensorManager(self, self.config)
         self.scheduler = Scheduler(self, self.config)
         self.trvs = TRVController(self, self.config, self.alerts)
+        self.valve_coordinator = ValveCoordinator(self, self.trvs)
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
-        self.boiler = BoilerController(self, self.config, self.alerts)
+        self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.services = ServiceHandler(self, self.config)
@@ -380,8 +382,9 @@ class PyHeat(hass.Hass):
                 now = datetime.now()
                 self.log(f"TRV feedback updated: {entity} = {feedback_percent}", level="DEBUG")
                 
-                # Check for unexpected valve position (pass current boiler state to prevent fighting)
-                self.trvs.check_feedback_for_unexpected_position(room_id, feedback_percent, now, self.boiler.boiler_state)
+                # Check for unexpected valve position (pass persistence_active flag)
+                persistence_active = self.valve_coordinator.is_persistence_active()
+                self.trvs.check_feedback_for_unexpected_position(room_id, feedback_percent, now, persistence_active)
                 
                 # If unexpected position detected, trigger immediate recompute
                 if room_id in self.trvs.unexpected_valve_positions:
@@ -516,38 +519,24 @@ class PyHeat(hass.Hass):
                 any_calling = True
                 active_rooms.append(room_id)
         
-        # Update boiler state (returns persisted valve positions if needed)
+        # Update boiler state
         boiler_state, boiler_reason, persisted_valves, valves_must_stay_open = \
             self.boiler.update_state(any_calling, active_rooms, room_data, now)
         
-        # Apply valve commands with persistence priority
-        # CRITICAL: If there are persisted valves (pump overrun or interlock), use them for affected rooms
-        # and use normal calculations for rooms NOT in persistence dict
-        if persisted_valves:
-            # Send persistence commands first (critical for pump overrun safety)
-            for room_id, valve_percent in persisted_valves.items():
-                self.log(f"Room '{room_id}': using persisted valve {valve_percent}% (boiler state: {boiler_state})", level="DEBUG")
-                self.rooms.set_room_valve(room_id, valve_percent, now)
-                
-                # Publish room entities with persisted valve
-                data_for_publish = room_data[room_id].copy()
-                data_for_publish['valve_percent'] = valve_percent
-                self.status.publish_room_entities(room_id, data_for_publish, now)
+        # Apply all valve commands through valve coordinator
+        # The coordinator handles persistence overrides, corrections, and normal commands
+        for room_id in self.config.rooms.keys():
+            data = room_data[room_id]
+            desired_valve = data['valve_percent']
             
-            # Send normal commands for rooms NOT in persistence dict
-            for room_id in self.config.rooms.keys():
-                if room_id not in persisted_valves:
-                    data = room_data[room_id]
-                    valve_percent = data['valve_percent']
-                    self.rooms.set_room_valve(room_id, valve_percent, now)
-                    self.status.publish_room_entities(room_id, data, now)
-        else:
-            # No persistence - send all normal valve commands
-            for room_id in self.config.rooms.keys():
-                data = room_data[room_id]
-                valve_percent = data['valve_percent']
-                self.rooms.set_room_valve(room_id, valve_percent, now)
-                self.status.publish_room_entities(room_id, data, now)
+            # Coordinator applies all overrides and sends final command
+            final_valve = self.valve_coordinator.apply_valve_command(room_id, desired_valve, now)
+            
+            # Update room_data with final valve for status publishing
+            data['valve_percent'] = final_valve
+            
+            # Publish room entities
+            self.status.publish_room_entities(room_id, data, now)
         
         # Publish system status
         self.status.publish_system_status(any_calling, active_rooms, room_data, 

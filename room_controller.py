@@ -331,23 +331,17 @@ class RoomController:
         
         return valve_pct
     
-    def set_room_valve(self, room_id: str, valve_percent: int, now: datetime) -> None:
-        """Set a room's TRV valve position.
-        
-        Checks for unexpected valve positions and triggers corrections if needed.
+    def get_room_state(self, room_id: str) -> Dict:
+        """Get current state for a room.
         
         Args:
             room_id: Room identifier
-            valve_percent: Desired valve percentage
-            now: Current datetime
+            
+        Returns:
+            Dict containing room state information
         """
-        # Check if there's an unexpected position that needs correction
-        is_correction = room_id in self.trvs.unexpected_valve_positions
-        
-        if is_correction:
-            # Force correction by using expected valve position
-            expected = self.trvs.unexpected_valve_positions[room_id]['expected']
-            self.trvs.set_valve(room_id, expected, now, is_correction=True)
-        else:
-            # Normal valve set
-            self.trvs.set_valve(room_id, valve_percent, now, is_correction=False)
+        return {
+            'calling': self.room_call_for_heat.get(room_id, False),
+            'current_band': self.room_current_band.get(room_id),
+            'last_valve': self.room_last_valve.get(room_id)
+        }

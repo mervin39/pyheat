@@ -1,6 +1,117 @@
 
 # PyHeat Changelog
 
+## 2025-11-19: ARCHITECTURE REFACTOR - ValveCoordinator for Clean Separation of Concerns 🏗️
+
+**Status:** COMPLETED ✅
+
+**Issue:**
+Valve persistence logic was fragmented across multiple components, creating architectural coupling and potential for conflicts:
+- `boiler_controller.py` decided when persistence was needed and stored valve positions
+- `app.py` orchestrated which valve commands to apply (persistence vs normal)
+- `room_controller.py` checked for corrections in `set_room_valve()`
+- `trv_controller.py` checked boiler state to avoid fighting with persistence
+
+This split responsibility made the code difficult to debug and maintain, with implicit coordination between components.
+
+**Solution:**
+Created a new `ValveCoordinator` class as the single authority for final valve command decisions. This implements clean separation of concerns with explicit priority handling.
+
+**New Architecture:**
+```
+┌─────────────────────┐
+│ BoilerController    │ Decides when persistence is NEEDED
+│                     │ Stores valve positions
+└──────┬──────────────┘
+       │ set_persistence_overrides()
+       ▼
+┌─────────────────────┐
+│ ValveCoordinator    │ ◄── Single authority for valve decisions
+│                     │     Priority: persistence > corrections > normal
+└──────┬──────────────┘
+       │ apply_valve_command()
+       ▼
+┌─────────────────────┐
+│ TRVController       │ Sends actual hardware commands
+└─────────────────────┘
+```
+
+**Changes Made:**
+
+1. **Created `valve_coordinator.py`:**
+   - New component that owns final valve command decisions
+   - Manages persistence overrides from boiler controller
+   - Applies corrections for unexpected TRV positions
+   - Explicit priority: safety (persistence) > corrections > normal
+   - Methods: `set_persistence_overrides()`, `clear_persistence_overrides()`, `apply_valve_command()`
+
+2. **Updated `boiler_controller.py`:**
+   - Added `valve_coordinator` parameter to `__init__()`
+   - Calls `valve_coordinator.set_persistence_overrides()` when persistence is needed
+   - Calls `valve_coordinator.clear_persistence_overrides()` when persistence ends
+   - Still returns `persisted_valves` for backward compatibility, but coordinator handles application
+
+3. **Simplified `app.py`:**
+   - Removed complex valve orchestration logic (60 lines → 15 lines)
+   - Now simply calls `valve_coordinator.apply_valve_command()` for each room
+   - Coordinator handles all overrides automatically
+   - Updated TRV feedback checking to pass `persistence_active` flag instead of `boiler_state`
+
+4. **Removed `room_controller.set_room_valve()`:**
+   - Method deleted entirely
+   - Valve coordinator now called directly from app.py
+   - Room controller no longer needs to know about TRV corrections
+
+5. **Simplified `trv_controller.py`:**
+   - `set_valve()` now accepts `persistence_active` parameter instead of checking boiler state
+   - `check_feedback_for_unexpected_position()` accepts `persistence_active` flag instead of `boiler_state`
+   - Removed cross-component coupling (no longer needs to know about boiler states)
+
+**Benefits:**
+
+✅ **Clear Responsibilities:**
+- Boiler: "I need these valves persisted for safety"
+- Rooms: "I want this valve position for heating"
+- Coordinator: "Here's the final command after all overrides"
+- TRVs: "Sending command to hardware"
+
+✅ **No Cross-Component Coupling:**
+- Boiler doesn't call TRV controller directly
+- Room controller doesn't check TRV corrections
+- TRV controller doesn't check boiler states
+
+✅ **Explicit Priority:**
+- Code clearly shows: persistence > corrections > normal
+- Easy to audit and understand
+
+✅ **Future-Proof:**
+- Easy to add new override types (e.g., frost protection, maximum limits)
+- All override logic in one place
+
+✅ **Easier Debugging:**
+- Single point to trace valve command decisions
+- Clear logging of why each command was chosen
+
+**Testing:**
+- Verified all scenarios work correctly:
+  1. ✅ Normal operation without overrides
+  2. ✅ Pump overrun persistence (valves stay open after boiler off)
+  3. ✅ Persistence cleared when pump overrun completes
+  4. ✅ Correction overrides for unexpected valve positions
+  5. ✅ Priority correct: persistence > corrections > normal
+  6. ✅ Interlock persistence (minimum valve opening requirement)
+- System running in production without errors since 10:34:09
+- No warnings or errors in AppDaemon logs
+
+**Files Modified:**
+- `valve_coordinator.py` - NEW FILE (155 lines)
+- `app.py` - Import and initialization, simplified recompute logic
+- `boiler_controller.py` - Added valve_coordinator integration
+- `trv_controller.py` - Simplified to remove boiler_state coupling
+- `room_controller.py` - Removed set_room_valve() method
+
+---
+
 ## 2025-11-17: CRITICAL BUG FIX - Bidirectional Boiler State Desync Detection 🔧
 
 **Status:** COMPLETED ✅
