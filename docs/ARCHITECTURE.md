@@ -115,19 +115,22 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    │    • Save valve positions when demand ceases                            │
 │    │    • Keep valves open for 180s after boiler off                         │
 │    │    • Ensures residual heat circulation                                  │
+│    ├─ Update ValveCoordinator with persistence overrides                     │
 │    └─ Return: (state, reason, persisted_valves{}, must_stay_open)            │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    VALVE PERSISTENCE LOGIC (app.py)                          │
+│                VALVE COORDINATION (valve_coordinator.py)                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  Critical safety handling of persisted valve positions:                      │
-│    ├─ If persisted_valves exist (pump overrun or interlock):                 │
-│    │    • Apply persisted positions to those rooms FIRST                     │
-│    │    • Apply normal calculated positions to other rooms                   │
-│    ├─ Else: Apply all normal calculated positions                            │
-│    └─ Ensures safety overrides take precedence over heating logic            │
+│  Single authority for final valve command decisions:                         │
+│    ├─ Receive persistence overrides from boiler controller                   │
+│    ├─ Apply priority logic for each room:                                    │
+│    │    1. Persistence overrides (safety: pump overrun, interlock)           │
+│    │    2. Correction overrides (unexpected TRV positions)                   │
+│    │    3. Normal desired values (from room heating logic)                   │
+│    ├─ Pass persistence_active flag to TRV controller                         │
+│    └─ Send final valve commands with all overrides applied                   │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
                        ▼
@@ -177,6 +180,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 - **sensor_manager.py** - Temperature sensor fusion with staleness detection
 - **scheduler.py** - Schedule parsing and time-based target calculation
 - **room_controller.py** - Per-room heating logic and target resolution
+- **valve_coordinator.py** - Single authority for valve command decisions with priority handling
 - **trv_controller.py** - TRV valve commands and setpoint locking
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
 - **alert_manager.py** - Error tracking and Home Assistant persistent notifications
@@ -988,6 +992,298 @@ Applied at target resolution time, not in schedule config (schedules can have an
 
 ---
 
+## Valve Coordination
+
+### Overview
+
+The `ValveCoordinator` class (`valve_coordinator.py`) acts as the **single authority** for all valve command decisions. It was introduced in November 2025 to eliminate architectural coupling between components and provide clear separation of concerns.
+
+**Key Responsibilities:**
+- Accept persistence overrides from boiler controller (safety)
+- Apply correction overrides from TRV controller (unexpected positions)
+- Enforce explicit priority: persistence > corrections > normal
+- Pass `persistence_active` flag to TRV controller to prevent fighting
+- Coordinate final valve commands with all overrides applied
+
+**Why ValveCoordinator Exists:**
+
+Before this component, valve persistence logic was fragmented:
+- `boiler_controller.py` decided when persistence was needed
+- `app.py` orchestrated which valve commands to apply
+- `room_controller.py` checked for corrections
+- `trv_controller.py` checked boiler state to avoid conflicts
+
+This created tight coupling and made debugging difficult. ValveCoordinator provides a single coordination point.
+
+### Architecture
+
+```
+┌──────────────────────┐
+│  BoilerController    │  Decides: "These valves must persist for safety"
+└──────────┬───────────┘
+           │ set_persistence_overrides({room: valve%}, reason)
+           ▼
+┌──────────────────────┐
+│  ValveCoordinator    │  Single Authority: Applies all overrides
+├──────────────────────┤  Priority: persistence > corrections > normal
+│ • persistence_active │
+│ • persistence_overrides
+│ • applies corrections
+└──────────┬───────────┘
+           │ apply_valve_command(room, desired_valve, now)
+           ▼
+┌──────────────────────┐
+│   TRVController      │  Executes: Sends hardware commands
+└──────────────────────┘
+```
+
+**Benefits:**
+- **Clear responsibilities** - Each component has one job
+- **No cross-component coupling** - Boiler doesn't know about TRVs, TRVs don't know about boiler
+- **Explicit priority** - Code clearly shows decision logic
+- **Easy to extend** - Add new override types in one place
+- **Easier debugging** - Single point to trace valve decisions
+
+### Priority System
+
+The coordinator enforces a strict three-level priority:
+
+**Priority 1: Persistence Overrides (Safety)**
+- Source: `boiler_controller.py` during pump overrun or interlock
+- Purpose: Keep valves open for pump flow, ensure minimum valve opening
+- Examples:
+  - Pump overrun: Keep valves at last positions after boiler turns off
+  - Interlock: Force valves to meet minimum total opening requirement
+- Takes precedence over ALL other commands
+
+**Priority 2: Correction Overrides (Unexpected Positions)**
+- Source: `trv_controller.py` when TRV feedback doesn't match commanded position
+- Purpose: Correct manual TRV changes or communication errors
+- Examples:
+  - User manually adjusts TRV using physical buttons
+  - TRV firmware glitch changes position unexpectedly
+- Only applied when NO persistence is active
+
+**Priority 3: Normal Values (Heating Logic)**
+- Source: `room_controller.py` based on temperature error and valve bands
+- Purpose: Normal proportional heating control
+- Used when no overrides are active
+
+### Key Methods
+
+#### set_persistence_overrides()
+
+Called by boiler controller when valve persistence is needed:
+
+```python
+# In boiler_controller.update_state():
+if self.boiler_state == C.STATE_PUMP_OVERRUN:
+    persisted = self.boiler_last_valve_positions.copy()
+    self.valve_coordinator.set_persistence_overrides(
+        persisted, 
+        f"{self.boiler_state}: pump overrun active"
+    )
+```
+
+**Parameters:**
+- `overrides`: Dict[room_id → valve_percent] - Positions to persist
+- `reason`: Human-readable explanation for logging
+
+**Effect:**
+- Stores overrides internally
+- Sets `persistence_active = True`
+- Logs INFO message with all persisted rooms and values
+
+#### clear_persistence_overrides()
+
+Called when persistence is no longer needed:
+
+```python
+# In boiler_controller.update_state():
+if self.boiler_state == C.STATE_OFF:
+    self.valve_coordinator.clear_persistence_overrides()
+```
+
+**Effect:**
+- Clears overrides
+- Sets `persistence_active = False`
+- Logs DEBUG message
+
+#### apply_valve_command()
+
+Main interface used by app.py for all valve commands:
+
+```python
+# In app.py recompute_all():
+for room_id in self.config.rooms:
+    data = room_data[room_id]
+    desired_valve = data['valve_percent']
+    
+    final_valve = self.valve_coordinator.apply_valve_command(
+        room_id, 
+        desired_valve, 
+        now
+    )
+    
+    # final_valve is what was actually commanded (after overrides)
+```
+
+**Logic Flow:**
+```python
+1. Check persistence_overrides dict:
+   If room in dict → use persisted value (Priority 1)
+
+2. Else, check trvs.unexpected_valve_positions:
+   If room in dict → use expected value (Priority 2)
+   
+3. Else → use desired value (Priority 3)
+
+4. Call trvs.set_valve(room, final_value, now, 
+                      is_correction=(Priority 2),
+                      persistence_active=bool(Priority 1))
+
+5. Log decision if override applied
+
+6. Return final_value
+```
+
+**Parameters:**
+- `room_id`: Room identifier
+- `desired_percent`: Valve percentage from room heating logic
+- `now`: Current datetime
+
+**Returns:**
+- `final_percent`: Actual valve percentage commanded (after overrides)
+
+#### is_persistence_active()
+
+Query method to check if persistence is active:
+
+```python
+# In app.py trv_feedback_changed():
+persistence_active = self.valve_coordinator.is_persistence_active()
+self.trvs.check_feedback_for_unexpected_position(
+    room_id, 
+    feedback_percent, 
+    now, 
+    persistence_active
+)
+```
+
+Used to prevent TRV feedback checks from triggering corrections during persistence.
+
+### Integration Points
+
+**Boiler Controller → Valve Coordinator:**
+```python
+# boiler_controller.py __init__:
+def __init__(self, ad, config, alert_manager, valve_coordinator):
+    self.valve_coordinator = valve_coordinator
+
+# In update_state():
+if persisted_valves and valves_must_stay_open:
+    self.valve_coordinator.set_persistence_overrides(
+        persisted_valves, 
+        f"{self.boiler_state}: {reason}"
+    )
+elif not valves_must_stay_open:
+    self.valve_coordinator.clear_persistence_overrides()
+```
+
+**App.py → Valve Coordinator:**
+```python
+# app.py __init__:
+self.valve_coordinator = ValveCoordinator(self, self.trvs)
+
+# Pass to boiler controller:
+self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator)
+
+# In recompute_all():
+for room_id in self.config.rooms:
+    data = room_data[room_id]
+    final_valve = self.valve_coordinator.apply_valve_command(
+        room_id, data['valve_percent'], now
+    )
+    data['valve_percent'] = final_valve  # Update for status publishing
+```
+
+**Valve Coordinator → TRV Controller:**
+```python
+# In apply_valve_command():
+self.trvs.set_valve(
+    room_id, 
+    final_percent, 
+    now, 
+    is_correction=is_correction,
+    persistence_active=self.persistence_active
+)
+```
+
+### Logging
+
+ValveCoordinator provides detailed logging for debugging:
+
+**Persistence Set:**
+```
+[INFO] Valve persistence ACTIVE: STATE_PUMP_OVERRUN: pump overrun active 
+       [pete=75%, lounge=50%, office=25%]
+```
+
+**Persistence Cleared:**
+```
+[DEBUG] Valve persistence CLEARED
+```
+
+**Override Applied:**
+```
+[DEBUG] Room 'pete': valve=75% (persistence: STATE_PUMP_OVERRUN: pump overrun active)
+[DEBUG] Room 'lounge': valve=60% (correction)
+```
+
+**Normal Command:**
+```
+(No log - only overrides are logged to reduce noise)
+```
+
+### State Management
+
+The coordinator maintains minimal internal state:
+
+```python
+self.persistence_overrides = {}  # {room_id: valve_percent}
+self.persistence_reason = None   # Human-readable explanation
+self.persistence_active = False  # Boolean flag
+```
+
+**State Lifecycle:**
+```
+INACTIVE → set_persistence_overrides() → ACTIVE
+         ← clear_persistence_overrides() ← 
+```
+
+**State is NOT persisted** across AppDaemon restarts:
+- Resets to INACTIVE on restart
+- Boiler controller re-establishes persistence as needed
+- Safe behavior: defaults to normal operation
+
+### Performance
+
+**Computational Cost:**
+- O(1) per valve command (dict lookup)
+- Negligible CPU usage (<0.01ms per room)
+
+**Memory:**
+- ~100 bytes per persisted room
+- Typical: 3-6 rooms during pump overrun = 300-600 bytes
+- Minimal footprint
+
+**Call Frequency:**
+- Called every recompute cycle (60s) for all rooms
+- Additional calls on sensor changes
+- Typical: 10-20 calls per minute across all rooms
+
+---
+
 ## Room Control Logic
 
 ### Overview
@@ -1376,30 +1672,31 @@ def set_room_valve(room_id: str, valve_percent: int, now: datetime):
 
 ### Interaction with Boiler Safety
 
-Room controller does NOT directly command valves in all scenarios:
+Room controller computes desired valve positions, but valve commands are coordinated through the `ValveCoordinator`:
 
 **Normal Operation:**
 ```python
 # In app.py recompute_all():
 for room_id in config.rooms:
     data = rooms.compute_room(room_id, now)  # Calculate valve %
-    rooms.set_room_valve(room_id, data['valve_percent'], now)
+    
+    # ValveCoordinator applies all overrides and sends final command
+    valve_coordinator.apply_valve_command(room_id, data['valve_percent'], now)
 ```
 
 **Pump Overrun / Boiler Safety:**
 ```python
-# Boiler controller returns persisted_valves
-if persisted_valves:
-    # Safety takes priority - use persisted positions
-    for room_id, valve_pct in persisted_valves.items():
-        rooms.set_room_valve(room_id, valve_pct, now)
-    
-    # Normal calculations still run but may be overridden
-    for room_id in other_rooms:
-        rooms.set_room_valve(room_id, calculated_valve, now)
+# Boiler controller sets persistence in valve coordinator
+boiler.update_state(...)  # Internally calls valve_coordinator.set_persistence_overrides()
+
+# App just calls coordinator for all rooms - it handles persistence automatically
+for room_id in config.rooms:
+    data = rooms.compute_room(room_id, now)
+    valve_coordinator.apply_valve_command(room_id, data['valve_percent'], now)
+    # Coordinator applies: persistence > corrections > normal (priority handled internally)
 ```
 
-**Key Point:** Room controller computes desired valve position, but boiler safety logic can override it via valve persistence.
+**Key Point:** Room controller computes desired valve position. `ValveCoordinator` acts as single authority, applying persistence overrides from boiler controller, corrections from TRV feedback, and normal values with explicit priority handling.
 
 ### Configuration Defaults vs. Overrides
 
@@ -1757,12 +2054,21 @@ if room_id in unexpected_valve_positions:
 - Power cycle causes TRV to reset to last known position
 
 **Safety Integration:**
-Critical check during pump overrun - do NOT trigger corrections when boiler is deliberately holding valves open:
+Critical check during pump overrun - do NOT trigger corrections when valve persistence is active. This is coordinated through the `ValveCoordinator`:
 
 ```python
-if boiler_state in (STATE_PENDING_OFF, STATE_PUMP_OVERRUN):
-    return  # Valve persistence is expected
+# In trv_controller.check_feedback_for_unexpected_position():
+if persistence_active:
+    return  # Valve persistence is expected - don't fight it
+
+# Called from app.py with persistence status from coordinator:
+persistence_active = self.valve_coordinator.is_persistence_active()
+self.trvs.check_feedback_for_unexpected_position(
+    room_id, feedback_percent, now, persistence_active
+)
 ```
+
+**Key Change (Nov 2025):** Previously checked `boiler_state` directly, creating coupling. Now uses `persistence_active` flag from `ValveCoordinator`, eliminating cross-component dependency.
 
 ### Command State Tracking
 
