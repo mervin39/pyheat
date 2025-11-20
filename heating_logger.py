@@ -47,7 +47,7 @@ class HeatingLogger:
         # Get room IDs for column headers
         self.room_ids = sorted(list(config.rooms.keys()))
         
-        self.ad.log("HeatingLogger initialized - logging to heating_logs/")
+        self.ad.log(f"HeatingLogger initialized - logging to heating_logs/ ({len(self.room_ids)} rooms: {', '.join(self.room_ids)})")
     
     def _setup_log_directory(self):
         """Create log directory and .gitignore file."""
