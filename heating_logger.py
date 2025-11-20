@@ -146,6 +146,11 @@ class HeatingLogger:
             if not file_exists:
                 self.csv_writer.writeheader()
                 self.csv_file.flush()
+                # Set file permissions to be readable/writable by all users
+                try:
+                    os.chmod(filepath, 0o666)
+                except Exception as e:
+                    self.ad.log(f"Warning: Could not set permissions on {filepath}: {e}", level="WARNING")
                 self.ad.log(f"Started new heating log: {filename}")
     
     def should_log(self, opentherm_data: Dict, boiler_state: str, room_data: Dict) -> bool:
