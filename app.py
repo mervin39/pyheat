@@ -68,11 +68,6 @@ class PyHeat(hass.Hass):
         self.services = ServiceHandler(self, self.config, self.overrides)
         self.api = APIHandler(self, self.services)
         
-        # Initialize heating logger if enabled (temporary data collection)
-        self.heating_logger = None
-        if C.ENABLE_HEATING_LOGS:
-            self.heating_logger = HeatingLogger(self, self.config)
-        
         # Timing and state tracking
         self.last_recompute = None
         self.recompute_count = 0
@@ -96,6 +91,11 @@ class PyHeat(hass.Hass):
                 auto_clear=False  # Requires manual intervention
             )
             return
+        
+        # Initialize heating logger if enabled (must be after config.load_all())
+        self.heating_logger = None
+        if C.ENABLE_HEATING_LOGS:
+            self.heating_logger = HeatingLogger(self, self.config)
         
         # Initialize sensor values from current state
         self.sensors.initialize_from_ha()
