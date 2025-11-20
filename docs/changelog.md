@@ -1,6 +1,36 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Bugfix - OpenTherm Callbacks Filtered by should_log() 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+OpenTherm sensor callbacks (heating_temp, return_temp, modulation, setpoint_temp) were triggering `_log_heating_state()` but entries weren't being logged. Only periodic and room sensor changes appeared in CSV logs.
+
+**Root Cause:**
+- OpenTherm sensors update every few seconds with small changes (0.1-0.2°C)
+- Callbacks triggered `_log_heating_state()` which called `should_log()`
+- `should_log()` rounds temps to nearest degree and filters unchanged values
+- Since most sensor updates were <1°C changes, `should_log()` returned False
+- **Result:** Direct sensor callbacks were being silently filtered out
+
+**Fix:**
+- Added `force_log` parameter to `_log_heating_state()` (default False)
+- OpenTherm sensor callbacks now pass `force_log=True` to bypass filtering
+- Periodic/room-triggered logs still use `should_log()` filtering to avoid duplicates
+- This ensures OpenTherm sensor changes that triggered callbacks are always logged
+
+**Behavior:**
+- ✅ OpenTherm sensors that trigger callbacks will now log immediately
+- ✅ `should_log()` still prevents duplicate logs from periodic recomputes
+- ✅ Trigger names clearly show what caused the log: `opentherm_heating_temp`, `opentherm_modulation`, etc.
+
+**Files Changed:**
+- `app.py`: Added `force_log` parameter and pass `True` from OpenTherm callbacks
+
+---
+
 ## 2025-11-20: Summary - Heating Logger Working Correctly ✅
 
 **Status:** VERIFIED ✅

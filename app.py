@@ -488,8 +488,8 @@ class PyHeat(hass.Hass):
                     'override': override_active,
                 }
             
-            # Log if significant
-            self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now)
+            # Log immediately (bypass should_log filtering since sensor triggered directly)
+            self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=True)
 
 
     # ========================================================================
@@ -677,7 +677,7 @@ class PyHeat(hass.Hass):
         
         return data
     
-    def _log_heating_state(self, trigger: str, boiler_state: str, room_data: Dict, now: datetime):
+    def _log_heating_state(self, trigger: str, boiler_state: str, room_data: Dict, now: datetime, force_log: bool = False):
         """Log current heating system state to CSV.
         
         Args:
@@ -685,6 +685,7 @@ class PyHeat(hass.Hass):
             boiler_state: Current boiler FSM state
             room_data: Room states from compute_room()
             now: Current datetime
+            force_log: If True, bypass should_log() filtering (for direct sensor triggers)
         """
         # Get OpenTherm data
         opentherm_data = self._get_opentherm_data()
@@ -719,7 +720,7 @@ class PyHeat(hass.Hass):
         )
         
         # Check if we should log (significant changes only)
-        if self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data):
+        if force_log or self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data):
             self.heating_logger.log_state(
                 trigger=trigger,
                 opentherm_data=opentherm_data,
