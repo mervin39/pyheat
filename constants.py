@@ -209,8 +209,19 @@ OPENTHERM_HEATING_TEMP = "sensor.opentherm_heating_temp"
 OPENTHERM_HEATING_RETURN_TEMP = "sensor.opentherm_heating_return_temp"
 OPENTHERM_HEATING_SETPOINT_TEMP = "sensor.opentherm_heating_setpoint_temp"
 OPENTHERM_POWER = "sensor.opentherm_power"
+OPENTHERM_MODULATION = "sensor.opentherm_modulation_level"
 OPENTHERM_BURNER_STARTS = "sensor.opentherm_burner_starts"
 OPENTHERM_DHW_BURNER_STARTS = "sensor.opentherm_dhw_burner_starts"
+OPENTHERM_CLIMATE = "climate.opentherm_heating"
+
+# ============================================================================
+# System State Logging (Temporary - for data collection)
+# ============================================================================
+
+# Enable comprehensive heating system logging to CSV files
+# This is a temporary feature for collecting data to develop OpenTherm
+# optimization algorithms. Will be removed once sufficient data is collected.
+ENABLE_HEATING_LOGS = True  # Set to False to disable
 
 # ============================================================================
 # Scheduling & Timing

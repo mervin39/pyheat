@@ -35,6 +35,7 @@ from pyheat.status_publisher import StatusPublisher
 from pyheat.service_handler import ServiceHandler
 from pyheat.api_handler import APIHandler
 from pyheat.alert_manager import AlertManager
+from pyheat.heating_logger import HeatingLogger
 import pyheat.constants as C
 
 
@@ -66,6 +67,11 @@ class PyHeat(hass.Hass):
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.services = ServiceHandler(self, self.config, self.overrides)
         self.api = APIHandler(self, self.services)
+        
+        # Initialize heating logger if enabled (temporary data collection)
+        self.heating_logger = None
+        if C.ENABLE_HEATING_LOGS:
+            self.heating_logger = HeatingLogger(self, self.config)
         
         # Timing and state tracking
         self.last_recompute = None
@@ -450,6 +456,39 @@ class PyHeat(hass.Hass):
                     self.log(f"OpenTherm [{sensor_name}]: {value}C", level="DEBUG")
             except (ValueError, TypeError):
                 self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
+        
+        # Trigger heating log for significant sensor changes
+        # (modulation, heating temp, return temp)
+        if self.heating_logger and sensor_name in ['modulation', 'heating_temp', 'return_temp']:
+            now = datetime.now()
+            
+            # Get current boiler state and room data
+            boiler_state = self.get_state(C.ENTITY_PYHEAT_BOILER_STATE)
+            
+            # Get room data - simplified version for logging only
+            room_data = {}
+            for room_id in self.config.rooms.keys():
+                temp = self.sensors.get_temperature(room_id)
+                target = self.get_state(C.get_sensor(room_id, "setpoint"))
+                calling = self.rooms.is_room_calling(room_id)
+                valve_fb = self.trvs.get_valve_feedback(room_id)
+                valve_cmd = self.trvs.get_valve_command(room_id)
+                override_active = self.overrides.is_override_active(room_id)
+                mode = self.get_state(C.get_sensor(room_id, "mode"))
+                
+                room_data[room_id] = {
+                    'temp': temp,
+                    'target': target,
+                    'calling': calling,
+                    'valve_fb': valve_fb if valve_fb is not None else '',
+                    'valve_cmd': valve_cmd if valve_cmd is not None else '',
+                    'mode': mode,
+                    'override': override_active,
+                }
+            
+            # Log if significant
+            self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now)
+
 
     # ========================================================================
     # TRV Setpoint Management
@@ -588,8 +627,93 @@ class PyHeat(hass.Hass):
         self.status.publish_system_status(any_calling, active_rooms, room_data, 
                                          boiler_state, boiler_reason, now)
         
+        # Log to heating logs if enabled
+        if self.heating_logger:
+            self._log_heating_state(reason, boiler_state, room_data, now)
+        
         # Log summary
         if any_calling:
             self.log(f"Recompute #{self.recompute_count}: Heating {len(active_rooms)} room(s) - {', '.join(active_rooms)}")
         else:
             self.log(f"Recompute #{self.recompute_count}: System idle", level="DEBUG")
+
+    def _get_opentherm_data(self) -> Dict:
+        """Gather current OpenTherm sensor data.
+        
+        Returns:
+            Dict with OpenTherm sensor values
+        """
+        data = {}
+        
+        # Helper to safely get state
+        def safe_get(entity_id, default=''):
+            if self.entity_exists(entity_id):
+                state = self.get_state(entity_id)
+                if state not in ['unknown', 'unavailable', None]:
+                    return state
+            return default
+        
+        data['flame'] = safe_get(C.OPENTHERM_FLAME)
+        data['heating_temp'] = safe_get(C.OPENTHERM_HEATING_TEMP)
+        data['return_temp'] = safe_get(C.OPENTHERM_HEATING_RETURN_TEMP)
+        data['setpoint_temp'] = safe_get(C.OPENTHERM_HEATING_SETPOINT_TEMP)
+        data['power'] = safe_get(C.OPENTHERM_POWER)
+        data['modulation'] = safe_get(C.OPENTHERM_MODULATION)
+        data['burner_starts'] = safe_get(C.OPENTHERM_BURNER_STARTS)
+        data['dhw_burner_starts'] = safe_get(C.OPENTHERM_DHW_BURNER_STARTS)
+        data['climate_state'] = safe_get(C.OPENTHERM_CLIMATE)
+        
+        return data
+    
+    def _log_heating_state(self, trigger: str, boiler_state: str, room_data: Dict, now: datetime):
+        """Log current heating system state to CSV.
+        
+        Args:
+            trigger: What triggered this recompute
+            boiler_state: Current boiler FSM state
+            room_data: Room states from compute_room()
+            now: Current datetime
+        """
+        # Get OpenTherm data
+        opentherm_data = self._get_opentherm_data()
+        
+        # Check if pump overrun is active
+        pump_overrun_active = boiler_state == C.STATE_PUMP_OVERRUN
+        
+        # Build room data with additional fields for logging
+        log_room_data = {}
+        for room_id, data in room_data.items():
+            # Get valve feedback
+            valve_fb = self.trvs.get_valve_feedback(room_id)
+            valve_cmd = self.trvs.get_valve_command(room_id)
+            
+            # Get override status
+            override_active = self.overrides.is_override_active(room_id)
+            
+            log_room_data[room_id] = {
+                'temp': data.get('temp'),
+                'target': data.get('target'),
+                'calling': data.get('calling', False),
+                'valve_fb': valve_fb if valve_fb is not None else '',
+                'valve_cmd': valve_cmd if valve_cmd is not None else '',
+                'mode': data.get('mode', 'auto'),
+                'override': override_active,
+            }
+        
+        # Calculate total valve opening
+        total_valve_pct = sum(
+            self.trvs.get_valve_feedback(room_id) or 0
+            for room_id in self.config.rooms.keys()
+        )
+        
+        # Check if we should log (significant changes only)
+        if self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data):
+            self.heating_logger.log_state(
+                trigger=trigger,
+                opentherm_data=opentherm_data,
+                boiler_state=boiler_state,
+                pump_overrun_active=pump_overrun_active,
+                room_data=log_room_data,
+                total_valve_pct=total_valve_pct
+            )
+
