@@ -240,36 +240,50 @@ class HeatingLogger:
         # Check date rotation
         self._check_date_rotation()
         
+        # Helper function to round temps to 2dp
+        def round_temp(val):
+            if val in [None, '', 'unknown', 'unavailable']:
+                return ''
+            try:
+                return round(float(val), 2)
+            except (ValueError, TypeError):
+                return val
+        
+        # Get current datetime
+        now = datetime.now()
+        
         # Build row data
         row = {
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            # Date and time (split, with seconds)
+            'date': now.strftime('%Y-%m-%d'),
+            'time': now.strftime('%H:%M:%S'),
             'trigger': trigger,
             
-            # Boiler state
-            'boiler_state': boiler_state,
-            'pump_overrun_active': pump_overrun_active,
-            
-            # OpenTherm sensors
+            # OpenTherm sensors (reordered, temps rounded to 2dp)
             'ot_flame': opentherm_data.get('flame', ''),
-            'ot_heating_temp': opentherm_data.get('heating_temp', ''),
-            'ot_return_temp': opentherm_data.get('return_temp', ''),
-            'ot_setpoint_temp': opentherm_data.get('setpoint_temp', ''),
+            'ot_heating_temp': round_temp(opentherm_data.get('heating_temp', '')),
+            'ot_return_temp': round_temp(opentherm_data.get('return_temp', '')),
             'ot_power': opentherm_data.get('power', ''),
             'ot_modulation': opentherm_data.get('modulation', ''),
             'ot_burner_starts': opentherm_data.get('burner_starts', ''),
             'ot_dhw_burner_starts': opentherm_data.get('dhw_burner_starts', ''),
             'ot_climate_state': opentherm_data.get('climate_state', ''),
+            'ot_setpoint_temp': round_temp(opentherm_data.get('setpoint_temp', '')),
+            
+            # Boiler state
+            'boiler_state': boiler_state,
+            'pump_overrun_active': pump_overrun_active,
             
             # System aggregates
             'num_rooms_calling': sum(1 for r in room_data.values() if r.get('calling', False)),
             'total_valve_pct': total_valve_pct,
         }
         
-        # Add per-room data
+        # Add per-room data (round temps to 2dp)
         for room_id in self.room_ids:
             room = room_data.get(room_id, {})
-            row[f'{room_id}_temp'] = room.get('temp', '')
-            row[f'{room_id}_target'] = room.get('target', '')
+            row[f'{room_id}_temp'] = round_temp(room.get('temp', ''))
+            row[f'{room_id}_target'] = round_temp(room.get('target', ''))
             row[f'{room_id}_calling'] = room.get('calling', '')
             row[f'{room_id}_valve_fb'] = room.get('valve_fb', '')
             row[f'{room_id}_valve_cmd'] = room.get('valve_cmd', '')
