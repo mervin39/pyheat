@@ -72,6 +72,7 @@ class HeatingLogger:
             'date',
             'time',
             'trigger',
+            'trigger_val',
             
             # OpenTherm sensors
             'ot_flame',
@@ -316,12 +317,53 @@ class HeatingLogger:
         # Get current datetime
         now = datetime.now()
         
+        # Extract trigger value based on trigger name
+        trigger_val = ''
+        if trigger.startswith('opentherm_'):
+            # Extract sensor name from trigger (e.g., "opentherm_flame" -> "flame")
+            sensor_name = trigger.replace('opentherm_', '')
+            if sensor_name == 'heating_temp':
+                trigger_val = round_temp_int(opentherm_data.get('heating_temp', ''))
+            elif sensor_name == 'heating_return_temp':
+                trigger_val = round_temp_int(opentherm_data.get('return_temp', ''))
+            elif sensor_name == 'heating_setpoint_temp':
+                trigger_val = round_temp(opentherm_data.get('setpoint_temp', ''))
+            elif sensor_name == 'modulation':
+                trigger_val = opentherm_data.get('modulation', '')
+            elif sensor_name == 'dhw':
+                trigger_val = dhw_to_onoff(opentherm_data.get('dhw', ''))
+            elif sensor_name == 'dhw_flow_rate':
+                trigger_val = dhw_to_onoff(opentherm_data.get('dhw_flow_rate', ''))
+            else:
+                # Generic fallback for other opentherm sensors
+                trigger_val = opentherm_data.get(sensor_name, '')
+        elif 'boiler' in trigger.lower() or 'state' in trigger.lower():
+            trigger_val = boiler_state
+        elif 'flame' in trigger.lower():
+            trigger_val = opentherm_data.get('flame', '')
+        # For room-specific triggers, extract room_id and property
+        else:
+            # Check if it's a room trigger pattern like "room_id_property"
+            for room_id in room_data.keys():
+                if room_id in trigger:
+                    room = room_data.get(room_id, {})
+                    if 'calling' in trigger:
+                        trigger_val = room.get('calling', '')
+                    elif 'valve' in trigger:
+                        trigger_val = room.get('valve_fb', '')
+                    elif 'mode' in trigger:
+                        trigger_val = room.get('mode', '')
+                    elif 'override' in trigger:
+                        trigger_val = room.get('override', '')
+                    break
+        
         # Build row data
         row = {
             # Timestamp (separate date and time)
             'date': now.strftime('%Y-%m-%d'),
             'time': now.strftime('%H:%M:%S'),
             'trigger': trigger,
+            'trigger_val': trigger_val,
             
             # OpenTherm sensors (flow/return temps as integers, others rounded to 2dp)
             'ot_flame': opentherm_data.get('flame', ''),

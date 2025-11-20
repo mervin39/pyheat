@@ -1,6 +1,33 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Add trigger_val Column for Easier Log Analysis 👁️
+
+**Status:** IMPLEMENTED ✅
+
+**Change:**
+Added a new `trigger_val` column immediately after the `trigger` column that shows the current value of the sensor or state that triggered the log entry.
+
+**Rationale:**
+While the triggering value already exists elsewhere in the row, having it next to the trigger name makes it much easier to scan logs visually and quickly understand what changed without having to search across many columns.
+
+**Examples:**
+- `trigger=opentherm_flame, trigger_val=on`
+- `trigger=opentherm_heating_temp, trigger_val=58`
+- `trigger=opentherm_dhw, trigger_val=on`
+- `trigger=boiler_state_change, trigger_val=heating`
+- `trigger=lounge_calling, trigger_val=True`
+
+**Implementation:**
+- Extracts appropriate value based on trigger pattern
+- Applies same formatting as corresponding column (temps rounded, DHW as on/off, etc.)
+- Works for OpenTherm sensors, boiler state changes, and room property changes
+
+**Files Changed:**
+- `heating_logger.py`: Added `trigger_val` column header and extraction logic
+
+---
+
 ## 2025-11-20: Add DHW (Domestic Hot Water) Logging 🚰
 
 **Status:** IMPLEMENTED ✅
