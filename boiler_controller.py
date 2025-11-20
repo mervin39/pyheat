@@ -474,9 +474,13 @@ class BoilerController:
     ) -> bool:
         """Check if TRV feedback confirms valves are at commanded positions.
         
+        CRITICAL: This checks if TRV feedback matches the LAST COMMANDED positions
+        (stored in trv_last_commanded), NOT the new desired positions from valve_persistence.
+        valve_persistence here represents what was already sent to TRVs in a previous cycle.
+        
         Args:
             rooms_calling: List of room IDs calling for heat
-            valve_persistence: Dict of commanded valve percentages
+            valve_persistence: Dict of commanded valve percentages (already sent)
             
         Returns:
             True if all calling rooms have TRV feedback matching commanded position
@@ -490,29 +494,10 @@ class BoilerController:
                 self.ad.log(f"Boiler: room {room_id} not found, skipping feedback check", level="WARNING")
                 return False
             
-            commanded = valve_persistence.get(room_id, 0)
-            trv = room_config['trv']
-            
-            # Get TRV feedback
-            fb_valve_entity = trv['fb_valve']
-            if not self.ad.entity_exists(fb_valve_entity):
-                self.ad.log(f"Boiler: room {room_id} TRV feedback entity {fb_valve_entity} does not exist", level="DEBUG")
-                return False
-                
-            fb_valve_str = self.ad.get_state(fb_valve_entity)
-            if fb_valve_str in [None, "unknown", "unavailable"]:
-                self.ad.log(f"Boiler: room {room_id} TRV feedback unavailable", level="DEBUG")
-                return False
-            
-            try:
-                feedback = int(float(fb_valve_str))
-            except (ValueError, TypeError):
-                self.ad.log(f"Boiler: room {room_id} TRV feedback invalid: {fb_valve_str}", level="DEBUG")
-                return False
-            
-            # Check if feedback matches commanded (with tolerance)
-            tolerance = C.TRV_COMMAND_FEEDBACK_TOLERANCE
-            if abs(feedback - commanded) > tolerance:
+            # Check if TRV feedback is consistent with last commanded position
+            if not self.trvs.is_valve_feedback_consistent(room_id, tolerance=C.TRV_COMMAND_FEEDBACK_TOLERANCE):
+                commanded = self.trvs.get_valve_command(room_id)
+                feedback = self.trvs.get_valve_feedback(room_id)
                 self.ad.log(f"Boiler: room {room_id} TRV feedback {feedback}% != commanded {commanded}%", level="DEBUG")
                 return False
         

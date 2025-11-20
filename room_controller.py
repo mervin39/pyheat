@@ -55,20 +55,15 @@ class RoomController:
                 continue
                 
             # Get current valve position from TRV controller
-            fb_valve_entity = room_cfg['trv']['fb_valve']
-            try:
-                fb_valve_str = self.ad.get_state(fb_valve_entity)
-                if fb_valve_str and fb_valve_str not in ['unknown', 'unavailable']:
-                    fb_valve = int(float(fb_valve_str))
-                    
-                    # If valve is open, assume room was calling for heat
-                    if fb_valve > 0:
-                        self.room_call_for_heat[room_id] = True
-                        self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%, assumed calling for heat", level="DEBUG")
-                    else:
-                        self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%", level="DEBUG")
-            except (ValueError, TypeError) as e:
-                self.ad.log(f"Failed to initialize room {room_id} state: {e}", level="WARNING")
+            fb_valve = self.trvs.get_valve_feedback(room_id)
+            if fb_valve is not None and fb_valve > 0:
+                # If valve is open, assume room was calling for heat
+                self.room_call_for_heat[room_id] = True
+                self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%, assumed calling for heat", level="DEBUG")
+            elif fb_valve is not None:
+                self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%", level="DEBUG")
+            else:
+                self.ad.log(f"Room {room_id}: Initialized, valve feedback unavailable", level="DEBUG")
             
             # Initialize target tracking - get current target from scheduler
             try:

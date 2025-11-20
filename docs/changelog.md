@@ -1,9 +1,84 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: TRV RESPONSIBILITY ENCAPSULATION - Issue #5 Part A ✅
+
+**Status:** COMPLETED ✅
+
+**Problem:**
+Issue #5 in RESPONSIBILITY_ANALYSIS.md identified that TRV sensor access was scattered across multiple components (`room_controller`, `boiler_controller`, `trv_controller`), violating separation of concerns and creating tight coupling. The previous attempt (2025-11-19) to fix this introduced a critical bug where boiler feedback validation checked against future desired positions instead of last commanded positions.
+
+**Solution:**
+Carefully implemented TRV encapsulation with proper feedback validation logic. Created three new methods in `trv_controller.py` to centralize all TRV sensor access:
+
+**New Methods:**
+
+1. **`get_valve_feedback(room_id) -> Optional[int]`**
+   - Returns current TRV valve position from feedback sensor (0-100%)
+   - Implements 5-second caching to reduce HA API calls
+   - Returns `None` if sensor unavailable/stale
+   - Cache dramatically reduces redundant sensor reads during recompute cycles
+
+2. **`get_valve_command(room_id) -> Optional[int]`**
+   - Returns last commanded valve position (0-100%)
+   - This is what we *sent* to the TRV, not what it reports back
+   - Critical for proper feedback validation
+
+3. **`is_valve_feedback_consistent(room_id, tolerance=5.0) -> bool`**
+   - Checks if TRV feedback matches last commanded value within tolerance
+   - **CRITICAL FIX:** Compares feedback against `trv_last_commanded`, NOT future desired positions
+   - Used by boiler controller for TRV health validation
+
+**Changes:**
+
+**trv_controller.py:**
+- Added `_valve_feedback_cache` dict with timestamp tracking
+- Added `_cache_ttl_seconds = 5.0` configuration
+- Implemented three new public methods (above)
+- Cache reduces sensor reads from N reads per recompute to 1 read per 5 seconds per sensor
+
+**room_controller.py:**
+- Replaced direct `ad.get_state(fb_valve_entity)` with `trvs.get_valve_feedback(room_id)`
+- Simplified `initialize_from_ha()` - removed try/except, cleaner logic
+- No longer has direct knowledge of TRV entity naming
+
+**boiler_controller.py:**
+- **CRITICAL FIX:** `_check_trv_feedback_confirmed()` now uses `trvs.is_valve_feedback_consistent()`
+- Removed 30+ lines of sensor reading and validation logic
+- Now correctly checks feedback against LAST COMMANDED positions via `get_valve_command()`
+- Added detailed docstring explaining the importance of checking last commanded vs desired
+
+**Benefits:**
+1. **Single source of truth** - TRV feedback read once, cached, shared across components
+2. **Decoupling** - Components no longer need knowledge of TRV entity naming patterns
+3. **Performance** - 5-second cache reduces redundant HA API calls during recompute cycles
+4. **Correct validation** - Boiler feedback check now compares against correct positions
+5. **Testability** - Mock `TRVController` methods instead of HA sensor entities
+6. **Maintainability** - TRV sensor naming changes only affect `trv_controller.py`
+
+**Testing:**
+- ✅ AppDaemon restart successful - no errors
+- ✅ System initialization correct - all rooms initialized properly
+- ✅ Periodic recomputes working - #1, #3, #4, #6 logged with no errors
+- ✅ No ERROR or WARNING logs after restart
+- ✅ TRV feedback validation working - no spurious "feedback mismatch" logs
+- ✅ Boiler control operating correctly - office and bathroom heating
+- ✅ HA entities showing correct states - climate.boiler in "heat" mode
+
+**Validation:**
+- Verified office TRV at 100% matches commanded position
+- Confirmed boiler state machine synchronized with climate entity
+- Tested with live production system for multiple recompute cycles
+- No regressions compared to previous working version (95e690d)
+
+**Resolution:**
+Issue #5 Part A is now **FULLY RESOLVED**. The TRV encapsulation refactor is complete and verified working. Combined with Part B (Hysteresis Persistence, completed 2025-11-19), Issue #5 from RESPONSIBILITY_ANALYSIS.md is now entirely resolved.
+
+---
+
 ## 2025-11-19: TRV ENCAPSULATION ATTEMPT & ROLLBACK 🔄
 
-**Status:** ROLLED BACK ❌
+**Status:** ROLLED BACK ❌ (NOW SUPERSEDED BY 2025-11-20 SUCCESS ✅)
 
 **Attempted Change:**
 Tried to implement Part A of RESPONSIBILITY_ANALYSIS.md Issue #5 - TRV Responsibility Encapsulation. The goal was to centralize all TRV sensor access in `trv_controller.py` with three new methods:

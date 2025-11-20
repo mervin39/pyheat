@@ -33,6 +33,86 @@ class TRVController:
         self.trv_last_update = {}  # {room_id: timestamp}
         self.unexpected_valve_positions = {}  # {room_id: {actual, expected, detected_at}}
         self._valve_command_state = {}  # {state_key: command_state_dict}
+        self._valve_feedback_cache = {}  # {room_id: {'value': int, 'timestamp': datetime}}
+        self._cache_ttl_seconds = 5.0  # Cache feedback values for 5 seconds
+        
+    def get_valve_feedback(self, room_id: str) -> Optional[int]:
+        """Get current TRV valve position feedback (0-100%).
+        
+        Returns the current valve position from the TRV feedback sensor.
+        Results are cached for 5 seconds to avoid excessive HA queries.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            Current valve position percentage (0-100), or None if unavailable/stale
+        """
+        now = datetime.now()
+        
+        # Check cache first
+        cached = self._valve_feedback_cache.get(room_id)
+        if cached:
+            age = (now - cached['timestamp']).total_seconds()
+            if age < self._cache_ttl_seconds:
+                return cached['value']
+        
+        # Cache miss or expired - fetch from HA
+        room_config = self.config.rooms.get(room_id)
+        if not room_config or room_config.get('disabled'):
+            return None
+            
+        fb_entity = room_config['trv']['fb_valve']
+        fb_state = self.ad.get_state(fb_entity)
+        
+        if fb_state in [None, "unknown", "unavailable"]:
+            return None
+            
+        try:
+            feedback = int(float(fb_state))
+            # Update cache
+            self._valve_feedback_cache[room_id] = {
+                'value': feedback,
+                'timestamp': now
+            }
+            return feedback
+        except (ValueError, TypeError):
+            return None
+    
+    def get_valve_command(self, room_id: str) -> Optional[int]:
+        """Get last commanded valve position (0-100%).
+        
+        Returns the value we last commanded to the TRV, not what the TRV reports.
+        This is used for comparing expected vs actual positions.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            Last commanded valve position percentage (0-100), or None if never commanded
+        """
+        return self.trv_last_commanded.get(room_id)
+    
+    def is_valve_feedback_consistent(self, room_id: str, tolerance: float = 5.0) -> bool:
+        """Check if TRV feedback matches last commanded value within tolerance.
+        
+        Used for TRV health validation during boiler cycling. Compares the current
+        feedback against what was LAST COMMANDED, not what we're about to command next.
+        
+        Args:
+            room_id: Room identifier
+            tolerance: Maximum allowed difference in percentage points (default: 5%)
+            
+        Returns:
+            True if feedback matches commanded value within tolerance, False otherwise
+        """
+        feedback = self.get_valve_feedback(room_id)
+        commanded = self.get_valve_command(room_id)
+        
+        if feedback is None or commanded is None:
+            return False
+            
+        return abs(feedback - commanded) <= tolerance
         
     def initialize_from_ha(self) -> None:
         """Initialize TRV state from current Home Assistant valve positions."""
