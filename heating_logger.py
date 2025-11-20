@@ -152,11 +152,16 @@ class HeatingLogger:
             True if state has changed significantly and should be logged
         """
         # Always log on boiler state change
-        if self.prev_state.get('boiler_state') != boiler_state:
+        prev_boiler = self.prev_state.get('boiler_state')
+        if prev_boiler != boiler_state:
+            self.ad.log(f"HeatingLogger: should_log=True (boiler state: {prev_boiler} -> {boiler_state})", level="DEBUG")
             return True
         
         # Check flame status change
-        if self.prev_state.get('ot_flame') != opentherm_data.get('flame'):
+        prev_flame = self.prev_state.get('ot_flame')
+        curr_flame = opentherm_data.get('flame')
+        if prev_flame != curr_flame:
+            self.ad.log(f"HeatingLogger: should_log=True (flame: {prev_flame} -> {curr_flame})", level="DEBUG")
             return True
         
         # Check heating temp (rounded to nearest degree)
@@ -165,6 +170,7 @@ class HeatingLogger:
             try:
                 heating_temp_rounded = round(float(heating_temp))
                 if self.prev_heating_temp_rounded != heating_temp_rounded:
+                    self.ad.log(f"HeatingLogger: should_log=True (heating_temp: {self.prev_heating_temp_rounded} -> {heating_temp_rounded})", level="DEBUG")
                     self.prev_heating_temp_rounded = heating_temp_rounded
                     return True
             except (ValueError, TypeError):
@@ -176,6 +182,7 @@ class HeatingLogger:
             try:
                 return_temp_rounded = round(float(return_temp))
                 if self.prev_return_temp_rounded != return_temp_rounded:
+                    self.ad.log(f"HeatingLogger: should_log=True (return_temp: {self.prev_return_temp_rounded} -> {return_temp_rounded})", level="DEBUG")
                     self.prev_return_temp_rounded = return_temp_rounded
                     return True
             except (ValueError, TypeError):
@@ -187,15 +194,19 @@ class HeatingLogger:
             prev_room = self.prev_state.get('rooms', {}).get(room_id, {})
             
             if room.get('calling') != prev_room.get('calling'):
+                self.ad.log(f"HeatingLogger: should_log=True ({room_id} calling: {prev_room.get('calling')} -> {room.get('calling')})", level="DEBUG")
                 return True
             
             if room.get('valve_fb') != prev_room.get('valve_fb'):
+                self.ad.log(f"HeatingLogger: should_log=True ({room_id} valve_fb: {prev_room.get('valve_fb')} -> {room.get('valve_fb')})", level="DEBUG")
                 return True
             
             if room.get('mode') != prev_room.get('mode'):
+                self.ad.log(f"HeatingLogger: should_log=True ({room_id} mode: {prev_room.get('mode')} -> {room.get('mode')})", level="DEBUG")
                 return True
             
             if room.get('override') != prev_room.get('override'):
+                self.ad.log(f"HeatingLogger: should_log=True ({room_id} override: {prev_room.get('override')} -> {room.get('override')})", level="DEBUG")
                 return True
         
         # No significant changes
