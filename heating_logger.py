@@ -92,17 +92,21 @@ class HeatingLogger:
             'total_valve_pct',
         ]
         
-        # Add per-room columns
+        # Add per-room columns grouped by property type
         for room_id in self.room_ids:
-            headers.extend([
-                f'{room_id}_temp',
-                f'{room_id}_target',
-                f'{room_id}_calling',
-                f'{room_id}_valve_fb',
-                f'{room_id}_valve_cmd',
-                f'{room_id}_mode',
-                f'{room_id}_override',
-            ])
+            headers.append(f'{room_id}_temp')
+        for room_id in self.room_ids:
+            headers.append(f'{room_id}_target')
+        for room_id in self.room_ids:
+            headers.append(f'{room_id}_calling')
+        for room_id in self.room_ids:
+            headers.append(f'{room_id}_valve_fb')
+        for room_id in self.room_ids:
+            headers.append(f'{room_id}_valve_cmd')
+        for room_id in self.room_ids:
+            headers.append(f'{room_id}_mode')
+        for room_id in self.room_ids:
+            headers.append(f'{room_id}_override')
         
         return headers
     
