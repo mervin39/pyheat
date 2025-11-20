@@ -1,6 +1,42 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Critical Bugfix - OpenTherm Callback Crashes Fixed 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+OpenTherm sensor callbacks were firing but crashing with errors, preventing any `opentherm_*` triggers from appearing in logs. Only `periodic`, `sensor_<room>_changed`, and boot triggers were being logged.
+
+**Root Causes:**
+1. Used `C.get_sensor()` which doesn't exist - should use `C.HELPER_ROOM_MANUAL_SETPOINT.format(room=room_id)`
+2. Called `self.rooms.is_room_calling()` which doesn't exist - should use `self.rooms.compute_room()` and extract data
+
+**Errors:**
+```
+AttributeError: module 'pyheat.constants' has no attribute 'get_sensor'
+AttributeError: 'RoomController' object has no attribute 'is_room_calling'
+```
+
+**Fix:**
+Simplified OpenTherm callback to use `compute_room()` which returns all needed data:
+- Gets temp, target, calling, mode from compute_room()
+- Gets valve feedback/command from TRV controller
+- Gets override status from override manager
+- Builds room_data dict matching the format expected by _log_heating_state()
+
+**Files Changed:**
+- `app.py`: Lines 472-488 - fixed room data collection in opentherm_sensor_changed callback
+
+**Result:**
+✅ OpenTherm callbacks now successfully trigger logs with proper trigger names:
+- `opentherm_heating_temp`
+- `opentherm_heating_return_temp`
+- `opentherm_modulation`
+- `opentherm_heating_setpoint_temp`
+
+---
+
 ## 2025-11-20: Bugfix - OpenTherm Callbacks Filtered by should_log() 🐛
 
 **Status:** FIXED ✅
