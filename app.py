@@ -23,20 +23,20 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 # Import PyHeat modules
-from pyheat.config_loader import ConfigLoader
-from pyheat.sensor_manager import SensorManager
-from pyheat.scheduler import Scheduler
-from pyheat.override_manager import OverrideManager
-from pyheat.room_controller import RoomController
-from pyheat.trv_controller import TRVController
-from pyheat.valve_coordinator import ValveCoordinator
-from pyheat.boiler_controller import BoilerController
-from pyheat.status_publisher import StatusPublisher
-from pyheat.service_handler import ServiceHandler
-from pyheat.api_handler import APIHandler
-from pyheat.alert_manager import AlertManager
-from pyheat.heating_logger import HeatingLogger
-import pyheat.constants as C
+from config_loader import ConfigLoader
+from sensor_manager import SensorManager
+from scheduler import Scheduler
+from override_manager import OverrideManager
+from room_controller import RoomController
+from trv_controller import TRVController
+from valve_coordinator import ValveCoordinator
+from boiler_controller import BoilerController
+from status_publisher import StatusPublisher
+from service_handler import ServiceHandler
+from api_handler import APIHandler
+from alert_manager import AlertManager
+from heating_logger import HeatingLogger
+import constants as C
 
 
 class PyHeat(hass.Hass):

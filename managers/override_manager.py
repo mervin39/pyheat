@@ -13,7 +13,7 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Optional
-import pyheat.constants as C
+import constants as C
 
 
 class OverrideManager:

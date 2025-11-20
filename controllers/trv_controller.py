@@ -12,7 +12,7 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Dict, Optional
-import pyheat.constants as C
+import constants as C
 
 
 class TRVController:
@@ -274,7 +274,7 @@ class TRVController:
                     del self._valve_command_state[state_key]
                     # Clear any previous TRV alerts for this room
                     if self.alert_manager:
-                        from pyheat.alert_manager import AlertManager
+                        from alert_manager import AlertManager
                         self.alert_manager.clear_error(f"{AlertManager.ALERT_TRV_FEEDBACK_TIMEOUT}_{room_id}")
                         self.alert_manager.clear_error(f"{AlertManager.ALERT_TRV_UNAVAILABLE}_{room_id}")
                     return
@@ -294,7 +294,7 @@ class TRVController:
                         del self._valve_command_state[state_key]
                         # Report critical alert for TRV feedback timeout
                         if self.alert_manager:
-                            from pyheat.alert_manager import AlertManager
+                            from alert_manager import AlertManager
                             self.alert_manager.report_error(
                                 f"{AlertManager.ALERT_TRV_FEEDBACK_TIMEOUT}_{room_id}",
                                 AlertManager.SEVERITY_CRITICAL,
@@ -316,7 +316,7 @@ class TRVController:
                     del self._valve_command_state[state_key]
                     # Report critical alert for TRV unavailable
                     if self.alert_manager:
-                        from pyheat.alert_manager import AlertManager
+                        from alert_manager import AlertManager
                         self.alert_manager.report_error(
                             f"{AlertManager.ALERT_TRV_UNAVAILABLE}_{room_id}",
                             AlertManager.SEVERITY_CRITICAL,

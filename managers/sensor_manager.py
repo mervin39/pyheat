@@ -185,7 +185,7 @@ class SensorManager:
             return raw_temp
         
         # Get smoothing factor (alpha) with fallback to default
-        import pyheat.constants as C
+        import constants as C
         alpha = smoothing_config.get('alpha', C.TEMPERATURE_SMOOTHING_ALPHA_DEFAULT)
         
         # Clamp alpha to valid range [0.0, 1.0]

@@ -12,7 +12,7 @@ Responsibilities:
 import os
 import yaml
 from typing import Dict, Any, Optional
-import pyheat.constants as C
+import constants as C
 
 
 class ConfigLoader:
@@ -32,8 +32,8 @@ class ConfigLoader:
         
     def load_all(self) -> None:
         """Load all configuration files (rooms, schedules, boiler)."""
-        # Get the path to the config directory
-        app_dir = os.path.dirname(os.path.abspath(__file__))
+        # Get the path to the config directory (parent of core directory)
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         config_dir = os.path.join(app_dir, "config")
         
         rooms_file = os.path.join(config_dir, "rooms.yaml")

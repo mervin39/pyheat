@@ -1,6 +1,64 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Reorganize Code into Subdirectories 📁
+
+**Status:** IMPLEMENTED ✅
+
+**Change:**
+Restructured the PyHeat codebase by moving Python modules into logical subdirectories for improved organization and maintainability.
+
+**New Structure:**
+```
+pyheat/
+├── app.py                          # Main orchestrator (unchanged location)
+├── controllers/                    # Hardware control modules
+│   ├── boiler_controller.py
+│   ├── room_controller.py
+│   ├── trv_controller.py
+│   └── valve_coordinator.py
+├── managers/                       # State and monitoring managers
+│   ├── alert_manager.py
+│   ├── override_manager.py
+│   └── sensor_manager.py
+├── core/                           # Core utilities
+│   ├── config_loader.py
+│   ├── constants.py
+│   └── scheduler.py
+└── services/                       # External interfaces
+    ├── api_handler.py
+    ├── heating_logger.py
+    ├── service_handler.py
+    └── status_publisher.py
+```
+
+**Rationale:**
+- Improved code organization and discoverability
+- Clear separation of concerns by module type
+- Easier navigation for development and maintenance
+- Follows best practices for AppDaemon multi-file projects
+- AppDaemon automatically handles subdirectory imports
+
+**Technical Details:**
+- Updated all import statements to remove `pyheat.` prefix
+- Fixed path resolution in `config_loader.py` and `heating_logger.py` to account for new directory depth
+- No changes required to `apps.yaml` configuration
+- AppDaemon automatically discovers modules in all subdirectories
+
+**Files Changed:**
+- All `.py` files: Updated import statements
+- `config_loader.py`: Fixed config directory path resolution
+- `heating_logger.py`: Fixed logging directory path resolution
+- `docs/ARCHITECTURE.md`: Added Project Structure section
+
+**Testing:**
+- Verified successful initialization after reorganization
+- Confirmed all modules load correctly
+- Tested heating control functionality
+- No functional changes or behavior differences
+
+---
+
 ## 2025-11-20: Add trigger_val Column for Easier Log Analysis 👁️
 
 **Status:** IMPLEMENTED ✅

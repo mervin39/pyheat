@@ -12,7 +12,7 @@ Responsibilities:
 from datetime import datetime
 from typing import Dict, Tuple, Optional
 import json
-import pyheat.constants as C
+import constants as C
 
 
 class RoomController:

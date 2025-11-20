@@ -11,7 +11,7 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Dict, Optional
-import pyheat.constants as C
+import constants as C
 
 
 class ValveCoordinator:

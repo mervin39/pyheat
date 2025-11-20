@@ -12,7 +12,7 @@ Responsibilities:
 
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Set
-import pyheat.constants as C
+import constants as C
 
 
 class AlertManager:

@@ -14,7 +14,7 @@ Responsibilities:
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
 import json
-import pyheat.constants as C
+import constants as C
 
 
 class BoilerController:
@@ -134,7 +134,7 @@ class BoilerController:
                 
                 # Report alert
                 if self.alert_manager:
-                    from pyheat.alert_manager import AlertManager
+                    from alert_manager import AlertManager
                     self.alert_manager.report_error(
                         AlertManager.ALERT_BOILER_STATE_DESYNC,
                         AlertManager.SEVERITY_WARNING,
@@ -158,7 +158,7 @@ class BoilerController:
                 
                 # Report critical alert
                 if self.alert_manager:
-                    from pyheat.alert_manager import AlertManager
+                    from alert_manager import AlertManager
                     self.alert_manager.report_error(
                         AlertManager.ALERT_BOILER_STATE_DESYNC,
                         AlertManager.SEVERITY_CRITICAL,
@@ -173,7 +173,7 @@ class BoilerController:
         else:
             # No desync - clear any previous alerts
             if self.alert_manager:
-                from pyheat.alert_manager import AlertManager
+                from alert_manager import AlertManager
                 self.alert_manager.clear_error(AlertManager.ALERT_BOILER_STATE_DESYNC)
         
         # Determine if we have demand
@@ -262,7 +262,7 @@ class BoilerController:
                 )
                 # Report critical alert
                 if self.alert_manager:
-                    from pyheat.alert_manager import AlertManager
+                    from alert_manager import AlertManager
                     self.alert_manager.report_error(
                         AlertManager.ALERT_BOILER_INTERLOCK_FAILURE,
                         AlertManager.SEVERITY_CRITICAL,
@@ -372,7 +372,7 @@ class BoilerController:
             
             # Report critical safety alert
             if self.alert_manager:
-                from pyheat.alert_manager import AlertManager
+                from alert_manager import AlertManager
                 room_name = self.config.rooms.get(safety_room, {}).get('name', safety_room)
                 self.alert_manager.report_error(
                     AlertManager.ALERT_SAFETY_ROOM_ACTIVE,
@@ -394,7 +394,7 @@ class BoilerController:
         else:
             # Safety room not needed - clear any previous alerts
             if self.alert_manager:
-                from pyheat.alert_manager import AlertManager
+                from alert_manager import AlertManager
                 self.alert_manager.clear_error(AlertManager.ALERT_SAFETY_ROOM_ACTIVE)
         
         # Update valve coordinator with persistence overrides (if coordinator is available)
@@ -552,13 +552,13 @@ class BoilerController:
             self.ad.log(f"Boiler ON")
             # Clear any previous control failure alert
             if self.alert_manager:
-                from pyheat.alert_manager import AlertManager
+                from alert_manager import AlertManager
                 self.alert_manager.clear_error(AlertManager.ALERT_BOILER_CONTROL_FAILURE)
         except Exception as e:
             self.ad.log(f"Failed to turn boiler on: {e}", level="ERROR")
             # Report critical alert for boiler control failure
             if self.alert_manager:
-                from pyheat.alert_manager import AlertManager
+                from alert_manager import AlertManager
                 self.alert_manager.report_error(
                     AlertManager.ALERT_BOILER_CONTROL_FAILURE,
                     AlertManager.SEVERITY_CRITICAL,
@@ -581,13 +581,13 @@ class BoilerController:
             self.ad.log(f"Boiler OFF")
             # Clear any previous control failure alert
             if self.alert_manager:
-                from pyheat.alert_manager import AlertManager
+                from alert_manager import AlertManager
                 self.alert_manager.clear_error(AlertManager.ALERT_BOILER_CONTROL_FAILURE)
         except Exception as e:
             self.ad.log(f"Failed to turn boiler off: {e}", level="ERROR")
             # Report critical alert for boiler control failure
             if self.alert_manager:
-                from pyheat.alert_manager import AlertManager
+                from alert_manager import AlertManager
                 self.alert_manager.report_error(
                     AlertManager.ALERT_BOILER_CONTROL_FAILURE,
                     AlertManager.SEVERITY_CRITICAL,

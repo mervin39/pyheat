@@ -11,7 +11,7 @@ Responsibilities:
 from datetime import datetime
 from typing import Dict, List, Any
 import json
-import pyheat.constants as C
+import constants as C
 
 
 class StatusPublisher:

@@ -15,6 +15,42 @@ The architecture is modular and event-driven, with clear separation of concerns 
 
 ---
 
+## Project Structure
+
+PyHeat is organized into logical subdirectories for improved maintainability:
+
+```
+pyheat/
+├── app.py                          # Main orchestrator and entry point
+├── config/                         # Configuration files
+│   ├── rooms.yaml
+│   ├── schedules.yaml
+│   └── boiler.yaml
+├── controllers/                    # Hardware control modules
+│   ├── boiler_controller.py        # Boiler FSM and safety logic
+│   ├── room_controller.py          # Per-room heating decisions
+│   ├── trv_controller.py           # TRV valve management
+│   └── valve_coordinator.py        # Multi-room valve orchestration
+├── managers/                       # State and monitoring managers
+│   ├── alert_manager.py            # Alert tracking and notifications
+│   ├── override_manager.py         # Override state management
+│   └── sensor_manager.py           # Sensor fusion and staleness
+├── core/                           # Core utilities
+│   ├── config_loader.py            # Configuration loading and validation
+│   ├── constants.py                # System-wide constants
+│   └── scheduler.py                # Target temperature resolution
+├── services/                       # External interfaces
+│   ├── api_handler.py              # HTTP API endpoints
+│   ├── heating_logger.py           # CSV logging
+│   ├── service_handler.py          # AppDaemon service registration
+│   └── status_publisher.py         # Home Assistant entity publishing
+└── docs/                           # Documentation
+```
+
+AppDaemon automatically discovers all Python files in subdirectories, allowing for clean organization without complex import paths.
+
+---
+
 ## System Overview
 
 ### High-Level Data Flow

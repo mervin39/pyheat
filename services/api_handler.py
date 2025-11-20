@@ -11,7 +11,7 @@ Responsibilities:
 
 import json
 from typing import Any, Dict
-import pyheat.constants as C
+import constants as C
 
 class APIHandler:
     """Handles HTTP API endpoints for external access to PyHeat services."""
@@ -240,7 +240,7 @@ class APIHandler:
         """
         try:
             # Get main status entity which has comprehensive attributes
-            import pyheat.constants as C
+            import constants as C
             
             status_state = self.ad.get_state(C.STATUS_ENTITY, attribute="all")
             if not status_state:
