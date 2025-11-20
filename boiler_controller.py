@@ -92,8 +92,13 @@ class BoilerController:
             room_valve_percents
         )
         
-        # Calculate total valve opening
-        total_valve = sum(persisted_valves.get(room_id, 0) for room_id in active_rooms)
+        # Calculate total valve opening from ALL rooms with open valves
+        # This ensures we see the actual system-wide valve opening
+        total_valve = sum(
+            persisted_valves.get(room_id, room_valve_percents.get(room_id, 0))
+            for room_id in room_valve_percents.keys()
+            if persisted_valves.get(room_id, room_valve_percents.get(room_id, 0)) > 0
+        )
         
         # Merge persisted valves with all room valve percents for pump overrun tracking
         all_valve_positions = room_valve_percents.copy()
@@ -415,6 +420,10 @@ class BoilerController:
     ) -> Tuple[Dict[str, int], bool, str]:
         """Calculate valve persistence if needed to meet minimum total opening.
         
+        NOTE: This method now considers ALL rooms with open valves, not just calling rooms.
+        This allows for future features where rooms can maintain flow/circulation even when
+        not actively calling for heat (e.g., for system balancing or frost protection).
+        
         Args:
             rooms_calling: List of room IDs calling for heat
             room_valve_percents: Dict mapping room_id -> calculated valve percent from bands
@@ -434,14 +443,18 @@ class BoilerController:
             C.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT
         )
         
-        # Calculate total from band-calculated percentages
-        total_from_bands = sum(room_valve_percents.get(room_id, 0) for room_id in rooms_calling)
+        # Calculate total from ALL rooms with open valves (not just calling rooms)
+        # This ensures the interlock sees the actual total valve opening in the system
+        total_from_bands = sum(
+            valve_pct for valve_pct in room_valve_percents.values() if valve_pct > 0
+        )
         
         # Check if we need to apply persistence
         if total_from_bands >= min_valve_open:
             # Valve bands are sufficient
             self.ad.log(
-                f"Boiler: total valve opening {total_from_bands}% >= min {min_valve_open}%, using valve bands",
+                f"Boiler: total valve opening {total_from_bands}% >= min {min_valve_open}% "
+                f"(from all rooms with open valves), using valve bands",
                 level="DEBUG"
             )
             return room_valve_percents.copy(), True, f"Total {total_from_bands}% >= min {min_valve_open}%"

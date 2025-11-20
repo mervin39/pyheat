@@ -1,6 +1,62 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Boiler Interlock - Count All Open Valves 🔧
+
+**Status:** COMPLETED ✅
+
+**Problem:**
+The boiler interlock system only counted valves from rooms that were calling for heat (`active_rooms`). This created a coupling that would prevent future features where rooms might need to maintain valve opening for circulation, balancing, or frost protection even when not actively calling for heat.
+
+**Analysis:**
+- `_calculate_valve_persistence()` calculated total valve opening using only `rooms_calling`
+- If a room had an open valve but wasn't calling, it wasn't counted in the interlock
+- This would block features like:
+  - Minimum circulation flow through certain rooms
+  - Frost protection with partial valve opening
+  - System balancing with non-heating flow
+  - Heat distribution optimization
+
+**Solution:**
+Modified `_calculate_valve_persistence()` to count ALL rooms with open valves (valve_percent > 0), not just calling rooms.
+
+**Changes:**
+
+**boiler_controller.py:**
+- Line 413-447: Updated `_calculate_valve_persistence()` method:
+  - Changed from: `sum(room_valve_percents.get(room_id, 0) for room_id in rooms_calling)`
+  - Changed to: `sum(valve_pct for valve_pct in room_valve_percents.values() if valve_pct > 0)`
+  - Updated docstring to explain the change and rationale
+  - Updated log message to clarify "from all rooms with open valves"
+
+- Line 90-97: Updated `update_state()` total_valve calculation:
+  - Now considers all rooms with open valves in the system
+  - Accounts for both persisted valves and normal valve positions
+  - Ensures accurate system-wide valve opening visibility
+
+**Benefits:**
+- ✅ **Future-proof**: Enables features where rooms have open valves without calling for heat
+- ✅ **Accurate interlock**: Boiler sees actual total valve opening in the system
+- ✅ **Safety maintained**: Still enforces minimum valve opening requirement
+- ✅ **No regression**: Calling rooms still work exactly as before (all calling rooms have open valves)
+
+**Behavior:**
+- **Before:** Only counted valves from rooms where `calling=True`
+- **After:** Counts valves from ANY room where `valve_percent > 0`
+- **Current system:** No change in behavior (only calling rooms have open valves currently)
+- **Future features:** Can now open valves for non-heating purposes without breaking interlock
+
+**Testing:**
+- ✅ System operates normally with no behavior change
+- ✅ Interlock calculations include all open valves
+- ✅ Total valve opening reported accurately
+- ✅ Ready for future circulation/balancing features
+
+**Related:**
+This is preparation work for decoupling calling-for-heat state from TRV valve position, enabling more sophisticated flow control strategies.
+
+---
+
 ## 2025-11-20: BUG FIX #1 - Missing TRV Reference in BoilerController 🐛
 
 **Status:** FIXED ✅
