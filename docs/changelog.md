@@ -35,8 +35,8 @@ Implement comprehensive CSV logging of entire heating system state (PyHeat + Ope
   - Always log on first run (baseline)
   - Always log on boiler state changes
   - Always log on flame status changes  
+  - Always log on setpoint_temp changes (manual control input)
   - Round heating/return temps to nearest degree, log on change
-  - Round setpoint temp to nearest 5 degrees, log on change
   - Log on room calling/valve/mode/override changes
   - Track last logged state to avoid duplicate entries
 - `log_state()`: Writes CSV rows with full system state
@@ -60,7 +60,7 @@ Implement comprehensive CSV logging of entire heating system state (PyHeat + Ope
 
 **Logging Triggers:**
 - Every `recompute_all()` call (filtered by `should_log()`)
-- OpenTherm setpoint temperature changes (±5°C)
+- OpenTherm setpoint temperature changes (manual control - all changes logged)
 - OpenTherm modulation changes
 - OpenTherm heating temperature changes (±1°C)
 - OpenTherm return temperature changes (±1°C)

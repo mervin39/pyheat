@@ -39,7 +39,6 @@ class HeatingLogger:
         # Cache previous values to detect significant changes
         self.prev_heating_temp_rounded = None
         self.prev_return_temp_rounded = None
-        self.prev_setpoint_temp_rounded = None
         self.prev_state = {}
         
         # Setup log directory and .gitignore
@@ -195,17 +194,12 @@ class HeatingLogger:
             except (ValueError, TypeError):
                 pass
         
-        # Check setpoint temp (rounded to nearest 5 degrees to reduce noise)
-        setpoint_temp = opentherm_data.get('setpoint_temp')
-        if setpoint_temp not in [None, '', 'unknown', 'unavailable']:
-            try:
-                setpoint_temp_rounded = round(float(setpoint_temp) / 5) * 5
-                if self.prev_setpoint_temp_rounded != setpoint_temp_rounded:
-                    self.ad.log(f"HeatingLogger: should_log=True (setpoint_temp: {self.prev_setpoint_temp_rounded} -> {setpoint_temp_rounded})", level="DEBUG")
-                    self.prev_setpoint_temp_rounded = setpoint_temp_rounded
-                    return True
-            except (ValueError, TypeError):
-                pass
+        # Check setpoint temp (any change - this is a manual control input)
+        prev_setpoint = self.prev_state.get('ot_setpoint_temp')
+        curr_setpoint = opentherm_data.get('setpoint_temp')
+        if prev_setpoint != curr_setpoint:
+            self.ad.log(f"HeatingLogger: should_log=True (setpoint_temp: {prev_setpoint} -> {curr_setpoint})", level="DEBUG")
+            return True
         
         # Check for room calling status changes
         for room_id in self.room_ids:
@@ -290,6 +284,7 @@ class HeatingLogger:
         self.prev_state = {
             'boiler_state': boiler_state,
             'ot_flame': opentherm_data.get('flame'),
+            'ot_setpoint_temp': opentherm_data.get('setpoint_temp'),
             'rooms': {
                 room_id: {
                     'calling': room.get('calling'),
