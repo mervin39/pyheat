@@ -1,6 +1,27 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Bugfix - OpenTherm Sensor Callback Name Mismatch 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+Changes to `sensor.opentherm_heating_setpoint_temp` were not triggering dedicated log entries. Sensor changes were only captured by periodic recompute, not by the OpenTherm sensor callback.
+
+**Root Cause:**
+- Sensors registered with names: `heating_setpoint_temp`, `heating_temp`, `heating_return_temp`
+- Callback checked for: `setpoint_temp`, `heating_temp`, `return_temp` (inconsistent naming)
+- Only `heating_temp` matched, others silently failed the condition check
+
+**Fix:**
+- Updated callback condition to match registered names: `heating_setpoint_temp`, `heating_return_temp`
+- Now all significant OpenTherm sensor changes trigger immediate logging with sensor name as trigger
+
+**Files Changed:**
+- `app.py`: Line 462 - corrected sensor name list in `opentherm_sensor_changed()`
+
+---
+
 ## 2025-11-20: Bugfix - CSV Timestamp Field Mismatch 🐛
 
 **Status:** FIXED ✅

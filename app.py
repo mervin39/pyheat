@@ -459,7 +459,7 @@ class PyHeat(hass.Hass):
         
         # Trigger heating log for significant sensor changes
         # (setpoint, modulation, heating temp, return temp)
-        if self.heating_logger and sensor_name in ['setpoint_temp', 'modulation', 'heating_temp', 'return_temp']:
+        if self.heating_logger and sensor_name in ['heating_setpoint_temp', 'modulation', 'heating_temp', 'heating_return_temp']:
             now = datetime.now()
             
             # Get current boiler state and room data
