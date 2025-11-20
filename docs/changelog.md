@@ -1,6 +1,29 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Fix Schedule Save Path Bug 🐛
+
+**Status:** FIXED ✅
+
+**Issue:**
+After code reorganization, saving schedules failed with error: `[Errno 2] No such file or directory: '/conf/apps/pyheat/services/config/schedules.yaml'`
+
+**Root Cause:**
+The `service_handler.py` file was moved to `services/` subdirectory during reorganization, but its path resolution code wasn't updated. It was using `os.path.dirname(__file__)` which only went up one level, resulting in looking for config in the wrong location (`services/config/` instead of `config/`).
+
+**Fix:**
+Updated path resolution in `service_handler.py` to use `os.path.dirname(os.path.dirname(__file__))` to go up two directory levels (services/ → pyheat/) before accessing config directory.
+
+**Files Changed:**
+- `services/service_handler.py`: Fixed path resolution in `svc_set_default_target()` and `svc_replace_schedules()` methods
+
+**Impact:**
+- ✅ Schedule saving now works correctly
+- ✅ Default target temperature updates work correctly
+- No functional changes to existing behavior
+
+---
+
 ## 2025-11-20: Reorganize Code into Subdirectories 📁
 
 **Status:** IMPLEMENTED ✅

@@ -360,7 +360,8 @@ class ServiceHandler:
             self.config.schedules[room]['default_target'] = target
             
             # Write to schedules.yaml
-            app_dir = os.path.dirname(os.path.abspath(__file__))
+            # Go up two levels: services/ -> pyheat/
+            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             config_dir = os.path.join(app_dir, "config")
             schedules_file = os.path.join(config_dir, "schedules.yaml")
             
@@ -474,7 +475,8 @@ class ServiceHandler:
                             total_blocks += len(blocks)
             
             # Write to schedules.yaml
-            app_dir = os.path.dirname(os.path.abspath(__file__))
+            # Go up two levels: services/ -> pyheat/
+            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             config_dir = os.path.join(app_dir, "config")
             schedules_file = os.path.join(config_dir, "schedules.yaml")
             
