@@ -38,4 +38,3 @@ test*.log
 debug/
 heating_logs/
 !heating_logs/README.md
-!heating_logs/.gitignore
