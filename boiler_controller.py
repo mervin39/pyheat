@@ -29,7 +29,7 @@ class BoilerController:
     - STATE_INTERLOCK_BLOCKED: Insufficient valve opening, cannot turn on
     """
     
-    def __init__(self, ad, config, alert_manager=None, valve_coordinator=None):
+    def __init__(self, ad, config, alert_manager=None, valve_coordinator=None, trvs=None):
         """Initialize the boiler controller.
         
         Args:
@@ -37,11 +37,13 @@ class BoilerController:
             config: ConfigLoader instance
             alert_manager: Optional AlertManager instance for notifications
             valve_coordinator: Optional ValveCoordinator instance for managing valve persistence
+            trvs: Optional TRVController instance for valve feedback validation
         """
         self.ad = ad
         self.config = config
         self.alert_manager = alert_manager
         self.valve_coordinator = valve_coordinator
+        self.trvs = trvs
         
         # State machine state
         self.boiler_state = C.STATE_OFF
@@ -90,8 +92,13 @@ class BoilerController:
             room_valve_percents
         )
         
-        # Calculate total valve opening
-        total_valve = sum(persisted_valves.get(room_id, 0) for room_id in active_rooms)
+        # Calculate total valve opening from ALL rooms with open valves
+        # This ensures we see the actual system-wide valve opening
+        total_valve = sum(
+            persisted_valves.get(room_id, room_valve_percents.get(room_id, 0))
+            for room_id in room_valve_percents.keys()
+            if persisted_valves.get(room_id, room_valve_percents.get(room_id, 0)) > 0
+        )
         
         # Merge persisted valves with all room valve percents for pump overrun tracking
         all_valve_positions = room_valve_percents.copy()
@@ -413,6 +420,10 @@ class BoilerController:
     ) -> Tuple[Dict[str, int], bool, str]:
         """Calculate valve persistence if needed to meet minimum total opening.
         
+        NOTE: This method now considers ALL rooms with open valves, not just calling rooms.
+        This allows for future features where rooms can maintain flow/circulation even when
+        not actively calling for heat (e.g., for system balancing or frost protection).
+        
         Args:
             rooms_calling: List of room IDs calling for heat
             room_valve_percents: Dict mapping room_id -> calculated valve percent from bands
@@ -432,14 +443,18 @@ class BoilerController:
             C.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT
         )
         
-        # Calculate total from band-calculated percentages
-        total_from_bands = sum(room_valve_percents.get(room_id, 0) for room_id in rooms_calling)
+        # Calculate total from ALL rooms with open valves (not just calling rooms)
+        # This ensures the interlock sees the actual total valve opening in the system
+        total_from_bands = sum(
+            valve_pct for valve_pct in room_valve_percents.values() if valve_pct > 0
+        )
         
         # Check if we need to apply persistence
         if total_from_bands >= min_valve_open:
             # Valve bands are sufficient
             self.ad.log(
-                f"Boiler: total valve opening {total_from_bands}% >= min {min_valve_open}%, using valve bands",
+                f"Boiler: total valve opening {total_from_bands}% >= min {min_valve_open}% "
+                f"(from all rooms with open valves), using valve bands",
                 level="DEBUG"
             )
             return room_valve_percents.copy(), True, f"Total {total_from_bands}% >= min {min_valve_open}%"
@@ -474,9 +489,13 @@ class BoilerController:
     ) -> bool:
         """Check if TRV feedback confirms valves are at commanded positions.
         
+        CRITICAL: This checks if TRV feedback matches the LAST COMMANDED positions
+        (stored in trv_last_commanded), NOT the new desired positions from valve_persistence.
+        valve_persistence here represents what was already sent to TRVs in a previous cycle.
+        
         Args:
             rooms_calling: List of room IDs calling for heat
-            valve_persistence: Dict of commanded valve percentages
+            valve_persistence: Dict of commanded valve percentages (already sent)
             
         Returns:
             True if all calling rooms have TRV feedback matching commanded position
@@ -490,29 +509,10 @@ class BoilerController:
                 self.ad.log(f"Boiler: room {room_id} not found, skipping feedback check", level="WARNING")
                 return False
             
-            commanded = valve_persistence.get(room_id, 0)
-            trv = room_config['trv']
-            
-            # Get TRV feedback
-            fb_valve_entity = trv['fb_valve']
-            if not self.ad.entity_exists(fb_valve_entity):
-                self.ad.log(f"Boiler: room {room_id} TRV feedback entity {fb_valve_entity} does not exist", level="DEBUG")
-                return False
-                
-            fb_valve_str = self.ad.get_state(fb_valve_entity)
-            if fb_valve_str in [None, "unknown", "unavailable"]:
-                self.ad.log(f"Boiler: room {room_id} TRV feedback unavailable", level="DEBUG")
-                return False
-            
-            try:
-                feedback = int(float(fb_valve_str))
-            except (ValueError, TypeError):
-                self.ad.log(f"Boiler: room {room_id} TRV feedback invalid: {fb_valve_str}", level="DEBUG")
-                return False
-            
-            # Check if feedback matches commanded (with tolerance)
-            tolerance = C.TRV_COMMAND_FEEDBACK_TOLERANCE
-            if abs(feedback - commanded) > tolerance:
+            # Check if TRV feedback is consistent with last commanded position
+            if not self.trvs.is_valve_feedback_consistent(room_id, tolerance=C.TRV_COMMAND_FEEDBACK_TOLERANCE):
+                commanded = self.trvs.get_valve_command(room_id)
+                feedback = self.trvs.get_valve_feedback(room_id)
                 self.ad.log(f"Boiler: room {room_id} TRV feedback {feedback}% != commanded {commanded}%", level="DEBUG")
                 return False
         

@@ -124,19 +124,6 @@ VALVE_UPDATE_DEFAULT: Dict[str, float] = {
 # Boiler Safety & Anti Short-Cycling
 # ============================================================================
 
-# Anti short-cycling and TRV-open interlock parameters
-SAFETY_DEFAULT: Dict[str, float] = {
-    # Anti short-cycling
-    "min_on_s": 180,       # Minimum time boiler must stay on (3 minutes)
-    "min_off_s": 180,      # Minimum time boiler must stay off (3 minutes)
-    
-    # TRV-open interlock
-    "min_open_percent": 10,      # Minimum valve opening to consider TRV "open"
-    "feedback_timeout_s": 30,    # Max time to wait for TRV feedback
-    "pump_overrun_s": 180,       # Post-shutdown circulation time (3 minutes)
-    "off_delay_s": 30,           # Brief delay before turning boiler off
-}
-
 # Boiler Configuration Defaults
 BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT = 100  # Minimum total valve opening required
 BOILER_MIN_ON_TIME_DEFAULT = 180             # 3 minutes minimum on time

@@ -1378,7 +1378,7 @@ The `RoomController` class (`room_controller.py`) is the core decision-making en
 - Determine call-for-heat status with hysteresis
 - Calculate valve opening percentages using stepped bands
 - Maintain per-room state across recompute cycles
-- Handle startup initialization from existing valve positions
+- Handle startup initialization from persisted state
 
 ### Room State Management
 
@@ -1393,26 +1393,35 @@ self.room_last_target = {}     # {room_id: float} - Previous target for change d
 
 **State Persistence:**
 - State survives across recompute cycles (essential for hysteresis)
-- Lost on AppDaemon restart, but restored from TRV valve positions and current targets
-- Updated every recompute cycle (60s + event-driven)
+- `room_call_for_heat` persisted to HA entity `input_text.pyheat_room_persistence`
+- Restored on AppDaemon restart from persistence entity (single source of truth)
+- Updated every time `room_call_for_heat` changes
 
-**Initialization on Restart:**
+**Initialization on Restart (2025-11-20):**
 
-Critical safety feature - on AppDaemon restart, rooms are initialized based on **current valve positions** and **current targets**:
+The `room_call_for_heat` state is initialized from `input_text.pyheat_room_persistence` entity:
 
 ```python
-if fb_valve > 0:
-    room_call_for_heat[room_id] = True  # Assume was calling
+# Load persisted state on init
+data = json.loads(get_state('input_text.pyheat_room_persistence'))
+for room_id, [valve_percent, last_calling] in data.items():
+    room_call_for_heat[room_id] = bool(last_calling)
 
 # Initialize target tracking to prevent false "changed" on first recompute
 room_last_target[room_id] = current_target
 ```
 
+**Single Source of Truth:**
+- `input_text.pyheat_room_persistence` is the authoritative source for calling state
+- Format: `{"pete": [valve_percent, last_calling], ...}`
+- Missing/invalid data defaults to `False` (not calling) with ERROR logs
+- First recompute (within seconds) establishes correct state from temperature vs target
+
 **Why This Matters:**
-- Prevents sudden valve closures in hysteresis deadband on restart
-- Avoids boiler running with all valves closed after restart
-- Maintains heating continuity during AppDaemon updates/restarts
-- Rooms gradually transition to correct state rather than abrupt changes
+- Hysteresis state survives restarts correctly (prevents phantom bugs)
+- No ambiguity from stale valve positions or complex heuristics
+- Conservative default (not calling) prevents spurious heating on data loss
+- Robust against entity unavailability, JSON parse errors, or missing rooms
 
 ### The compute_room() Pipeline
 
@@ -1880,6 +1889,58 @@ The `TRVController` class (`trv_controller.py`) manages all interactions with Th
 - Unexpected position detection and correction
 - TRV setpoint locking at 35°C (bypasses internal control)
 - Tolerance-based feedback matching
+- **Cached feedback reads** - 5-second TTL reduces redundant HA API calls
+- **Encapsulated sensor access** - Single source of truth for TRV feedback
+
+### TRV Responsibility Encapsulation (2025-11-20)
+
+The TRVController provides three public methods that encapsulate all TRV sensor access, eliminating cross-component coupling:
+
+**1. `get_valve_feedback(room_id) -> Optional[int]`**
+Returns current TRV valve position from feedback sensor (0-100%). Results are cached for 5 seconds to avoid excessive HA queries.
+
+```python
+feedback = self.trvs.get_valve_feedback('pete')
+# Returns: 70 (or None if unavailable)
+```
+
+**Why caching matters:**
+- Multiple components need TRV feedback during same recompute cycle
+- Without cache: N components = N HA API calls per TRV per cycle
+- With cache: N components = 1 HA API call per TRV per 5 seconds
+- Reduces load on HA and improves performance
+
+**2. `get_valve_command(room_id) -> Optional[int]`**
+Returns the last commanded valve position (what we sent to the TRV, not what it reports back).
+
+```python
+commanded = self.trvs.get_valve_command('pete')
+# Returns: 65 (what we commanded)
+```
+
+**Critical distinction:**
+- `get_valve_feedback()` returns what the TRV **reports** (current actual position)
+- `get_valve_command()` returns what we **commanded** (last sent position)
+- Used for proper feedback validation (see below)
+
+**3. `is_valve_feedback_consistent(room_id, tolerance=5.0) -> bool`**
+Checks if TRV feedback matches last commanded value within tolerance.
+
+```python
+consistent = self.trvs.is_valve_feedback_consistent('pete', tolerance=5.0)
+# Returns: True if abs(feedback - commanded) <= 5.0
+```
+
+**Used by boiler controller:**
+The boiler state machine uses this to validate that TRVs have responded to commands before transitioning states. **CRITICAL**: This checks against `trv_last_commanded` (what was previously sent), NOT against future desired positions.
+
+**Benefits of encapsulation:**
+- **Single source of truth** - All TRV feedback reads go through one path
+- **Decoupling** - Components don't need to know TRV entity naming patterns
+- **Performance** - 5-second cache reduces redundant HA API calls
+- **Consistency** - All components see same cached value during recompute
+- **Testability** - Mock TRVController methods instead of HA entities
+- **Maintainability** - TRV entity changes only affect `trv_controller.py`
 
 ### TRV Entity Structure
 

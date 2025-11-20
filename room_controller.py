@@ -40,12 +40,11 @@ class RoomController:
         self.room_last_target = {}  # {room_id: float} - tracks previous target to detect changes
         
     def initialize_from_ha(self) -> None:
-        """Initialize room state from current Home Assistant TRV positions.
+        """Initialize room state from Home Assistant.
         
-        CRITICAL: Initialize room_call_for_heat based on current valve position.
-        If valve is open (>0%), assume room was calling for heat before restart.
-        This prevents sudden valve closures when in hysteresis deadband on startup
-        (prevents boiler running with all valves closed after AppDaemon restart).
+        CRITICAL: room_call_for_heat is initialized from input_text.pyheat_room_persistence
+        entity which is the single source of truth. This ensures hysteresis state
+        survives restarts correctly, preventing spurious heating cycles or delays.
         
         Also initialize room_last_target to current targets to prevent false
         "target changed" detection on first recompute after restart.
@@ -53,22 +52,6 @@ class RoomController:
         for room_id, room_cfg in self.config.rooms.items():
             if room_cfg.get('disabled'):
                 continue
-                
-            # Get current valve position from TRV controller
-            fb_valve_entity = room_cfg['trv']['fb_valve']
-            try:
-                fb_valve_str = self.ad.get_state(fb_valve_entity)
-                if fb_valve_str and fb_valve_str not in ['unknown', 'unavailable']:
-                    fb_valve = int(float(fb_valve_str))
-                    
-                    # If valve is open, assume room was calling for heat
-                    if fb_valve > 0:
-                        self.room_call_for_heat[room_id] = True
-                        self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%, assumed calling for heat", level="DEBUG")
-                    else:
-                        self.ad.log(f"Room {room_id}: Initialized, valve at {fb_valve}%", level="DEBUG")
-            except (ValueError, TypeError) as e:
-                self.ad.log(f"Failed to initialize room {room_id} state: {e}", level="WARNING")
             
             # Initialize target tracking - get current target from scheduler
             try:
@@ -89,18 +72,27 @@ class RoomController:
             except Exception as e:
                 self.ad.log(f"Failed to initialize target tracking for room {room_id}: {e}", level="WARNING")
         
-        # Load persisted calling state from HA
+        # Load persisted calling state from HA (single source of truth)
         self._load_persisted_state()
         
     def _load_persisted_state(self) -> None:
         """Load last_calling state from HA persistence entity on init.
         
+        This is the SINGLE SOURCE OF TRUTH for room_call_for_heat state.
         Migrates data from old pyheat_pump_overrun_valves format if needed.
+        
         Format: {"pete": [valve_percent, last_calling], ...}
         Array indices: [0]=valve_percent (0-100), [1]=last_calling (0=False, 1=True)
+        
+        If persistence data is missing or invalid, defaults to False (not calling).
+        The first recompute (within seconds) will establish correct state.
         """
         if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            self.ad.log("Room persistence entity does not exist, skipping state load", level="DEBUG")
+            self.ad.log("ERROR: Room persistence entity does not exist! All rooms defaulting to not calling.", level="ERROR")
+            # Default all rooms to False
+            for room_id in self.config.rooms.keys():
+                if not self.config.rooms[room_id].get('disabled'):
+                    self.room_call_for_heat[room_id] = False
             return
             
         try:
@@ -111,14 +103,28 @@ class RoomController:
                 return
                 
             data = json.loads(data_str)
-            for room_id, arr in data.items():
-                if len(arr) >= 2 and room_id in self.config.rooms:
-                    # Override valve-based heuristic with persisted state
-                    persisted_calling = bool(arr[1])
+            
+            # Load state for each configured room
+            for room_id in self.config.rooms.keys():
+                if self.config.rooms[room_id].get('disabled'):
+                    continue
+                    
+                if room_id in data and len(data[room_id]) >= 2:
+                    # Load persisted state
+                    persisted_calling = bool(data[room_id][1])
                     self.room_call_for_heat[room_id] = persisted_calling
                     self.ad.log(f"Room {room_id}: Loaded persisted calling state = {persisted_calling}", level="DEBUG")
+                else:
+                    # Room not in persistence data (new room?) - default to False
+                    self.room_call_for_heat[room_id] = False
+                    self.ad.log(f"Room {room_id}: Not in persistence data, defaulting to not calling", level="WARNING")
+                    
         except (json.JSONDecodeError, ValueError, TypeError) as e:
-            self.ad.log(f"Failed to parse room persistence: {e}, using valve-based heuristic", level="WARNING")
+            self.ad.log(f"ERROR: Failed to parse room persistence: {e}. All rooms defaulting to not calling.", level="ERROR")
+            # Default all rooms to False on parse error
+            for room_id in self.config.rooms.keys():
+                if not self.config.rooms[room_id].get('disabled'):
+                    self.room_call_for_heat[room_id] = False
     
     def _migrate_from_old_format(self) -> None:
         """One-time migration from old pyheat_pump_overrun_valves format.

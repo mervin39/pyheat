@@ -296,6 +296,42 @@ All services also available via HTTP at `/api/appdaemon/pyheat_*` for external a
   - [ ] Service call failure recovery
   - [ ] Persistent error logging
 
+- [ ] **Defensive Exception Handling in Critical Paths**
+  - [ ] **Problem**: Single component failures can crash entire system (Bug #1 example)
+  - [ ] **Location**: `app.py recompute_all()` - room computation, valve application, status publishing
+  - [ ] **Options to Consider**:
+    - **Option A: Fatal Errors (Current + Enhanced)**
+      - Add try/except around critical calls with ERROR logging + traceback
+      - Re-raise exception after logging (system still crashes)
+      - ✅ Pro: Bugs are immediately obvious (system stops working)
+      - ✅ Pro: Simple implementation - just wrap and re-raise
+      - ❌ Con: One component failure breaks entire heating system
+      - ❌ Con: No graceful degradation
+    - **Option B: Isolated Recovery (Per-Room)**
+      - Wrap each room's computation/valve/status in try/except
+      - Use safe defaults for failed rooms, continue with others
+      - ✅ Pro: One room's failure doesn't affect other rooms
+      - ✅ Pro: System keeps running in degraded mode
+      - ✅ Pro: Production heating system stays operational
+      - ❌ Con: Bugs might hide in logs instead of being obvious
+      - ❌ Con: Requires careful default values to ensure safety
+      - ❌ Con: Partial failures may be less noticeable
+    - **Option C: Hybrid Approach**
+      - Fatal errors for startup/configuration (Option A)
+      - Isolated recovery for runtime operations (Option B)
+      - Critical errors for boiler safety issues (Option A)
+      - Per-room isolation for sensor/TRV issues (Option B)
+      - ✅ Pro: Balance between safety and availability
+      - ✅ Pro: System-critical failures still crash appropriately
+      - ✅ Pro: Room-level issues don't cascade
+      - ❌ Con: More complex to implement and maintain
+      - ❌ Con: Requires clear categorization of error types
+  - [ ] **Recommendation**: Option C (Hybrid) for production heating system
+    - Fatal: Config loading, HA connection, missing required components
+    - Recoverable: Individual room sensors, TRV timeouts, status entity updates
+    - Document which operations are fatal vs recoverable
+  - [ ] **Related**: See `docs/BUGS.md` Bug #1 for real-world example
+
 - [ ] **Enhanced State Persistence**
   - [ ] Verify override/boost restoration from timer states works correctly
   - [ ] Document pump overrun valve position persistence
