@@ -161,19 +161,25 @@ class HeatingLogger:
         
         # Check heating temp (rounded to nearest degree)
         heating_temp = opentherm_data.get('heating_temp')
-        if heating_temp is not None:
-            heating_temp_rounded = round(heating_temp)
-            if self.prev_heating_temp_rounded != heating_temp_rounded:
-                self.prev_heating_temp_rounded = heating_temp_rounded
-                return True
+        if heating_temp not in [None, '', 'unknown', 'unavailable']:
+            try:
+                heating_temp_rounded = round(float(heating_temp))
+                if self.prev_heating_temp_rounded != heating_temp_rounded:
+                    self.prev_heating_temp_rounded = heating_temp_rounded
+                    return True
+            except (ValueError, TypeError):
+                pass
         
         # Check return temp (rounded to nearest degree)
         return_temp = opentherm_data.get('return_temp')
-        if return_temp is not None:
-            return_temp_rounded = round(return_temp)
-            if self.prev_return_temp_rounded != return_temp_rounded:
-                self.prev_return_temp_rounded = return_temp_rounded
-                return True
+        if return_temp not in [None, '', 'unknown', 'unavailable']:
+            try:
+                return_temp_rounded = round(float(return_temp))
+                if self.prev_return_temp_rounded != return_temp_rounded:
+                    self.prev_return_temp_rounded = return_temp_rounded
+                    return True
+            except (ValueError, TypeError):
+                pass
         
         # Check for room calling status changes
         for room_id in self.room_ids:
