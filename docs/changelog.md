@@ -1,6 +1,64 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: OpenTherm Sensor Monitoring (Debug Only) 🔍
+
+**Status:** IN PROGRESS 🚧
+
+**Purpose:**
+Add monitoring for OpenTherm sensors to understand boiler behavior and prepare for future OpenTherm integration features. These sensors are logged for debugging but do NOT trigger recomputes or affect heating control.
+
+**OpenTherm Sensors Monitored:**
+1. `binary_sensor.opentherm_flame` - Flame status (on/off)
+2. `sensor.opentherm_heating_temp` - Supply/flow temperature (°C)
+3. `sensor.opentherm_heating_return_temp` - Return temperature (°C)
+4. `sensor.opentherm_heating_setpoint_temp` - Boiler target temperature (°C)
+5. `sensor.opentherm_power` - Modulation level (%)
+6. `sensor.opentherm_burner_starts` - Burner start counter
+7. `sensor.opentherm_dhw_burner_starts` - DHW burner start counter
+
+**Changes:**
+
+**constants.py:**
+- Added OpenTherm sensor entity ID constants (lines 204-213)
+- Grouped under "OpenTherm Integration Sensors (Monitoring Only)" section
+
+**app.py:**
+- Added callback registration for OpenTherm sensors in `setup_callbacks()` (lines 230-245)
+- Only registers callbacks if entities exist in HA
+- Logs count of registered OpenTherm sensors at startup
+- Added `opentherm_sensor_changed()` handler (lines 418-451):
+  - Logs all changes at DEBUG level
+  - Formats output based on sensor type (binary, counter, numeric)
+  - Includes units (°C, %) in log messages
+  - Skips logging for unknown/unavailable values
+  - **Does NOT trigger recompute** - monitoring only
+
+**Behavior:**
+- ✅ **No control impact**: OpenTherm sensors are read-only monitoring
+- ✅ **No recomputes**: Changes do not trigger heating control logic
+- ✅ **Debug logging**: All changes logged for analysis
+- ✅ **Graceful degradation**: System works normally if sensors don't exist
+- ✅ **Future preparation**: Foundation for OpenTherm integration features
+
+**Log Output Examples:**
+```
+OpenTherm [flame]: on
+OpenTherm [heating_temp]: 45.2°C
+OpenTherm [heating_return_temp]: 38.7°C
+OpenTherm [heating_setpoint_temp]: 50.0°C
+OpenTherm [power]: 85%
+OpenTherm [burner_starts]: 1234 → 1235
+```
+
+**Next Steps:**
+- Monitor sensor behavior during heating cycles
+- Analyze correlation between flame status and boiler state machine
+- Understand modulation patterns
+- Plan OpenTherm-aware features (modulation control, flow temp optimization)
+
+---
+
 ## 2025-11-20: Boiler Interlock - Count All Open Valves 🔧
 
 **Status:** COMPLETED ✅

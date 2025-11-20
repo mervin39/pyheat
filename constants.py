@@ -200,6 +200,19 @@ HELPER_BOILER_OFF_DELAY_TIMER = "timer.pyheat_boiler_off_delay_timer"
 STATUS_ENTITY = "sensor.pyheat_status"
 
 # ============================================================================
+# OpenTherm Integration Sensors (Monitoring Only)
+# ============================================================================
+
+# OpenTherm sensors to monitor (do not trigger recomputes, debug logging only)
+OPENTHERM_FLAME = "binary_sensor.opentherm_flame"
+OPENTHERM_HEATING_TEMP = "sensor.opentherm_heating_temp"
+OPENTHERM_HEATING_RETURN_TEMP = "sensor.opentherm_heating_return_temp"
+OPENTHERM_HEATING_SETPOINT_TEMP = "sensor.opentherm_heating_setpoint_temp"
+OPENTHERM_POWER = "sensor.opentherm_power"
+OPENTHERM_BURNER_STARTS = "sensor.opentherm_burner_starts"
+OPENTHERM_DHW_BURNER_STARTS = "sensor.opentherm_dhw_burner_starts"
+
+# ============================================================================
 # Scheduling & Timing
 # ============================================================================
 

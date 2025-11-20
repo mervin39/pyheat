@@ -223,6 +223,26 @@ class PyHeat(hass.Hass):
             # TRV setpoint monitoring (detect if someone changes it manually)
             self.listen_state(self.trv_setpoint_changed, trv['climate'], room_id=room_id, attribute='temperature')
         
+        # OpenTherm sensor monitoring (debug logging only, no recomputes)
+        opentherm_sensors = [
+            (C.OPENTHERM_FLAME, "flame"),
+            (C.OPENTHERM_HEATING_TEMP, "heating_temp"),
+            (C.OPENTHERM_HEATING_RETURN_TEMP, "heating_return_temp"),
+            (C.OPENTHERM_HEATING_SETPOINT_TEMP, "heating_setpoint_temp"),
+            (C.OPENTHERM_POWER, "power"),
+            (C.OPENTHERM_BURNER_STARTS, "burner_starts"),
+            (C.OPENTHERM_DHW_BURNER_STARTS, "dhw_burner_starts"),
+        ]
+        
+        opentherm_count = 0
+        for entity_id, sensor_name in opentherm_sensors:
+            if self.entity_exists(entity_id):
+                self.listen_state(self.opentherm_sensor_changed, entity_id, sensor_name=sensor_name)
+                opentherm_count += 1
+        
+        if opentherm_count > 0:
+            self.log(f"Registered {opentherm_count} OpenTherm sensors for monitoring")
+        
         self.log(f"Registered callbacks for {len(self.config.rooms)} rooms")
 
     # ========================================================================
@@ -397,6 +417,39 @@ class PyHeat(hass.Hass):
         if new and new != C.TRV_LOCKED_SETPOINT_C:
             self.log(f"TRV setpoint for '{room_id}' changed to {new}C (should be locked at {C.TRV_LOCKED_SETPOINT_C}C), correcting...", level="WARNING")
             self.run_in(lambda kwargs: self.trvs.lock_setpoint(room_id), 1)
+
+    def opentherm_sensor_changed(self, entity, attribute, old, new, kwargs):
+        """OpenTherm sensor changed - log for debugging, no recompute.
+        
+        These sensors are monitored to understand boiler behavior and prepare
+        for future OpenTherm integration features. Changes are logged at DEBUG
+        level and do not trigger heating control recomputation.
+        """
+        sensor_name = kwargs.get('sensor_name', 'unknown')
+        
+        # Skip logging if value is unknown or unavailable
+        if new in ['unknown', 'unavailable', None]:
+            return
+        
+        # Format the log message based on sensor type
+        if sensor_name == "flame":
+            # Binary sensor - on/off
+            self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
+        elif sensor_name in ["burner_starts", "dhw_burner_starts"]:
+            # Counter - only log when it changes
+            if old != new:
+                self.log(f"OpenTherm [{sensor_name}]: {old} → {new}", level="DEBUG")
+        else:
+            # Numeric sensors - log with units
+            try:
+                value = float(new)
+                if sensor_name == "power":
+                    self.log(f"OpenTherm [{sensor_name}]: {value}%", level="DEBUG")
+                else:
+                    # Temperature sensors
+                    self.log(f"OpenTherm [{sensor_name}]: {value}°C", level="DEBUG")
+            except (ValueError, TypeError):
+                self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
 
     # ========================================================================
     # TRV Setpoint Management
