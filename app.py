@@ -507,8 +507,14 @@ class PyHeat(hass.Hass):
                 active_rooms.append(room_id)
         
         # Update boiler state
-        boiler_state, boiler_reason, persisted_valves, valves_must_stay_open = \
-            self.boiler.update_state(any_calling, active_rooms, room_data, now)
+        try:
+            boiler_state, boiler_reason, persisted_valves, valves_must_stay_open = \
+                self.boiler.update_state(any_calling, active_rooms, room_data, now)
+        except Exception as e:
+            self.log(f"ERROR: Exception in boiler.update_state(): {e}", level="ERROR")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+            raise
         
         # Apply all valve commands through valve coordinator
         # The coordinator handles persistence overrides, corrections, and normal commands
