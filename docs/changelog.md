@@ -1,6 +1,59 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: BUG FIX #1 - Missing TRV Reference in BoilerController 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+Critical bug discovered where `BoilerController` was calling TRV methods (`self.trvs.is_valve_feedback_consistent()`, `self.trvs.get_valve_command()`, `self.trvs.get_valve_feedback()`) without having a `trvs` reference initialized. This was introduced during the TRV Encapsulation refactor (Issue #5 Part A) when boiler_controller.py was updated to use TRV controller methods for valve feedback validation, but the initialization wasn't updated to pass the TRV controller reference.
+
+**Symptoms:**
+- Override service appeared to succeed but targets didn't update
+- `AttributeError: 'BoilerController' object has no attribute 'trvs'` thrown on every recompute
+- System still heated based on schedules, but status publishing failed
+- Exception occurred during `boiler.update_state()`, preventing execution from reaching `publish_room_entities()`
+
+**Root Cause:**
+Incomplete refactoring - added method calls to `self.trvs` without adding the dependency to `__init__()` or passing it from `app.py`.
+
+**Changes:**
+
+**boiler_controller.py:**
+- Line 32: Added `trvs=None` parameter to `__init__()` method signature
+- Line 44: Added `self.trvs = trvs` instance variable assignment
+- Updated docstring to document the new parameter
+
+**app.py:**
+- Line 64: Updated `BoilerController` initialization to pass `self.trvs` as fifth argument
+
+**Verification:**
+- ✅ Audited all controller `__init__` methods against their attribute usage
+- ✅ Verified no similar missing dependency patterns in other controllers
+- ✅ All controllers have complete dependency chains:
+  - `ValveCoordinator`, `TRVController`, `RoomController`, `Scheduler`, `SensorManager`, `StatusPublisher`, `BoilerController`
+
+**Testing Required:**
+1. Override service sets target successfully
+2. `sensor.pyheat_<room>_target` updates immediately
+3. No AttributeError exceptions in AppDaemon logs
+4. Boiler state machine executes completely
+5. All room status entities update correctly
+6. TRV feedback validation works as intended
+
+**Documentation:**
+- Updated `docs/BUGS.md` with resolution details
+- Marked Bug #1 as Fixed with date and verification notes
+
+**Lessons Learned:**
+When refactoring cross-component dependencies:
+1. Grep for all usages of new methods being added
+2. Verify all components that need the new dependency receive it
+3. Test the entire system end-to-end, not just individual components
+4. Check for AttributeError exceptions after refactoring
+
+---
+
 ## 2025-11-20: ROOM INITIALIZATION SIMPLIFICATION - Remove Valve Heuristic 🧹
 
 **Status:** COMPLETED ✅

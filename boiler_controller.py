@@ -29,7 +29,7 @@ class BoilerController:
     - STATE_INTERLOCK_BLOCKED: Insufficient valve opening, cannot turn on
     """
     
-    def __init__(self, ad, config, alert_manager=None, valve_coordinator=None):
+    def __init__(self, ad, config, alert_manager=None, valve_coordinator=None, trvs=None):
         """Initialize the boiler controller.
         
         Args:
@@ -37,11 +37,13 @@ class BoilerController:
             config: ConfigLoader instance
             alert_manager: Optional AlertManager instance for notifications
             valve_coordinator: Optional ValveCoordinator instance for managing valve persistence
+            trvs: Optional TRVController instance for valve feedback validation
         """
         self.ad = ad
         self.config = config
         self.alert_manager = alert_manager
         self.valve_coordinator = valve_coordinator
+        self.trvs = trvs
         
         # State machine state
         self.boiler_state = C.STATE_OFF

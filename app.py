@@ -61,7 +61,7 @@ class PyHeat(hass.Hass):
         self.trvs = TRVController(self, self.config, self.alerts)
         self.valve_coordinator = ValveCoordinator(self, self.trvs)
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
-        self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator)
+        self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.services = ServiceHandler(self, self.config, self.overrides)

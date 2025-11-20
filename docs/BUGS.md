@@ -6,8 +6,9 @@ This document tracks known bugs and their resolutions.
 
 ## BUG #1: Override Targets Not Being Applied (CRITICAL)
 
-**Status:** Identified, not yet fixed  
+**Status:** Fixed  
 **Date Discovered:** 2025-11-20  
+**Date Fixed:** 2025-11-20  
 **Severity:** Critical - breaks override functionality completely  
 **Branch:** `trv-responsibility-encapsulation`
 
@@ -96,6 +97,23 @@ self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordi
 Remove lines 498-500 from boiler_controller.py and handle TRV validation elsewhere. However, this would lose the safety check that was intentionally added.
 
 **Recommendation:** Use Option 1 - the TRV feedback validation is valuable for safety, we just need to complete the integration properly.
+
+### Resolution
+
+**Date Fixed:** 2025-11-20
+
+**Changes Made:**
+1. Updated `boiler_controller.py` line 32: Added `trvs=None` parameter to `__init__()` signature
+2. Updated `boiler_controller.py` line 44: Added `self.trvs = trvs` assignment
+3. Updated `app.py` line 64: Modified initialization to pass `self.trvs` to BoilerController
+
+**Verification:**
+- All component initializations audited to ensure no similar issues exist
+- Other controllers verified to have complete dependency chains:
+  - `ValveCoordinator`, `TRVController`, `RoomController`, `Scheduler`, `SensorManager`, `StatusPublisher` - all ✅
+
+**Additional Pattern Analysis:**
+Performed systematic audit of all controller `__init__` methods against their `self.*` attribute usage to identify any similar missing dependency patterns. No other issues found.
 
 ### Impact Assessment
 
