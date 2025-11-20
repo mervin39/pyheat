@@ -258,9 +258,8 @@ class HeatingLogger:
         
         # Build row data
         row = {
-            # Date and time (split, with seconds)
-            'date': now.strftime('%Y-%m-%d'),
-            'time': now.strftime('%H:%M:%S'),
+            # Timestamp (combined date and time)
+            'timestamp': now.strftime('%Y-%m-%d %H:%M:%S'),
             'trigger': trigger,
             
             # OpenTherm sensors (reordered, temps rounded to 2dp)

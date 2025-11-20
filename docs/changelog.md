@@ -1,6 +1,27 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Bugfix - CSV Timestamp Field Mismatch 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+HeatingLogger was failing to write CSV rows with error: "dict contains fields not in fieldnames: 'time', 'date'"
+
+**Root Cause:**
+- CSV header defined single field: `timestamp`
+- `log_state()` was creating two separate fields: `date` and `time`
+- Python's csv.DictWriter requires exact field name match
+
+**Fix:**
+- Changed `log_state()` to write combined `timestamp` field: `'YYYY-MM-DD HH:MM:SS'`
+- Matches header definition and changelog specification
+
+**Files Changed:**
+- `heating_logger.py`: Line 263 - combined date/time into single timestamp field
+
+---
+
 ## 2025-11-20: Comprehensive Heating System Logger 📊
 
 **Status:** COMPLETE ✅
