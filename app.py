@@ -629,7 +629,10 @@ class PyHeat(hass.Hass):
         
         # Log to heating logs if enabled
         if self.heating_logger:
+            self.log(f"HeatingLogger: Calling _log_heating_state (trigger={reason})", level="DEBUG")
             self._log_heating_state(reason, boiler_state, room_data, now)
+        else:
+            self.log("HeatingLogger: Logger is None, skipping", level="DEBUG")
         
         # Log summary
         if any_calling:
