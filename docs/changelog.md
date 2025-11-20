@@ -1,6 +1,36 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Bugfix - Log File Recreation After Deletion 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+If the daily CSV log file was deleted while AppDaemon was running, it would not be automatically recreated. The `_check_date_rotation()` method only checked if the date changed, but didn't verify the file actually exists.
+
+**Root Cause:**
+- `self.current_date` was already set to today's date
+- File deletion didn't reset this state
+- Condition `if self.current_date != today` would be False
+- File would never be recreated until date actually changed (next day at midnight)
+
+**Solution:**
+Enhanced `_check_date_rotation()` to check three conditions:
+1. Date has changed (for daily rotation)
+2. File doesn't exist on disk (handles manual deletion)
+3. File handle is None (handles initialization)
+
+**Behavior:**
+- ✅ Automatically recreates log file if deleted
+- ✅ Writes CSV headers to new files
+- ✅ Logs "Started new heating log: {filename}" message
+- ✅ Continues logging seamlessly
+
+**Files Changed:**
+- `heating_logger.py`: Enhanced `_check_date_rotation()` with file existence check
+
+---
+
 ## 2025-11-20: Reduce Log Noise - OpenTherm Temperature Filtering 🎯
 
 **Status:** IMPLEMENTED ✅

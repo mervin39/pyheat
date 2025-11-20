@@ -113,16 +113,24 @@ class HeatingLogger:
     def _check_date_rotation(self):
         """Check if we need to rotate to a new day's log file."""
         today = datetime.now().date()
+        filename = f"{today.isoformat()}.csv"
+        filepath = os.path.join(self.log_dir, filename)
         
-        if self.current_date != today:
+        # Check if we need to open/create a file
+        # (date changed, or file doesn't exist, or file handle not open)
+        needs_file = (
+            self.current_date != today or 
+            not os.path.exists(filepath) or 
+            self.csv_file is None
+        )
+        
+        if needs_file:
             # Close existing file if open
             if self.csv_file:
                 self.csv_file.close()
             
             # Open new file for today
             self.current_date = today
-            filename = f"{today.isoformat()}.csv"
-            filepath = os.path.join(self.log_dir, filename)
             
             # Check if file exists (append) or is new (write headers)
             file_exists = os.path.exists(filepath)
