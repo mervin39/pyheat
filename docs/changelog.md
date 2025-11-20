@@ -44,11 +44,11 @@ Add monitoring for OpenTherm sensors to understand boiler behavior and prepare f
 **Log Output Examples:**
 ```
 OpenTherm [flame]: on
-OpenTherm [heating_temp]: 45.2°C
-OpenTherm [heating_return_temp]: 38.7°C
-OpenTherm [heating_setpoint_temp]: 50.0°C
+OpenTherm [heating_temp]: 45.2C
+OpenTherm [heating_return_temp]: 38.7C
+OpenTherm [heating_setpoint_temp]: 50.0C
 OpenTherm [power]: 85%
-OpenTherm [burner_starts]: 1234 → 1235
+OpenTherm [burner_starts]: 1234 -> 1235
 ```
 
 **Next Steps:**

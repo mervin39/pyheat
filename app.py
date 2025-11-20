@@ -438,7 +438,7 @@ class PyHeat(hass.Hass):
         elif sensor_name in ["burner_starts", "dhw_burner_starts"]:
             # Counter - only log when it changes
             if old != new:
-                self.log(f"OpenTherm [{sensor_name}]: {old} → {new}", level="DEBUG")
+                self.log(f"OpenTherm [{sensor_name}]: {old} -> {new}", level="DEBUG")
         else:
             # Numeric sensors - log with units
             try:
@@ -447,7 +447,7 @@ class PyHeat(hass.Hass):
                     self.log(f"OpenTherm [{sensor_name}]: {value}%", level="DEBUG")
                 else:
                     # Temperature sensors
-                    self.log(f"OpenTherm [{sensor_name}]: {value}°C", level="DEBUG")
+                    self.log(f"OpenTherm [{sensor_name}]: {value}C", level="DEBUG")
             except (ValueError, TypeError):
                 self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
 
