@@ -136,6 +136,7 @@ class HeatingLogger:
         """Determine if current state warrants a log entry.
         
         Checks for significant changes in:
+        - First run (baseline)
         - Boiler state changes
         - Flame status changes
         - Heating/return temps (rounded to nearest degree)
@@ -151,6 +152,11 @@ class HeatingLogger:
         Returns:
             True if state has changed significantly and should be logged
         """
+        # First run - always log to establish baseline
+        if not self.prev_state:
+            self.ad.log("HeatingLogger: should_log=True (first run - establishing baseline)", level="DEBUG")
+            return True
+        
         # Always log on boiler state change
         prev_boiler = self.prev_state.get('boiler_state')
         if prev_boiler != boiler_state:
