@@ -73,20 +73,20 @@ class HeatingLogger:
             'time',
             'trigger',
             
-            # Boiler state
-            'boiler_state',
-            'pump_overrun_active',
-            
             # OpenTherm sensors
             'ot_flame',
             'ot_heating_temp',
             'ot_return_temp',
-            'ot_setpoint_temp',
-            'ot_power',
             'ot_modulation',
+            'ot_power',
             'ot_burner_starts',
             'ot_dhw_burner_starts',
             'ot_climate_state',
+            'ot_setpoint_temp',
+            
+            # Boiler state
+            'boiler_state',
+            'pump_overrun_active',
             
             # System aggregates
             'num_rooms_calling',
@@ -285,8 +285,8 @@ class HeatingLogger:
             'ot_flame': opentherm_data.get('flame', ''),
             'ot_heating_temp': round_temp_int(opentherm_data.get('heating_temp', '')),
             'ot_return_temp': round_temp_int(opentherm_data.get('return_temp', '')),
-            'ot_power': opentherm_data.get('power', ''),
             'ot_modulation': opentherm_data.get('modulation', ''),
+            'ot_power': opentherm_data.get('power', ''),
             'ot_burner_starts': opentherm_data.get('burner_starts', ''),
             'ot_dhw_burner_starts': opentherm_data.get('dhw_burner_starts', ''),
             'ot_climate_state': opentherm_data.get('climate_state', ''),

@@ -1,6 +1,28 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: CSV Format - Reorder Columns for Better Analysis 📊
+
+**Status:** IMPLEMENTED ✅
+
+**Change:**
+Reordered CSV columns to group OpenTherm sensors together before boiler state fields, making the data more logical and easier to analyze.
+
+**New Column Order (first 14 columns):**
+1. `date`, `time`, `trigger` - timestamp and trigger
+2. `ot_flame`, `ot_heating_temp`, `ot_return_temp`, `ot_modulation`, `ot_power`, `ot_burner_starts`, `ot_dhw_burner_starts`, `ot_climate_state`, `ot_setpoint_temp` - OpenTherm sensors grouped together
+3. `boiler_state`, `pump_overrun_active` - PyHeat boiler FSM state
+
+**Rationale:**
+- Groups related OpenTherm sensor data together for easier reading
+- Puts most frequently changing/analyzed data (temps, modulation) early in the row
+- Separates OpenTherm sensor data from PyHeat control logic
+
+**Files Changed:**
+- `heating_logger.py`: Reordered CSV headers and row building to match new column order
+
+---
+
 ## 2025-11-20: CSV Format - Split Date and Time Columns 📊
 
 **Status:** IMPLEMENTED ✅
