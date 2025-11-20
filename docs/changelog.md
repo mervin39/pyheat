@@ -1,6 +1,28 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Bugfix - Missing OpenTherm Sensor Listeners 🐛
+
+**Status:** FIXED ✅
+
+**Problem:**
+Modulation and climate state sensors were being collected for logging but changes were never monitored, so they could only be captured via periodic recompute.
+
+**Root Cause:**
+- `_get_opentherm_data()` collected 9 sensors including modulation and climate_state
+- Only 7 sensors were registered with `listen_state()` callbacks
+- Missing: `OPENTHERM_MODULATION` and `OPENTHERM_CLIMATE`
+
+**Fix:**
+- Added modulation sensor with name `"modulation"`
+- Added climate sensor with name `"climate_state"`
+- Now all 9 OpenTherm sensors are monitored for changes
+
+**Files Changed:**
+- `app.py`: Lines 239-240 - added missing sensor registrations
+
+---
+
 ## 2025-11-20: Bugfix - OpenTherm Sensor Callback Name Mismatch 🐛
 
 **Status:** FIXED ✅

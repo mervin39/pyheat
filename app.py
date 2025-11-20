@@ -236,8 +236,10 @@ class PyHeat(hass.Hass):
             (C.OPENTHERM_HEATING_RETURN_TEMP, "heating_return_temp"),
             (C.OPENTHERM_HEATING_SETPOINT_TEMP, "heating_setpoint_temp"),
             (C.OPENTHERM_POWER, "power"),
+            (C.OPENTHERM_MODULATION, "modulation"),
             (C.OPENTHERM_BURNER_STARTS, "burner_starts"),
             (C.OPENTHERM_DHW_BURNER_STARTS, "dhw_burner_starts"),
+            (C.OPENTHERM_CLIMATE, "climate_state"),
         ]
         
         opentherm_count = 0
