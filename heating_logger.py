@@ -253,6 +253,15 @@ class HeatingLogger:
             except (ValueError, TypeError):
                 return val
         
+        # Helper function for OpenTherm flow/return temps (integer only)
+        def round_temp_int(val):
+            if val in [None, '', 'unknown', 'unavailable']:
+                return ''
+            try:
+                return int(round(float(val)))
+            except (ValueError, TypeError):
+                return val
+        
         # Get current datetime
         now = datetime.now()
         
@@ -262,10 +271,10 @@ class HeatingLogger:
             'timestamp': now.strftime('%Y-%m-%d %H:%M:%S'),
             'trigger': trigger,
             
-            # OpenTherm sensors (reordered, temps rounded to 2dp)
+            # OpenTherm sensors (flow/return temps as integers, others rounded to 2dp)
             'ot_flame': opentherm_data.get('flame', ''),
-            'ot_heating_temp': round_temp(opentherm_data.get('heating_temp', '')),
-            'ot_return_temp': round_temp(opentherm_data.get('return_temp', '')),
+            'ot_heating_temp': round_temp_int(opentherm_data.get('heating_temp', '')),
+            'ot_return_temp': round_temp_int(opentherm_data.get('return_temp', '')),
             'ot_power': opentherm_data.get('power', ''),
             'ot_modulation': opentherm_data.get('modulation', ''),
             'ot_burner_starts': opentherm_data.get('burner_starts', ''),

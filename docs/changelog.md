@@ -1,12 +1,42 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Reduce Log Noise - OpenTherm Temperature Filtering 🎯
+
+**Status:** IMPLEMENTED ✅
+
+**Problem:**
+OpenTherm `heating_temp` and `heating_return_temp` sensors update every few seconds with tiny changes (0.1-0.5°C), creating excessive log entries. These are important to capture but don't need every small fluctuation logged.
+
+**Solution:**
+1. **Filtering:** Removed these sensors from the force_log list, allowing `should_log()` to apply degree-level filtering
+2. **Integer logging:** Changed these temps to log as integers instead of 2 decimal places
+3. **Smart detection:** Only log when temperature changes by ≥1°C (rounded to nearest degree)
+
+**Behavior:**
+- ✅ `heating_temp` and `return_temp` now only log when they change by a full degree
+- ✅ Logged values are rounded to integers (57, 48, 49 instead of 57.5, 48.4, 49.2)
+- ✅ `should_log()` compares rounded integer values to detect significant changes
+- ✅ Other sensors (setpoint, modulation) still use force_log for immediate capture
+- ✅ Dramatically reduces log volume while preserving important thermal data
+
+**Example:**
+Before: Log entries every few seconds (57.4 → 57.5 → 57.4 → 57.3...)
+After: Log entries only on degree changes (57 → 58 → 59...)
+
+**Files Changed:**
+- `app.py`: Modified OpenTherm callback to only force_log for setpoint/modulation, not temps
+- `heating_logger.py`: Added `round_temp_int()` helper and applied to heating_temp/return_temp
+
+---
+
 ## 2025-11-20: Critical Bugfix - OpenTherm Callback Crashes Fixed 🐛
 
 **Status:** FIXED ✅
 
 **Problem:**
 OpenTherm sensor callbacks were firing but crashing with errors, preventing any `opentherm_*` triggers from appearing in logs. Only `periodic`, `sensor_<room>_changed`, and boot triggers were being logged.
+
 
 **Root Causes:**
 1. Used `C.get_sensor()` which doesn't exist - should use `C.HELPER_ROOM_MANUAL_SETPOINT.format(room=room_id)`

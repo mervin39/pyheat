@@ -486,8 +486,10 @@ class PyHeat(hass.Hass):
                         'override': override_active,
                     }
                 
-                # Log immediately (bypass should_log filtering since sensor triggered directly)
-                self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=True)
+                # Log immediately with force_log for setpoint/modulation (manual controls)
+                # Let should_log() filter heating_temp/return_temp (only log on whole degree changes)
+                force_log = sensor_name in ['heating_setpoint_temp', 'modulation']
+                self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=force_log)
             except Exception as e:
                 self.log(f"ERROR in OpenTherm logging: {e}", level="ERROR")
                 import traceback
