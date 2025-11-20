@@ -12,51 +12,65 @@ Implement comprehensive CSV logging of entire heating system state (PyHeat + Ope
 - Daily files: `heating_logs/heating_YYYY-MM-DD.csv`
 - Human-readable timestamps: `YYYY-MM-DD HH:MM:SS`
 - Flat structure (no nesting) for Excel compatibility
-- Conditional logging: only log on significant changes (state changes, temp changes of ±1°C)
+- 57 columns: system state + OpenTherm sensors + per-room data (7 fields × 6 rooms)
+- Conditional logging: only log on significant changes (state changes, temp changes of ±1°C, setpoint ±5°C)
 
 **CSV Columns:**
 1. `timestamp` - Human-readable datetime
-2. `trigger` - What triggered the log (room name, sensor change, etc.)
+2. `trigger` - What triggered the log (room name, sensor change, periodic, etc.)
 3. `boiler_state` - Current FSM state
-4. `pump_overrun` - Whether pump overrun is active
+4. `pump_overrun_active` - Whether pump overrun is active
 5. `num_rooms_calling` - Count of rooms calling for heat
 6. `total_valve_pct` - Sum of all valve feedback percentages
-7. OpenTherm sensors: `flame`, `heating_temp`, `return_temp`, `setpoint_temp`, `power`, `modulation`, `burner_starts`, `dhw_burner_starts`, `climate_state`
-8. Per-room columns: `{room}_temp`, `{room}_target`, `{room}_cfh`, `{room}_valve_fb`, `{room}_valve_cmd`, `{room}_mode`, `{room}_override`
+7. OpenTherm sensors: `ot_flame`, `ot_heating_temp`, `ot_return_temp`, `ot_setpoint_temp`, `ot_power`, `ot_modulation`, `ot_burner_starts`, `ot_dhw_burner_starts`, `ot_climate_state`
+8. Per-room columns (×6 rooms): `{room}_temp`, `{room}_target`, `{room}_calling`, `{room}_valve_fb`, `{room}_valve_cmd`, `{room}_mode`, `{room}_override`
 
 **New File: heating_logger.py**
-- `HeatingLogger` class: Complete CSV logging system (~300 lines)
-- `__init__()`: Sets up log directory, creates .gitignore, initializes tracking
+- `HeatingLogger` class: Complete CSV logging system (~310 lines)
+- `__init__()`: Sets up log directory, creates .gitignore, initializes tracking (must be called AFTER config.load_all())
 - `_setup_log_directory()`: Creates `heating_logs/` and `.gitignore`
 - `_get_csv_headers()`: Generates dynamic column headers based on room configuration
 - `_check_date_rotation()`: Handles midnight file rotation to new daily file
 - `should_log()`: Conditional logging logic:
+  - Always log on first run (baseline)
   - Always log on boiler state changes
-  - Always log on room calling/valve changes
-  - Round heating/return temps to nearest degree, only log on change
+  - Always log on flame status changes  
+  - Round heating/return temps to nearest degree, log on change
+  - Round setpoint temp to nearest 5 degrees, log on change
+  - Log on room calling/valve/mode/override changes
   - Track last logged state to avoid duplicate entries
 - `log_state()`: Writes CSV rows with full system state
 
 **Changes:**
 
 **constants.py:**
-- Added `ENABLE_HEATING_LOGS = True` flag (line ~200)
-- Added OpenTherm sensor entity ID constants (lines 204-213)
+- Added `ENABLE_HEATING_LOGS = True` flag (line ~224)
+- Added OpenTherm sensor entity ID constants (9 sensors)
 - Documented as temporary data collection code
 
 **app.py:**
 - Import HeatingLogger module
-- Initialize `self.heating_logger` conditionally based on `ENABLE_HEATING_LOGS`
-- Added `_get_opentherm_data()`: Helper to collect OpenTherm sensor values
-- Added `_log_heating_state()`: Wrapper to collect room/boiler state and call logger
+- Initialize `self.heating_logger` AFTER `config.load_all()` (line ~98) - critical for room data availability
+- Added `reason` parameter to `recompute_all()` signature to track trigger source
+- Pass reason through from: `trigger_recompute()`, `periodic_recompute()`, `initial_recompute()`
+- Added `_get_opentherm_data()`: Helper to safely collect OpenTherm sensor values
+- Added `_log_heating_state()`: Wrapper to collect room/boiler state and call logger with error handling
 - Call `_log_heating_state()` at end of `recompute_all()` after status publish
-- Call `_log_heating_state()` in `opentherm_sensor_changed()` for significant sensor changes (modulation, heating_temp, return_temp)
+- Call `_log_heating_state()` in `opentherm_sensor_changed()` for significant sensor changes (setpoint_temp, modulation, heating_temp, return_temp)
 
 **Logging Triggers:**
 - Every `recompute_all()` call (filtered by `should_log()`)
+- OpenTherm setpoint temperature changes (±5°C)
 - OpenTherm modulation changes
-- OpenTherm heating temperature changes  
-- OpenTherm return temperature changes
+- OpenTherm heating temperature changes (±1°C)
+- OpenTherm return temperature changes (±1°C)
+- Room sensor changes (e.g., sensor_lounge_changed) - normal behavior
+
+**Key Fixes:**
+1. **Initialization order**: HeatingLogger must be initialized AFTER config.load_all() so room data is available
+2. **Reason parameter**: Added reason parameter to recompute_all() to track trigger source
+3. **Type conversion**: Handle string-to-float conversion for OpenTherm sensor values
+4. **Error handling**: Try/except wrapper around logging calls to prevent crashes
 
 **Behavior:**
 - ✅ **Minimal performance impact**: Conditional logging prevents excessive writes
@@ -64,11 +78,12 @@ Implement comprehensive CSV logging of entire heating system state (PyHeat + Ope
 - ✅ **Excel-compatible**: Flat CSV structure, human-readable dates
 - ✅ **Easy removal**: Self-contained module, controlled by feature flag
 - ✅ **Gitignored**: Log files not committed to repository
+- ✅ **57 columns**: All system state captured in single flat row
 
 **Usage:**
 1. Set `ENABLE_HEATING_LOGS = True` in constants.py (already enabled)
 2. AppDaemon auto-reloads, logging begins
-3. CSV files created in `heating_logs/` directory
+3. CSV files created in `heating_logs/` directory  
 4. Analyze data in Excel/Python to develop optimization algorithms
 5. When done: Set flag to False and delete heating_logger.py
 

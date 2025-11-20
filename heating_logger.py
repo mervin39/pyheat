@@ -39,6 +39,7 @@ class HeatingLogger:
         # Cache previous values to detect significant changes
         self.prev_heating_temp_rounded = None
         self.prev_return_temp_rounded = None
+        self.prev_setpoint_temp_rounded = None
         self.prev_state = {}
         
         # Setup log directory and .gitignore
@@ -190,6 +191,18 @@ class HeatingLogger:
                 if self.prev_return_temp_rounded != return_temp_rounded:
                     self.ad.log(f"HeatingLogger: should_log=True (return_temp: {self.prev_return_temp_rounded} -> {return_temp_rounded})", level="DEBUG")
                     self.prev_return_temp_rounded = return_temp_rounded
+                    return True
+            except (ValueError, TypeError):
+                pass
+        
+        # Check setpoint temp (rounded to nearest 5 degrees to reduce noise)
+        setpoint_temp = opentherm_data.get('setpoint_temp')
+        if setpoint_temp not in [None, '', 'unknown', 'unavailable']:
+            try:
+                setpoint_temp_rounded = round(float(setpoint_temp) / 5) * 5
+                if self.prev_setpoint_temp_rounded != setpoint_temp_rounded:
+                    self.ad.log(f"HeatingLogger: should_log=True (setpoint_temp: {self.prev_setpoint_temp_rounded} -> {setpoint_temp_rounded})", level="DEBUG")
+                    self.prev_setpoint_temp_rounded = setpoint_temp_rounded
                     return True
             except (ValueError, TypeError):
                 pass

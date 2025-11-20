@@ -458,8 +458,8 @@ class PyHeat(hass.Hass):
                 self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
         
         # Trigger heating log for significant sensor changes
-        # (modulation, heating temp, return temp)
-        if self.heating_logger and sensor_name in ['modulation', 'heating_temp', 'return_temp']:
+        # (setpoint, modulation, heating temp, return temp)
+        if self.heating_logger and sensor_name in ['setpoint_temp', 'modulation', 'heating_temp', 'return_temp']:
             now = datetime.now()
             
             # Get current boiler state and room data
