@@ -1,6 +1,49 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: ROOM INITIALIZATION SIMPLIFICATION - Remove Valve Heuristic 🧹
+
+**Status:** COMPLETED ✅
+
+**Problem:**
+Room initialization used a two-phase approach where `room_call_for_heat` was first initialized using a valve-based heuristic (if valve > 0%, assume calling), then overridden with persisted state from `input_text.pyheat_room_persistence`. This created:
+- Confusing logs showing "assumed calling for heat" that was later overridden
+- Unnecessary complexity maintaining a fallback that was rarely used
+- Potential for stale valve positions to influence initialization
+
+**Solution:**
+Removed the valve-based heuristic entirely. The `input_text.pyheat_room_persistence` entity is now the **single source of truth** for `room_call_for_heat` state.
+
+**Changes:**
+
+**room_controller.py:**
+- Removed valve feedback check from `initialize_from_ha()`
+- No longer calls `trvs.get_valve_feedback()` during initialization
+- Simplified initialization to only load target tracking and persisted state
+- Enhanced error handling in `_load_persisted_state()`:
+  - ERROR log if persistence entity missing (defaults all rooms to False)
+  - WARNING log if room not found in persistence data (defaults that room to False)
+  - ERROR log if JSON parse fails (defaults all rooms to False)
+- Updated comments to reflect persistence as single source of truth
+
+**Benefits:**
+1. **Simpler logic** - One source of truth, no fallback complexity
+2. **Clearer logs** - No confusing "assumed calling" messages that get overridden
+3. **Conservative default** - Missing/invalid data defaults to False (not calling)
+4. **First recompute corrects** - Within seconds of initialization, recompute establishes correct state anyway
+5. **No stale data** - Valve position from hours ago can't influence initialization
+
+**Testing:**
+- ✅ System restart successful - all rooms loaded from persistence
+- ✅ Clean initialization logs - only "Loaded persisted calling state" messages
+- ✅ Periodic recomputes working normally
+- ✅ No errors or warnings
+
+**Philosophy:**
+The first recompute happens within seconds of initialization and will set the correct `room_call_for_heat` state based on current temperature vs target. Using a fallback heuristic based on potentially stale valve positions adds complexity without meaningful benefit.
+
+---
+
 ## 2025-11-20: TRV RESPONSIBILITY ENCAPSULATION - Issue #5 Part A ✅
 
 **Status:** COMPLETED ✅
