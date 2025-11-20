@@ -1,6 +1,32 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Summary - Heating Logger Working Correctly ✅
+
+**Status:** VERIFIED ✅
+
+**Summary:**
+All fixes applied and tested. The heating logger is now correctly monitoring and logging all OpenTherm sensors including setpoint temperature changes.
+
+**What's Working:**
+- ✅ `sensor.opentherm_heating_setpoint_temp` - monitored and triggers immediate logging
+- ✅ `climate.opentherm_heating` state (off/heat) - monitored and logged as `ot_climate_state`
+- ✅ All 9 OpenTherm sensors registered and monitored
+- ✅ 4 sensors trigger immediate logging: setpoint_temp, modulation, heating_temp, heating_return_temp
+- ✅ CSV logs capture all data correctly with proper trigger names
+
+**Test Results:**
+- Manual setpoint change from 54°C → 56°C captured in CSV at 13:29:33
+- OpenTherm sensor callbacks working and calling `_log_heating_state()`
+- `should_log()` conditional logic filters duplicate/insignificant changes
+- Trigger names appear as `opentherm_{sensor_name}` when sensors cause immediate logs
+
+**No Duplication:**
+- `climate.opentherm_heating` state is logged but doesn't duplicate PyHeat's boiler_state
+- Both provide useful but different information (OpenTherm heating mode vs PyHeat FSM state)
+
+---
+
 ## 2025-11-20: Bugfix - Missing OpenTherm Sensor Listeners 🐛
 
 **Status:** FIXED ✅
