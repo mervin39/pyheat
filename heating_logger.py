@@ -69,7 +69,8 @@ class HeatingLogger:
         """Generate CSV header row based on configured rooms."""
         headers = [
             # Timestamp and metadata
-            'timestamp',
+            'date',
+            'time',
             'trigger',
             
             # Boiler state
@@ -275,8 +276,9 @@ class HeatingLogger:
         
         # Build row data
         row = {
-            # Timestamp (combined date and time)
-            'timestamp': now.strftime('%Y-%m-%d %H:%M:%S'),
+            # Timestamp (separate date and time)
+            'date': now.strftime('%Y-%m-%d'),
+            'time': now.strftime('%H:%M:%S'),
             'trigger': trigger,
             
             # OpenTherm sensors (flow/return temps as integers, others rounded to 2dp)

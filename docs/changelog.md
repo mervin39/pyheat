@@ -1,6 +1,29 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: CSV Format - Split Date and Time Columns 📊
+
+**Status:** IMPLEMENTED ✅
+
+**Change:**
+Split the single `timestamp` column into separate `date` and `time` columns for easier data analysis and filtering.
+
+**Rationale:**
+Separate columns make it much easier to:
+- Filter logs by date without parsing timestamps
+- Analyze patterns within specific time ranges
+- Import into spreadsheets and databases with proper typing
+- Group and aggregate data by date or time of day
+
+**Format:**
+- **Before:** `timestamp` = `2025-11-20 14:05:46`
+- **After:** `date` = `2025-11-20`, `time` = `14:05:46`
+
+**Files Changed:**
+- `heating_logger.py`: Updated CSV headers and row building to use separate date/time fields
+
+---
+
 ## 2025-11-20: Bugfix - Log File Recreation After Deletion 🐛
 
 **Status:** FIXED ✅
