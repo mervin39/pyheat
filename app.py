@@ -527,18 +527,18 @@ class PyHeat(hass.Hass):
         now = datetime.now()
         self.last_recompute = now
         self.log(f"Periodic recompute #{self.recompute_count}", level="DEBUG")
-        self.recompute_all(now)
+        self.recompute_all(now, "periodic")
 
     def initial_recompute(self, kwargs):
         """Initial recompute after startup."""
         self.log("Running initial recompute...")
-        self.recompute_all(datetime.now())
+        self.recompute_all(datetime.now(), "initial")
 
     def second_recompute(self, kwargs):
         """Second recompute after startup (for late-restoring sensors)."""
         self.log("Running second recompute (for late-restoring sensors)...")
         self.first_boot = False
-        self.recompute_all(datetime.now())
+        self.recompute_all(datetime.now(), "second_boot")
 
     def trigger_recompute(self, reason: str):
         """Trigger an immediate recompute.
@@ -553,13 +553,14 @@ class PyHeat(hass.Hass):
         self.last_recompute = now
         
         self.log(f"Recompute #{self.recompute_count} triggered: {reason}", level="DEBUG")
-        self.recompute_all(now)
+        self.recompute_all(now, reason)
 
-    def recompute_all(self, now: datetime):
+    def recompute_all(self, now: datetime, reason: str = "unknown"):
         """Main recompute logic - calculates and applies heating decisions for all rooms.
         
         Args:
             now: Current datetime
+            reason: Description of why recompute was triggered (for logging)
         """
         # Note: recompute_count is incremented in trigger_recompute, not here
         # (to avoid double-counting when called directly from periodic_recompute)
