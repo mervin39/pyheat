@@ -239,6 +239,8 @@ class PyHeat(hass.Hass):
             (C.OPENTHERM_MODULATION, "modulation"),
             (C.OPENTHERM_BURNER_STARTS, "burner_starts"),
             (C.OPENTHERM_DHW_BURNER_STARTS, "dhw_burner_starts"),
+            (C.OPENTHERM_DHW, "dhw"),
+            (C.OPENTHERM_DHW_FLOW_RATE, "dhw_flow_rate"),
             (C.OPENTHERM_CLIMATE, "climate_state"),
         ]
         
@@ -443,6 +445,9 @@ class PyHeat(hass.Hass):
         if sensor_name == "flame":
             # Binary sensor - on/off
             self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
+        elif sensor_name in ["dhw", "dhw_flow_rate"]:
+            # DHW binary/flow sensors - log changes
+            self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
         elif sensor_name in ["burner_starts", "dhw_burner_starts"]:
             # Counter - only log when it changes
             if old != new:
@@ -460,8 +465,8 @@ class PyHeat(hass.Hass):
                 self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
         
         # Trigger heating log for significant sensor changes
-        # (setpoint, modulation, heating temp, return temp)
-        if self.heating_logger and sensor_name in ['heating_setpoint_temp', 'modulation', 'heating_temp', 'heating_return_temp']:
+        # (setpoint, modulation, heating temp, return temp, dhw, dhw_flow_rate)
+        if self.heating_logger and sensor_name in ['heating_setpoint_temp', 'modulation', 'heating_temp', 'heating_return_temp', 'dhw', 'dhw_flow_rate']:
             try:
                 now = datetime.now()
                 
@@ -486,9 +491,10 @@ class PyHeat(hass.Hass):
                         'override': override_active,
                     }
                 
-                # Log immediately with force_log for setpoint/modulation (manual controls)
+                # Log immediately with force_log for setpoint/modulation/dhw (manual controls)
                 # Let should_log() filter heating_temp/return_temp (only log on whole degree changes)
-                force_log = sensor_name in ['heating_setpoint_temp', 'modulation']
+                # dhw_flow_rate will be filtered by should_log() to detect zero/nonzero transitions
+                force_log = sensor_name in ['heating_setpoint_temp', 'modulation', 'dhw']
                 self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=force_log)
             except Exception as e:
                 self.log(f"ERROR in OpenTherm logging: {e}", level="ERROR")
@@ -677,6 +683,8 @@ class PyHeat(hass.Hass):
         data['modulation'] = safe_get(C.OPENTHERM_MODULATION)
         data['burner_starts'] = safe_get(C.OPENTHERM_BURNER_STARTS)
         data['dhw_burner_starts'] = safe_get(C.OPENTHERM_DHW_BURNER_STARTS)
+        data['dhw'] = safe_get(C.OPENTHERM_DHW)
+        data['dhw_flow_rate'] = safe_get(C.OPENTHERM_DHW_FLOW_RATE)
         data['climate_state'] = safe_get(C.OPENTHERM_CLIMATE)
         
         return data

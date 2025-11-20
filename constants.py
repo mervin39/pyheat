@@ -212,6 +212,8 @@ OPENTHERM_POWER = "sensor.opentherm_power"
 OPENTHERM_MODULATION = "sensor.opentherm_modulation_level"
 OPENTHERM_BURNER_STARTS = "sensor.opentherm_burner_starts"
 OPENTHERM_DHW_BURNER_STARTS = "sensor.opentherm_dhw_burner_starts"
+OPENTHERM_DHW = "binary_sensor.opentherm_dhw"
+OPENTHERM_DHW_FLOW_RATE = "sensor.opentherm_dhw_flow_rate"
 OPENTHERM_CLIMATE = "climate.opentherm_heating"
 
 # ============================================================================

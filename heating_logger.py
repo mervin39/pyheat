@@ -81,6 +81,8 @@ class HeatingLogger:
             'ot_power',
             'ot_burner_starts',
             'ot_dhw_burner_starts',
+            'ot_dhw',
+            'ot_dhw_flow',
             'ot_climate_state',
             'ot_setpoint_temp',
             
@@ -214,6 +216,33 @@ class HeatingLogger:
             self.ad.log(f"HeatingLogger: should_log=True (setpoint_temp: {prev_setpoint} -> {curr_setpoint})", level="DEBUG")
             return True
         
+        # Check DHW binary sensor (on/off state change)
+        prev_dhw = self.prev_state.get('ot_dhw')
+        curr_dhw = opentherm_data.get('dhw')
+        if prev_dhw != curr_dhw:
+            self.ad.log(f"HeatingLogger: should_log=True (dhw: {prev_dhw} -> {curr_dhw})", level="DEBUG")
+            return True
+        
+        # Check DHW flow rate (zero/nonzero transitions only)
+        prev_dhw_flow = self.prev_state.get('ot_dhw_flow_rate')
+        curr_dhw_flow = opentherm_data.get('dhw_flow_rate')
+        
+        # Convert to zero/nonzero state for comparison
+        def is_flow_active(val):
+            if val in [None, '', 'unknown', 'unavailable']:
+                return False
+            try:
+                return float(val) != 0
+            except (ValueError, TypeError):
+                return False
+        
+        prev_flow_active = is_flow_active(prev_dhw_flow)
+        curr_flow_active = is_flow_active(curr_dhw_flow)
+        
+        if prev_flow_active != curr_flow_active:
+            self.ad.log(f"HeatingLogger: should_log=True (dhw_flow_rate: {prev_dhw_flow} -> {curr_dhw_flow} [active: {prev_flow_active} -> {curr_flow_active}])", level="DEBUG")
+            return True
+        
         # Check for room calling status changes
         for room_id in self.room_ids:
             room = room_data.get(room_id, {})
@@ -271,6 +300,19 @@ class HeatingLogger:
             except (ValueError, TypeError):
                 return val
         
+        # Helper function to convert binary/flow sensors to on/off
+        def dhw_to_onoff(val):
+            if val in [None, '', 'unknown', 'unavailable']:
+                return ''
+            # Binary sensor: 'on' or 'off'
+            if val in ['on', 'off']:
+                return val
+            # For flow rate: nonzero = 'on', zero = 'off'
+            try:
+                return 'on' if float(val) != 0 else 'off'
+            except (ValueError, TypeError):
+                return ''
+        
         # Get current datetime
         now = datetime.now()
         
@@ -289,6 +331,8 @@ class HeatingLogger:
             'ot_power': opentherm_data.get('power', ''),
             'ot_burner_starts': opentherm_data.get('burner_starts', ''),
             'ot_dhw_burner_starts': opentherm_data.get('dhw_burner_starts', ''),
+            'ot_dhw': dhw_to_onoff(opentherm_data.get('dhw', '')),
+            'ot_dhw_flow': dhw_to_onoff(opentherm_data.get('dhw_flow_rate', '')),
             'ot_climate_state': opentherm_data.get('climate_state', ''),
             'ot_setpoint_temp': round_temp(opentherm_data.get('setpoint_temp', '')),
             
@@ -321,6 +365,8 @@ class HeatingLogger:
             'boiler_state': boiler_state,
             'ot_flame': opentherm_data.get('flame'),
             'ot_setpoint_temp': opentherm_data.get('setpoint_temp'),
+            'ot_dhw': opentherm_data.get('dhw'),
+            'ot_dhw_flow_rate': opentherm_data.get('dhw_flow_rate'),
             'rooms': {
                 room_id: {
                     'calling': room.get('calling'),

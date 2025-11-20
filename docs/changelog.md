@@ -1,6 +1,37 @@
 
 # PyHeat Changelog
 
+## 2025-11-20: Add DHW (Domestic Hot Water) Logging 🚰
+
+**Status:** IMPLEMENTED ✅
+
+**Change:**
+Added two new OpenTherm DHW sensors to the heating logger for monitoring hot water demand:
+
+1. **`binary_sensor.opentherm_dhw`** - Binary sensor for DHW demand status
+   - Logged as `on`/`off` in the `ot_dhw` column
+   - Triggers log entry on any state change
+   - Positioned after `ot_dhw_burner_starts` column
+
+2. **`sensor.opentherm_dhw_flow_rate`** - DHW flow rate sensor
+   - Logged as `on` (nonzero flow) or `off` (zero flow) in the `ot_dhw_flow` column
+   - Triggers log entry only on zero ↔ nonzero transitions
+   - Does NOT log for changes between different nonzero values (reduces log noise)
+   - Positioned after `ot_dhw` column
+
+**Rationale:**
+These sensors help correlate DHW demand with heating system behavior, particularly useful for understanding:
+- When DHW competes with central heating for boiler capacity
+- Impact of DHW demand on modulation and flame cycling
+- Whether DHW pre-heat affects heating performance
+
+**Files Changed:**
+- `constants.py`: Added `OPENTHERM_DHW` and `OPENTHERM_DHW_FLOW_RATE` constants
+- `app.py`: Registered listeners for both DHW sensors, added to callback triggers
+- `heating_logger.py`: Added columns, data fetching, change detection logic with zero/nonzero filtering for flow rate
+
+---
+
 ## 2025-11-20: CSV Format - Reorder Columns for Better Analysis 📊
 
 **Status:** IMPLEMENTED ✅
