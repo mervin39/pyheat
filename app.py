@@ -462,34 +462,42 @@ class PyHeat(hass.Hass):
         # Trigger heating log for significant sensor changes
         # (setpoint, modulation, heating temp, return temp)
         if self.heating_logger and sensor_name in ['heating_setpoint_temp', 'modulation', 'heating_temp', 'heating_return_temp']:
-            now = datetime.now()
-            
-            # Get current boiler state and room data
-            boiler_state = self.get_state(C.ENTITY_PYHEAT_BOILER_STATE)
-            
-            # Get room data - simplified version for logging only
-            room_data = {}
-            for room_id in self.config.rooms.keys():
-                temp = self.sensors.get_temperature(room_id)
-                target = self.get_state(C.get_sensor(room_id, "setpoint"))
-                calling = self.rooms.is_room_calling(room_id)
-                valve_fb = self.trvs.get_valve_feedback(room_id)
-                valve_cmd = self.trvs.get_valve_command(room_id)
-                override_active = self.overrides.is_override_active(room_id)
-                mode = self.get_state(C.get_sensor(room_id, "mode"))
+            self.log(f"OpenTherm callback triggering log for {sensor_name}", level="DEBUG")
+            try:
+                now = datetime.now()
                 
-                room_data[room_id] = {
-                    'temp': temp,
-                    'target': target,
-                    'calling': calling,
-                    'valve_fb': valve_fb if valve_fb is not None else '',
-                    'valve_cmd': valve_cmd if valve_cmd is not None else '',
-                    'mode': mode,
-                    'override': override_active,
-                }
-            
-            # Log immediately (bypass should_log filtering since sensor triggered directly)
-            self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=True)
+                # Get current boiler state and room data
+                boiler_state = self.boiler.boiler_state
+                
+                # Get room data - simplified version for logging only
+                room_data = {}
+                for room_id in self.config.rooms.keys():
+                    temp = self.sensors.get_room_temperature(room_id, now)
+                    target = self.get_state(C.get_sensor(room_id, "setpoint"))
+                    calling = self.rooms.is_room_calling(room_id)
+                    valve_fb = self.trvs.get_valve_feedback(room_id)
+                    valve_cmd = self.trvs.get_valve_command(room_id)
+                    override_active = self.overrides.is_override_active(room_id)
+                    mode = self.get_state(C.get_sensor(room_id, "mode"))
+                    
+                    room_data[room_id] = {
+                        'temp': temp,
+                        'target': target,
+                        'calling': calling,
+                        'valve_fb': valve_fb if valve_fb is not None else '',
+                        'valve_cmd': valve_cmd if valve_cmd is not None else '',
+                        'mode': mode,
+                        'override': override_active,
+                    }
+                
+                # Log immediately (bypass should_log filtering since sensor triggered directly)
+                self.log(f"About to call _log_heating_state with force_log=True", level="DEBUG")
+                self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=True)
+                self.log(f"Completed _log_heating_state call", level="DEBUG")
+            except Exception as e:
+                self.log(f"ERROR in OpenTherm logging: {e}", level="ERROR")
+                import traceback
+                self.log(f"TRACEBACK: {traceback.format_exc()}", level="ERROR")
 
 
     # ========================================================================
