@@ -90,6 +90,75 @@ class CyclingProtection:
             # Schedule check after sensor stabilization delay
             self.ad.run_in(self._evaluate_cooldown_need, C.CYCLING_SENSOR_DELAY_S)
             
+    def on_setpoint_changed(self, entity, attribute, old, new, kwargs):
+        """User changed desired setpoint via input_number helper.
+        
+        Behavior:
+        - NORMAL/TIMEOUT: Apply immediately to climate entity
+        - COOLDOWN: Store in saved_setpoint (defer until recovery)
+        """
+        try:
+            new_setpoint = float(new)
+        except (ValueError, TypeError):
+            self.ad.log(f"Invalid setpoint value: {new}", level="WARNING")
+            return
+            
+        if self.state == self.STATE_COOLDOWN:
+            # Defer application until cooldown ends
+            self.ad.log(
+                f"🎯 User changed setpoint to {new_setpoint:.1f}°C during cooldown - "
+                f"will apply after recovery (currently at {C.CYCLING_COOLDOWN_SETPOINT}°C)",
+                level="INFO"
+            )
+            self.saved_setpoint = new_setpoint
+            self._save_state()
+        else:
+            # Apply immediately
+            self.ad.log(
+                f"🎯 Applying user setpoint change: {old}°C → {new_setpoint:.1f}°C",
+                level="INFO"
+            )
+            self._set_setpoint(new_setpoint)
+            
+    def sync_setpoint_on_startup(self):
+        """Sync climate entity to helper value on startup (unless in cooldown).
+        
+        Should be called after initialize_from_ha() during app initialization.
+        Ensures climate entity matches user's desired setpoint from helper.
+        """
+        if self.state == self.STATE_COOLDOWN:
+            # Already at 30°C protecting - don't interfere
+            self.ad.log(
+                "Startup: In COOLDOWN state - skipping setpoint sync",
+                level="INFO"
+            )
+            return
+            
+        # Read desired setpoint from helper
+        helper_setpoint = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
+        if helper_setpoint in ['unknown', 'unavailable', None]:
+            self.ad.log(
+                "Startup: Cannot sync setpoint - helper unavailable",
+                level="WARNING"
+            )
+            return
+            
+        try:
+            desired_setpoint = float(helper_setpoint)
+        except (ValueError, TypeError):
+            self.ad.log(
+                f"Startup: Invalid helper setpoint value: {helper_setpoint}",
+                level="WARNING"
+            )
+            return
+            
+        # Apply to climate entity
+        self.ad.log(
+            f"Startup: Syncing climate entity to helper setpoint: {desired_setpoint:.1f}°C",
+            level="INFO"
+        )
+        self._set_setpoint(desired_setpoint)
+            
     def _evaluate_cooldown_need(self, kwargs):
         """Delayed check after flame OFF - sensors have had time to update.
         

@@ -1,6 +1,43 @@
 
 # PyHeat Changelog
 
+## 2025-11-21: Fix OpenTherm Setpoint Control 🎯
+
+**Status:** FIXED ✅
+
+**Issue:**
+The `input_number.pyheat_opentherm_setpoint` helper entity was created for user control of boiler flow temperature, but changes to it had no effect. The helper was read-only from PyHeat's perspective.
+
+**Root Cause:**
+No state listener existed for the helper entity. When users adjusted the slider, the change was not propagated to the `climate.opentherm_heating` entity.
+
+**Fix:**
+Added comprehensive setpoint control system with intelligent cooldown handling:
+
+1. **State Listener**: Added `on_setpoint_changed()` callback that listens to `input_number.pyheat_opentherm_setpoint`
+   - **During NORMAL/TIMEOUT**: Applies change immediately to climate entity
+   - **During COOLDOWN**: Stores change in `saved_setpoint` (deferred until recovery)
+   
+2. **Startup Sync**: Added `sync_setpoint_on_startup()` to ensure climate entity matches helper on startup
+   - Syncs climate entity to helper value (unless actively in cooldown)
+   - Ensures consistent state after AppDaemon restarts
+
+3. **Helper Semantics**: `input_number.pyheat_opentherm_setpoint` now represents user's desired operating setpoint
+   - Always shows intended setpoint (never modified to 30°C during cooldown)
+   - Temporary 30°C cooldown setpoint is internal state only
+   - Changes made during cooldown are applied when recovery completes
+
+**Files Changed:**
+- `controllers/cycling_protection.py`: Added `on_setpoint_changed()` and `sync_setpoint_on_startup()` methods
+- `app.py`: Wired up setpoint listener in `setup_callbacks()` and added sync call after state restoration
+
+**User Impact:**
+- ✅ Users can now change boiler flow temperature via `input_number.pyheat_opentherm_setpoint`
+- ✅ Changes during cooldown are queued and applied after recovery
+- ✅ System maintains short-cycling protection while respecting user intent
+
+---
+
 ## 2025-11-21: Short-Cycling Protection 🔥
 
 **Status:** IMPLEMENTED ✅

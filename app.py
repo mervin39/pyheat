@@ -102,6 +102,9 @@ class PyHeat(hass.Hass):
         # Initialize cycling protection state from persistence
         self.cycling.initialize_from_ha()
         
+        # Sync climate setpoint to helper (unless in cooldown)
+        self.cycling.sync_setpoint_on_startup()
+        
         # Initialize sensor values from current state
         self.sensors.initialize_from_ha()
         
@@ -262,6 +265,11 @@ class PyHeat(hass.Hass):
         if self.entity_exists(C.OPENTHERM_FLAME):
             self.listen_state(self.cycling.on_flame_off, C.OPENTHERM_FLAME)
             self.log("Registered flame sensor for cycling protection")
+        
+        # Setpoint helper for user control of OpenTherm flow temperature
+        if self.entity_exists(C.HELPER_OPENTHERM_SETPOINT):
+            self.listen_state(self.cycling.on_setpoint_changed, C.HELPER_OPENTHERM_SETPOINT)
+            self.log("Registered OpenTherm setpoint control")
         
         self.log(f"Registered callbacks for {len(self.config.rooms)} rooms")
 
