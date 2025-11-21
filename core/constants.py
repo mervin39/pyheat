@@ -140,6 +140,38 @@ STATE_PUMP_OVERRUN = "pump_overrun"
 STATE_INTERLOCK_BLOCKED = "interlock_blocked"
 
 # ============================================================================
+# Short-Cycling Protection (OpenTherm Return Temperature Monitoring)
+# ============================================================================
+
+# DHW detection - sensor delay for state stabilization
+CYCLING_SENSOR_DELAY_S = 2  # Wait for OpenTherm sensors to update after flame OFF
+
+# High return temp detection threshold (delta from setpoint)
+# When return_temp >= (setpoint - delta), cooldown is triggered
+CYCLING_HIGH_RETURN_DELTA_C = 10  # e.g., 60°C when setpoint is 70°C
+
+# Cooldown setpoint (must be climate entity minimum)
+CYCLING_COOLDOWN_SETPOINT = 30  # °C - prevents re-ignition during cooldown
+
+# Recovery threshold calculation
+CYCLING_RECOVERY_DELTA_C = 15  # °C below saved setpoint
+CYCLING_RECOVERY_MIN_C = 35    # °C absolute minimum (safety margin above cooldown)
+
+# Recovery monitoring interval
+CYCLING_RECOVERY_MONITORING_INTERVAL_S = 10  # Check every 10 seconds
+
+# Timeout protection (force recovery if stuck)
+CYCLING_COOLDOWN_MAX_DURATION_S = 1800  # 30 minutes
+
+# Excessive cycling detection
+CYCLING_EXCESSIVE_COUNT = 3      # Cooldowns to trigger alert
+CYCLING_EXCESSIVE_WINDOW_S = 3600  # Time window (1 hour)
+
+# Helper entities
+HELPER_OPENTHERM_SETPOINT = "input_number.pyheat_opentherm_setpoint"
+HELPER_CYCLING_STATE = "input_text.pyheat_cycling_protection_state"
+
+# ============================================================================
 # TRV Entity Derivation Patterns
 # ============================================================================
 

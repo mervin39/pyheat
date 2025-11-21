@@ -240,6 +240,22 @@ class StatusPublisher:
             'last_recompute': now.isoformat(),
         }
         
+        # Add cycling protection state if available
+        if hasattr(self.ad, 'cycling'):
+            cycling_state_dict = self.ad.cycling.get_state_dict()
+            cooldowns_last_hour = len([
+                entry for entry in self.ad.cycling.cooldown_history
+                if (now - entry[0]).total_seconds() < 3600
+            ])
+            
+            attrs['cycling_protection'] = {
+                'state': self.ad.cycling.state,
+                'cooldown_start': self.ad.cycling.cooldown_entry_time.isoformat() if self.ad.cycling.cooldown_entry_time else None,
+                'saved_setpoint': self.ad.cycling.saved_setpoint,
+                'recovery_threshold': self.ad.cycling._get_recovery_threshold() if self.ad.cycling.state == 'COOLDOWN' else None,
+                'cooldowns_last_hour': cooldowns_last_hour
+            }
+        
         # Add per-room data
         total_valve = 0
         for room_id, data in room_data.items():

@@ -1,6 +1,47 @@
 
 # PyHeat Changelog
 
+## 2025-11-21: Short-Cycling Protection 🔥
+
+**Status:** IMPLEMENTED ✅
+
+**Feature:**
+Automatic boiler short-cycling protection system that prevents rapid on/off cycles by monitoring return temperature and enforcing cooldown periods when system efficiency degrades.
+
+**Implementation:**
+- **DHW Detection**: 100% accurate discrimination between central heating and domestic hot water events using `binary_sensor.opentherm_dhw`
+- **High Return Temperature Detection**: Triggers cooldown when return temp ≥ (setpoint - 10°C), indicating poor heat transfer
+- **Setpoint Manipulation**: Temporarily drops OpenTherm setpoint to 30°C (hardware minimum) during cooldown to force flame off
+- **Recovery Threshold**: Dynamic delta-based recovery target: max(setpoint - 15°C, 35°C) ensures adequate safety margin
+- **3-State FSM**: NORMAL → COOLDOWN → TIMEOUT with state persistence across restarts
+- **Timeout Protection**: Forces recovery after 30 minutes to prevent indefinite lockout
+- **Excessive Cycling Alerts**: Notification if 3+ cooldowns occur within 1 hour
+
+**Components:**
+- `controllers/cycling_protection.py` (NEW): 430-line controller with flame monitoring and FSM logic
+- `core/constants.py`: Added 9 cycling protection configuration constants
+- `managers/alert_manager.py`: Added timeout and excessive cycling alert types
+- `ha_yaml/pyheat_package.yaml`: Added 2 helper entities (setpoint input_number, state input_text)
+- `app.py`: Integrated flame sensor callback and state restoration
+- `services/heating_logger.py`: Added 4 CSV columns for cycling state tracking
+- `services/status_publisher.py`: Added cycling_protection dict to HA status attributes
+
+**Safety Features:**
+- State persistence ensures reliability across AppDaemon restarts
+- Independent operation - no changes to existing boiler controller FSM
+- Conservative recovery thresholds prevent premature flame re-ignition
+- Alert system provides visibility into cycling behavior
+
+**Testing:**
+Implementation based on validated manual intervention data from 2025-11-21 morning period. Field testing recommended for 1 week before merge to main.
+
+**Documentation:**
+- `docs/SHORT_CYCLING_PROTECTION_PLAN.md`: Complete implementation specification
+- `docs/ARCHITECTURE.md`: Updated with cycling protection architecture
+- Multiple analysis documents in `debug/short-cycling-protection/`
+
+---
+
 ## 2025-11-20: Fix Schedule Save Path Bug 🐛
 
 **Status:** FIXED ✅

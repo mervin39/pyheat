@@ -31,6 +31,7 @@ from room_controller import RoomController
 from trv_controller import TRVController
 from valve_coordinator import ValveCoordinator
 from boiler_controller import BoilerController
+from cycling_protection import CyclingProtection
 from status_publisher import StatusPublisher
 from service_handler import ServiceHandler
 from api_handler import APIHandler
@@ -63,6 +64,7 @@ class PyHeat(hass.Hass):
         self.valve_coordinator = ValveCoordinator(self, self.trvs)
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
+        self.cycling = CyclingProtection(self, self.config, self.alerts)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.services = ServiceHandler(self, self.config, self.overrides)
@@ -96,6 +98,9 @@ class PyHeat(hass.Hass):
         self.heating_logger = None
         if C.ENABLE_HEATING_LOGS:
             self.heating_logger = HeatingLogger(self, self.config)
+        
+        # Initialize cycling protection state from persistence
+        self.cycling.initialize_from_ha()
         
         # Initialize sensor values from current state
         self.sensors.initialize_from_ha()
@@ -252,6 +257,11 @@ class PyHeat(hass.Hass):
         
         if opentherm_count > 0:
             self.log(f"Registered {opentherm_count} OpenTherm sensors for monitoring")
+        
+        # Flame sensor for cycling protection (triggers cooldown detection)
+        if self.entity_exists(C.OPENTHERM_FLAME):
+            self.listen_state(self.cycling.on_flame_off, C.OPENTHERM_FLAME)
+            self.log("Registered flame sensor for cycling protection")
         
         self.log(f"Registered callbacks for {len(self.config.rooms)} rooms")
 
@@ -733,12 +743,16 @@ class PyHeat(hass.Hass):
         
         # Check if we should log (significant changes only)
         if force_log or self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data):
+            # Get cycling protection state for logging
+            cycling_data = self.cycling.get_state_dict()
+            
             self.heating_logger.log_state(
                 trigger=trigger,
                 opentherm_data=opentherm_data,
                 boiler_state=boiler_state,
                 pump_overrun_active=pump_overrun_active,
                 room_data=log_room_data,
-                total_valve_pct=total_valve_pct
+                total_valve_pct=total_valve_pct,
+                cycling_data=cycling_data
             )
 

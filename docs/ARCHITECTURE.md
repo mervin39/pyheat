@@ -199,6 +199,20 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    • reload_rooms                     • POST /pyheat_set_mode                │
 │  All trigger recompute cycle          • Used by pyheat-web UI                │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+                       ┌─────────────────────────────────────────┐
+                       │  CYCLING PROTECTION (cycling_protection.py) │
+                       ├─────────────────────────────────────────┤
+                       │  Flame OFF event monitoring:            │
+                       │    • 2s delay for sensor stabilization  │
+                       │    • DHW detection (ignore taps)        │
+                       │    • High return temp check             │
+                       │  Cooldown logic:                        │
+                       │    • Drop setpoint to 30°C              │
+                       │    • Monitor recovery every 10s         │
+                       │    • Restore when threshold reached     │
+                       │  3-state FSM: NORMAL/COOLDOWN/TIMEOUT   │
+                       └─────────────────────────────────────────┘
 ```
 
 **Key Flow Characteristics:**
@@ -220,6 +234,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 - **valve_coordinator.py** - Single authority for valve command decisions with priority handling
 - **trv_controller.py** - TRV valve commands and setpoint locking
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
+- **cycling_protection.py** - Automatic short-cycling prevention via return temperature monitoring
 - **alert_manager.py** - Error tracking and Home Assistant persistent notifications
 - **service_handler.py** - Home Assistant service registration and handling
 - **status_publisher.py** - Entity creation and status publication to HA
