@@ -8,6 +8,7 @@ PyHeat provides multi-room heating control with:
 - **Per-room temperature management** with individual schedules
 - **Smart TRV control** via zigbee2mqtt (TRVZB devices)
 - **Boiler management** with safety interlocks and anti-cycling
+- **Short-cycling protection** via return temperature monitoring and setpoint manipulation
 - **Sensor fusion** with staleness detection and optional EMA smoothing
 - **Multiple control modes**: Auto (scheduled), Manual, and Off per room
 - **Override** functionality with flexible parameters (absolute/delta temp, duration/end time)
@@ -19,6 +20,7 @@ PyHeat provides multi-room heating control with:
 
 - **app.py** - Main AppDaemon application orchestration
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
+- **cycling_protection.py** - Automatic short-cycling prevention via return temperature monitoring
 - **room_controller.py** - Per-room heating logic and target resolution
 - **trv_controller.py** - TRV valve command and setpoint locking
 - **sensor_manager.py** - Temperature sensor fusion and staleness detection
@@ -38,6 +40,7 @@ PyHeat provides multi-room heating control with:
 4. **Valve Control**: 3 stepped heating bands (Band 1: 40%, Band 2: 70%, Band Max: 100%) based on temperature error with hysteresis
 5. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 6. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
+7. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 10°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
 
 ## Installation
 
