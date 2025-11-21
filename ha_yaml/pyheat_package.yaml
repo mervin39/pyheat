@@ -181,6 +181,17 @@ input_number:
     mode: box
     icon: mdi:radiator
 
+  # OpenTherm flow temperature setpoint (for cycling protection)
+  pyheat_opentherm_setpoint:
+    name: "PyHeat OpenTherm Flow Temperature Setpoint"
+    min: 30
+    max: 80
+    step: 1
+    unit_of_measurement: "°C"
+    mode: slider
+    initial: 70
+    icon: mdi:thermometer
+
 # ---------------------------------------------------------------------------
 # Timers (per-room override timers + boiler safety timers)
 # ---------------------------------------------------------------------------
@@ -257,6 +268,11 @@ input_text:
   pyheat_pump_overrun_valves:
     name: "PyHeat Pump Overrun Valve Positions (deprecated - migrated to pyheat_room_persistence)"
     initial: ""
+    max: 255
+
+  pyheat_cycling_protection_state:
+    name: "PyHeat Cycling Protection State"
+    initial: '{"mode":"NORMAL","saved_setpoint":null,"cooldown_start":null}'
     max: 255
 
 # ---------------------------------------------------------------------------

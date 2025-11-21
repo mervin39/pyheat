@@ -30,6 +30,8 @@ class AlertManager:
     ALERT_TRV_UNAVAILABLE = "trv_unavailable"
     ALERT_CONFIG_LOAD_FAILURE = "config_load_failure"
     ALERT_BOILER_CONTROL_FAILURE = "boiler_control_failure"
+    ALERT_CYCLING_PROTECTION_TIMEOUT = "cycling_protection_timeout"
+    ALERT_CYCLING_PROTECTION_EXCESSIVE = "cycling_protection_excessive"
     
     def __init__(self, ad):
         """Initialize the alert manager.
