@@ -91,6 +91,12 @@ class HeatingLogger:
             'boiler_state',
             'pump_overrun_active',
             
+            # Cycling protection
+            'cycling_state',
+            'cycling_cooldown_count',
+            'cycling_saved_setpoint',
+            'cycling_recovery_threshold',
+            
             # System aggregates
             'num_rooms_calling',
             'total_valve_pct',
@@ -274,7 +280,8 @@ class HeatingLogger:
         return False
     
     def log_state(self, trigger: str, opentherm_data: Dict, boiler_state: str, 
-                  pump_overrun_active: bool, room_data: Dict, total_valve_pct: int):
+                  pump_overrun_active: bool, room_data: Dict, total_valve_pct: int,
+                  cycling_data: Dict = None):
         """Log current heating system state to CSV.
         
         Args:
@@ -284,6 +291,7 @@ class HeatingLogger:
             pump_overrun_active: Whether pump overrun is active
             room_data: Dict of room states {room_id: room_dict}
             total_valve_pct: Total valve opening percentage
+            cycling_data: Optional dict with cycling protection state
         """
         # Check date rotation
         self._check_date_rotation()
@@ -386,6 +394,12 @@ class HeatingLogger:
             # Boiler state
             'boiler_state': boiler_state,
             'pump_overrun_active': pump_overrun_active,
+            
+            # Cycling protection
+            'cycling_state': cycling_data.get('state', 'NORMAL') if cycling_data else 'NORMAL',
+            'cycling_cooldown_count': cycling_data.get('cooldown_count', 0) if cycling_data else 0,
+            'cycling_saved_setpoint': round_temp(cycling_data.get('saved_setpoint', '')) if cycling_data else '',
+            'cycling_recovery_threshold': round_temp(cycling_data.get('recovery_threshold', '')) if cycling_data else '',
             
             # System aggregates
             'num_rooms_calling': sum(1 for r in room_data.values() if r.get('calling', False)),

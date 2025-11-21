@@ -743,12 +743,16 @@ class PyHeat(hass.Hass):
         
         # Check if we should log (significant changes only)
         if force_log or self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data):
+            # Get cycling protection state for logging
+            cycling_data = self.cycling.get_state_dict()
+            
             self.heating_logger.log_state(
                 trigger=trigger,
                 opentherm_data=opentherm_data,
                 boiler_state=boiler_state,
                 pump_overrun_active=pump_overrun_active,
                 room_data=log_room_data,
-                total_valve_pct=total_valve_pct
+                total_valve_pct=total_valve_pct,
+                cycling_data=cycling_data
             )
 
