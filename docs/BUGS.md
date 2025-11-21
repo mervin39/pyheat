@@ -4,6 +4,126 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #2: Safety Valve False Positive During PENDING_OFF Transition
+
+**Status:** Identified  
+**Date Discovered:** 2025-11-21  
+**Severity:** Medium - causes unnecessary valve operations and temperature disturbances  
+**Branch:** `feature/short-cycling-protection`
+
+### Observed Behavior
+
+During normal heating operation, when the last room stops calling for heat and the boiler enters the `PENDING_OFF` state, the safety valve mechanism incorrectly triggers and forces the safety room's valve to 100%.
+
+**Specific incident on 2025-11-21 at 13:12:18:**
+- Lounge stopped calling for heat (was the only active room)
+- Boiler correctly transitioned: `STATE_ON` → `STATE_PENDING_OFF`
+- Valve positions preserved: `{'pete': 0, 'games': 0, 'lounge': 100, 'abby': 0, 'office': 0, 'bathroom': 0}`
+- Safety mechanism incorrectly triggered: "🔥 SAFETY: Climate entity is heat with no demand! Forcing games valve to 100% for safety"
+- Games valve forced from 0% → 100% at 13:12:24
+- Result: Cold water from games radiator circulated through system
+- 23 seconds later (13:12:47): Temperature drop of 11°C (59°C → 48°C) on return sensor
+
+### Evidence
+
+**From AppDaemon logs (2025-11-21 13:12:18):**
+```
+2025-11-21 13:12:18.174529 INFO pyheat: Boiler: STATE_ON -> PENDING_OFF, preserved valve positions: {'pete': 0, 'games': 0, 'lounge': 100, 'abby': 0, 'office': 0, 'bathroom': 0}
+2025-11-21 13:12:18.180746 WARNING pyheat: 🔥 SAFETY: Climate entity is heat with no demand! Forcing games valve to 100% for safety
+2025-11-21 13:12:18.226814 INFO pyheat: Valve persistence ACTIVE: pending_off
+```
+
+**From heating_logs/2025-11-21.csv at 13:12:24:**
+```csv
+timestamp,boiler_state,calling,games_valve_command,opentherm_heating_return_temp
+2025-11-21 13:12:18,pending_off,False,0,59.0
+2025-11-21 13:12:24,pending_off,False,100,59.0
+2025-11-21 13:12:30,pending_off,False,100,56.0
+2025-11-21 13:12:36,pending_off,False,100,54.0
+2025-11-21 13:12:41,pending_off,False,100,52.0
+2025-11-21 13:12:47,pending_off,False,100,48.0
+```
+
+Temperature dropped 11°C in 29 seconds after games valve opened, despite no heating demand.
+
+### Root Cause Analysis
+
+**Safety Check Logic (boiler_controller.py, line 365):**
+```python
+if safety_room and boiler_entity_state != "off" and len(active_rooms) == 0:
+    # Force safety valve to 100%
+```
+
+**Trigger Conditions Met:**
+1. `safety_room = "games"` ✓ (configured in boiler.yaml)
+2. `boiler_entity_state != "off"` ✓ (climate entity was "heat")
+3. `len(active_rooms) == 0` ✓ (no rooms calling)
+
+**Why This Is a False Positive:**
+
+During the `PENDING_OFF` state:
+- **Climate entity "heat" state is expected** - The climate entity is not turned off until the boiler transitions to `PUMP_OVERRUN` state (30 seconds later)
+- **Valve persistence is already active** - Line 242-248 of boiler_controller.py preserves valve positions and sets `valves_must_stay_open = True`
+- **Adequate flow already exists** - Lounge radiator maintained at 100% provides sufficient circulation path
+- **Boiler will turn off automatically** - The state machine handles the off-delay (30s) and then calls `_set_boiler_off()` when entering `PUMP_OVERRUN`
+
+The safety check does not distinguish between:
+- **Abnormal scenario** (genuine safety concern): Climate entity stuck "heat" when it should be off, with no demand
+- **Normal scenario** (this case): Climate entity legitimately "heat" during the `PENDING_OFF` transition state where valve persistence is already handling safety
+
+### Related Code Locations
+
+**boiler_controller.py:**
+- Line 365: Safety valve trigger condition (does not check boiler FSM state)
+- Lines 240-248: `STATE_ON` → `STATE_PENDING_OFF` transition (climate entity NOT turned off)
+- Lines 278-288: `PENDING_OFF` state handling (valve persistence active, uses persisted positions)
+- Line 295: `PENDING_OFF` → `PUMP_OVERRUN` transition calls `_set_boiler_off()`
+- Line 541-553: `_set_boiler_on()` implementation (called when entering STATE_ON)
+- Line 570-579: `_set_boiler_off()` implementation (called when entering PUMP_OVERRUN)
+
+**State Machine Timing:**
+- Climate entity turned ON: When entering `STATE_ON`
+- Climate entity turned OFF: When entering `PUMP_OVERRUN` (30 seconds after entering `PENDING_OFF`)
+- Safety check runs: On every valve position update during `PENDING_OFF`
+
+### Impact Assessment
+
+**Severity:** Medium
+- Causes unnecessary valve operations during every heating cycle shutdown
+- Introduces cold water circulation when not needed
+- Can cause temperature disturbances (11°C drop observed)
+- Does not affect safety (valve persistence already provides protection)
+- Does not prevent heating or cause equipment damage
+
+**Frequency:** Occurs on every heating cycle when:
+- Last active room stops calling for heat
+- Boiler enters PENDING_OFF state
+- Safety room valve was not already open
+
+**System Behavior:** 
+- Heating system continues to function correctly
+- Short-cycling protection works as designed (this bug is unrelated)
+- Temperature control eventually recovers
+- No equipment safety issues
+
+### Testing Notes
+
+To reproduce:
+1. Start heating with one or more rooms calling
+2. Wait for last room to stop calling for heat
+3. Observe boiler transition to `PENDING_OFF`
+4. Check AppDaemon logs for "SAFETY: Climate entity is heat with no demand"
+5. Check heating CSV logs for safety room valve forced to 100%
+6. Observe temperature drop on return sensor ~20-30 seconds later
+
+### Context
+
+This bug was discovered during analysis of short-cycling protection field testing on 2025-11-21. The cycling protection implementation worked correctly, but investigation of a temperature anomaly revealed this pre-existing safety valve issue.
+
+The safety valve mechanism exists to protect against scenarios where the boiler could heat with no flow path, but it incorrectly triggers during normal state machine transitions where valve persistence is already active.
+
+---
+
 ## BUG #1: Override Targets Not Being Applied (CRITICAL)
 
 **Status:** Fixed  
