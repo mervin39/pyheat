@@ -154,38 +154,41 @@ class BoilerController:
                 # During startup, this is expected and normal (entity hasn't been turned off yet)
                 # After startup, this is unusual and warrants attention
                 if is_startup:
-                    # Normal startup behavior - log at DEBUG level and silently correct
+                    # Normal startup behavior - DO NOT turn off the entity
+                    # The state machine will re-evaluate demand immediately and decide
+                    # whether to keep it on or turn it off. Turning it off here would
+                    # create an unnecessary short cycle (off -> on within milliseconds)
                     self.ad.log(
                         f"Startup sync: Climate entity is heating while state machine is initializing. "
-                        f"Correcting state (state machine will re-evaluate demand immediately).",
+                        f"Skipping desync correction - state machine will re-evaluate demand immediately.",
                         level="DEBUG"
                     )
+                    # Do NOT call self._set_boiler_off() - let the state machine handle it
                 else:
-                    # Unexpected desync during normal operation - log as warning
+                    # Unexpected desync during normal operation - turn off and re-evaluate
                     self.ad.log(
                         f"⚠️ Unexpected desync: Climate entity is heating when state machine is {self.boiler_state}. "
                         f"Turning off climate entity and re-evaluating demand.",
                         level="WARNING"
                     )
-                
-                self._set_boiler_off()
-                # If we were in a state with timers running, preserve them
-                # (e.g., PUMP_OVERRUN timer should continue)
-                
-                # Report alert only if not during startup and seems problematic
-                if self.alert_manager and not is_startup:
-                    from alert_manager import AlertManager
-                    self.alert_manager.report_error(
-                        AlertManager.ALERT_BOILER_STATE_DESYNC,
-                        AlertManager.SEVERITY_WARNING,
-                        f"⚠️ Climate entity was heating without state machine control.\n\n"
-                        f"**State Machine:** {self.boiler_state} (expected entity: {expected_entity_state})\n"
-                        f"**Climate Entity:** {boiler_entity_state}\n\n"
-                        f"**Action:** Turned off climate entity and re-evaluating demand.\n\n"
-                        f"This may occur after entity unavailability or manual control. "
-                        f"System will resume normal operation based on current demand.",
-                        auto_clear=True
-                    )
+                    self._set_boiler_off()
+                    # If we were in a state with timers running, preserve them
+                    # (e.g., PUMP_OVERRUN timer should continue)
+                    
+                    # Report alert only during normal operation
+                    if self.alert_manager:
+                        from alert_manager import AlertManager
+                        self.alert_manager.report_error(
+                            AlertManager.ALERT_BOILER_STATE_DESYNC,
+                            AlertManager.SEVERITY_WARNING,
+                            f"⚠️ Climate entity was heating without state machine control.\n\n"
+                            f"**State Machine:** {self.boiler_state} (expected entity: {expected_entity_state})\n"
+                            f"**Climate Entity:** {boiler_entity_state}\n\n"
+                            f"**Action:** Turned off climate entity and re-evaluating demand.\n\n"
+                            f"This may occur after entity unavailability or manual control. "
+                            f"System will resume normal operation based on current demand.",
+                            auto_clear=True
+                        )
         else:
             # No desync - clear any previous alerts
             if self.alert_manager:

@@ -18,49 +18,64 @@ This looked like a serious problem, but was actually **normal and expected behav
 3. First recompute detects "desync" and logs it as critical
 4. System turns off entity, then immediately turns it back on (if demand exists)
 
+**Critical Problem Discovered:**
+The old code was **physically turning the boiler off and back on** during startup, creating a ~25ms short cycle:
+```
+17:10:54.719835 - climate/turn_off called
+17:10:54.744922 - climate/turn_on called
+```
+
+This was:
+- ❌ Creating unnecessary wear on boiler relay/ignition
+- ❌ Violating our own anti-cycling protection principles
+- ❌ Completely unnecessary - state machine would re-evaluate demand immediately anyway
+
 **Why This Isn't Actually an Error:**
 - The desync is **intentional** - we reset to a known safe state (OFF) on startup
 - The climate entity hasn't been told to turn off yet (that happens in first recompute)
-- The correction happens automatically and properly
-- System immediately re-evaluates demand and turns back on if needed
-- Total "downtime": ~50ms between turn_off and turn_on
+- System immediately re-evaluates demand right after desync check
+- No need to physically cycle the boiler - just let state machine handle it normally
 
-**Over-Sensitivity Problem:**
+**Over-Sensitivity Problems:**
 - User saw these messages frequently (every code change triggers AppDaemon reload)
 - Messages made it seem like something was broken
 - "CRITICAL" severity and 🔴 emoji were unnecessarily alarming
-- Created alert noise without providing useful information
+- **Actually causing a short cycle on every restart**
 
 **Fix:**
-Modified `boiler_controller.py` to detect startup scenarios and adjust logging severity:
+Modified `boiler_controller.py` to detect startup scenarios and skip unnecessary turn_off:
 
 1. **Added startup detection:** Check `self.ad.first_boot` flag to identify first recompute after initialization
 
 2. **During startup (first_boot=True):**
    - Entity heating while state machine is OFF → **DEBUG level** (not WARNING/ERROR)
-   - Log message: `"Startup sync: Climate entity is heating while state machine is initializing"`
+   - Log message: `"Startup sync: Climate entity is heating while state machine is initializing. Skipping desync correction"`
+   - **DO NOT call `_set_boiler_off()`** - let state machine re-evaluate and decide
    - No alert sent to alert manager
-   - Silent correction with immediate re-evaluation
+   - State machine immediately evaluates demand and turns on/off as appropriate
 
 3. **After startup (first_boot=False):**
    - Same desync → **WARNING level** (downgraded from ERROR)
+   - Turn off entity (this is unexpected during normal operation)
    - More measured log message without "CRITICAL" language
    - Alert sent to alert manager (SEVERITY_WARNING, not CRITICAL)
-   - Still corrects the issue, but appropriate severity
 
 **Benefits:**
-- ✅ No more false alarms during normal AppDaemon restarts
+- ✅ **No more unnecessary short cycling during AppDaemon restarts**
+- ✅ No more false alarms in logs
 - ✅ Real desyncs (during normal operation) still logged and alerted
 - ✅ Appropriate severity levels for different scenarios
-- ✅ Reduces log noise and alert fatigue
-- ✅ System behavior unchanged - still safely handles all desync cases
+- ✅ Reduces wear on boiler equipment
+- ✅ Respects anti-cycling protection principles
+- ✅ System behavior optimized - still handles all cases safely
 
 **Testing:**
-- Next AppDaemon restart should show DEBUG message instead of WARNING/ERROR
-- Desync during normal operation still properly detected and reported
+- Next AppDaemon restart should show DEBUG message, no turn_off/turn_on cycle
+- State machine will properly evaluate demand and control boiler as needed
+- Desync during normal operation still properly detected and corrected
 
 **Files Changed:**
-- `controllers/boiler_controller.py`: Modified desync detection to check `first_boot` flag and adjust logging/alerting accordingly
+- `controllers/boiler_controller.py`: Modified desync detection to check `first_boot` flag, skip turn_off during startup, and adjust logging/alerting accordingly
 
 ---
 
