@@ -1,6 +1,54 @@
 
 # PyHeat Changelog
 
+## 2025-11-23: Fix DHW Detection False Positive in Cycling Protection 🔧
+
+**Status:** FIXED ✅
+
+**Issue:**
+Cooldown incorrectly triggered at 10:19:14 after a DHW (Domestic Hot Water) event. The system failed to recognize that the flame OFF was caused by DHW ending, not a central heating shutdown.
+
+**Root Cause:**
+The 2-second delay in `_evaluate_cooldown_need()` was intended to allow sensors to stabilize, but created a timing window issue:
+1. DHW event ends, flame goes OFF (10:19:10)
+2. DHW sensor updates 21ms later (very fast)
+3. Evaluation runs 2 seconds later (10:19:12)
+4. By this time, DHW state shows 'off' - appears like CH shutdown
+5. Cooldown incorrectly triggered with return temp 61.5°C
+
+**Timeline from CSV:**
+```
+10:19:04 - DHW goes ON
+10:19:10 - Flame goes OFF (DHW ending)
+10:19:10 - DHW sensor updates to OFF (21ms after flame)
+10:19:12 - Cooldown evaluation checks DHW: 'off' ❌
+10:19:12 - Cooldown incorrectly triggered
+```
+
+**Fix:**
+Implemented **double-check DHW detection strategy**:
+1. **Capture DHW state at flame OFF time** in `on_flame_off()` - pass to delayed evaluation
+2. **Check both captured AND current DHW state** in `_evaluate_cooldown_need()`
+3. Ignore cooldown if DHW was 'on' at flame OFF OR is 'on' now
+4. Conservative fallback if either state is unknown/unavailable
+
+**Benefits:**
+- ✅ Handles fast DHW updates (like today's 21ms case)
+- ✅ Handles slow DHW updates (sensor lag up to 5+ seconds)
+- ✅ No false positives from old unrelated DHW events
+- ✅ Can increase delay if needed without breaking DHW detection
+- ✅ Conservative safety: skips evaluation if state uncertain
+
+**Files Changed:**
+- `controllers/cycling_protection.py`:
+  - `on_flame_off()`: Capture DHW state, pass to callback
+  - `_evaluate_cooldown_need()`: Implement double-check strategy
+
+**Validation:**
+Analysis of today's event confirmed DHW was active at flame OFF time but missed by original single-check logic after 2s delay.
+
+---
+
 ## 2025-11-21: Fix OpenTherm Setpoint Control 🎯
 
 **Status:** FIXED ✅

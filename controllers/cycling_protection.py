@@ -80,15 +80,31 @@ class CyclingProtection:
             self._reset_to_normal()
             
     def on_flame_off(self, entity, attribute, old, new, kwargs):
-        """Flame went OFF - schedule delayed check.
+        """Flame went OFF - capture DHW state and schedule delayed check.
         
         Called when binary_sensor.opentherm_flame changes to 'off'.
         Schedules evaluation after 2-second delay to allow sensors to stabilize.
+        
+        Critical: Captures DHW state NOW (at flame OFF time) to avoid missing
+        fast DHW events that turn off before the delayed evaluation runs.
         """
         if new == 'off' and old == 'on':
-            self.ad.log("🔥 Flame OFF detected - scheduling cooldown evaluation", level="DEBUG")
+            # Capture DHW state at flame OFF time (before delay)
+            dhw_state_at_flame_off = self.ad.get_state(C.OPENTHERM_DHW)
+            
+            self.ad.log(
+                f"🔥 Flame OFF detected | DHW state: {dhw_state_at_flame_off} - "
+                f"scheduling cooldown evaluation",
+                level="DEBUG"
+            )
+            
             # Schedule check after sensor stabilization delay
-            self.ad.run_in(self._evaluate_cooldown_need, C.CYCLING_SENSOR_DELAY_S)
+            # Pass captured DHW state to evaluation
+            self.ad.run_in(
+                self._evaluate_cooldown_need,
+                C.CYCLING_SENSOR_DELAY_S,
+                dhw_state_at_flame_off=dhw_state_at_flame_off
+            )
             
     def on_setpoint_changed(self, entity, attribute, old, new, kwargs):
         """User changed desired setpoint via input_number helper.
@@ -163,16 +179,34 @@ class CyclingProtection:
         """Delayed check after flame OFF - sensors have had time to update.
         
         Evaluates whether cooldown is needed based on:
-        1. DHW status (ignore if DHW active)
+        1. DHW status (ignore if DHW active) - DOUBLE-CHECK strategy:
+           - Check DHW state captured at flame OFF time
+           - Also check current DHW state (handles extreme sensor lag)
         2. Return temperature vs setpoint
         """
-        # FIRST: Check if this is a DHW interruption
-        dhw_state = self.ad.get_state(C.OPENTHERM_DHW)
-        if dhw_state == 'on':
-            self.ad.log("Flame OFF: DHW active - ignoring (not a CH shutdown)", level="DEBUG")
+        # FIRST: Check if this is a DHW interruption using double-check strategy
+        dhw_state_at_flame_off = kwargs.get('dhw_state_at_flame_off', 'unknown')
+        dhw_state_now = self.ad.get_state(C.OPENTHERM_DHW)
+        
+        # If DHW was 'on' at flame OFF time OR is 'on' now, it's a DHW event
+        if dhw_state_at_flame_off == 'on' or dhw_state_now == 'on':
+            self.ad.log(
+                f"Flame OFF: DHW event detected (was: {dhw_state_at_flame_off}, "
+                f"now: {dhw_state_now}) - ignoring (not a CH shutdown)",
+                level="DEBUG"
+            )
             return
         
-        # DHW is off - this is a genuine CH shutdown
+        # If either state is unknown/unavailable, be conservative and skip
+        if dhw_state_at_flame_off == 'unknown' or dhw_state_now in ['unknown', 'unavailable']:
+            self.ad.log(
+                f"Flame OFF: DHW state uncertain (was: {dhw_state_at_flame_off}, "
+                f"now: {dhw_state_now}) - skipping cooldown evaluation for safety",
+                level="WARNING"
+            )
+            return
+        
+        # Both checks confirm DHW was/is off - this is a genuine CH shutdown
         # Check if return temp is dangerously high
         return_temp = self._get_return_temp()
         setpoint = self._get_current_setpoint()
@@ -185,7 +219,7 @@ class CyclingProtection:
         threshold = setpoint - C.CYCLING_HIGH_RETURN_DELTA_C
         
         self.ad.log(
-            f"🔥 Flame OFF | DHW: {dhw_state} | "
+            f"🔥 Flame OFF | DHW: was={dhw_state_at_flame_off}, now={dhw_state_now} | "
             f"Return: {return_temp:.1f}°C | Setpoint: {setpoint:.1f}°C | "
             f"Delta: {delta:.1f}°C",
             level="INFO"

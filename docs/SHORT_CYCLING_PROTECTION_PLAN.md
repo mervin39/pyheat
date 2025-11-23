@@ -246,9 +246,14 @@ attributes['cycling_protection'] = {
 ## **6. KEY DESIGN DECISIONS**
 
 ### **6.1 DHW Detection Method**
-- **Approach:** Check `binary_sensor.opentherm_dhw == 'on'` before evaluating cooldown
+- **Approach:** Double-check strategy using captured + current DHW state
+  - Capture `binary_sensor.opentherm_dhw` state at flame OFF time
+  - Also check current DHW state after 2-second delay
+  - Ignore cooldown if DHW was 'on' OR is 'on' (handles fast/slow sensor updates)
 - **Validation:** 100% accuracy across 39 flame OFF events on 2025-11-21
-- **Timing:** 2-second delay ensures flag has updated before check
+- **Fix (2025-11-23):** Original single-check had false positive - DHW turned off during 2s delay
+- **Timing:** 2-second delay for return temp stabilization (independent of DHW check)
+- **Robustness:** Handles sensor lag from <100ms to 5+ seconds
 - **Rejected alternatives:** DHW burner counter (71.8%), temperature drop rate (71.8%)
 
 ### **6.2 Setpoint Control Method**
