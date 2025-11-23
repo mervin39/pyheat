@@ -319,8 +319,10 @@ class PyHeat(hass.Hass):
             # Don't trigger recompute - system is disabled and recompute would overwrite status
         
         elif new == "on":
-            # System being re-enabled - lock all setpoints and resume normal operation
-            self.log("Master enable ON - locking TRV setpoints to 35C and resuming operation")
+            # System being re-enabled - sync setpoint, lock TRVs, and resume normal operation
+            self.log("Master enable ON - syncing OpenTherm setpoint, locking TRV setpoints to 35C and resuming operation")
+            # Sync OpenTherm setpoint from helper (unless in cooldown)
+            self.cycling.sync_setpoint_on_startup()
             self.run_in(self.lock_all_trv_setpoints, 1)
             # Trigger recompute to resume normal heating operation
             self.trigger_recompute("master_enable_changed")

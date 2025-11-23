@@ -1,6 +1,30 @@
 
 # PyHeat Changelog
 
+## 2025-11-23 (Late): Fix OpenTherm Setpoint Not Synced on Master Enable 🔧
+
+**Status:** FIXED ✅
+
+**Issue:**
+When master enable was toggled off and back on (e.g., for Zigbee maintenance), the OpenTherm setpoint was not re-synced from `input_number.pyheat_opentherm_setpoint`. The system would continue using whatever setpoint was active before disable (often 30°C from previous cooldowns), ignoring the helper's value (typically 70°C).
+
+**Root Cause:**
+The `master_enable_changed()` callback re-enabled the system but only locked TRV setpoints - it didn't call `sync_setpoint_on_startup()` to restore the OpenTherm flow temperature from the helper entity.
+
+**Impact:**
+- User disables system at helper setpoint 70°C
+- System later enters cooldown, dropping to 30°C
+- User re-enables system expecting 70°C
+- System remained at 30°C indefinitely
+
+**Fix:**
+Added `self.cycling.sync_setpoint_on_startup()` to the `master_enable_changed()` callback when transitioning from off→on. This ensures the OpenTherm setpoint is synchronized from the helper whenever the system is re-enabled.
+
+**Files Changed:**
+- `app.py`: Added setpoint sync call in master enable re-enable logic
+
+---
+
 ## 2025-11-23 (Evening): Eliminate DHW False Positives with Triple-Check Strategy 🎯
 
 **Status:** IMPLEMENTED ✅
