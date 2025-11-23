@@ -177,6 +177,40 @@ class CyclingProtection:
             level="INFO"
         )
         self._set_setpoint(desired_setpoint)
+        
+    def validate_setpoint_vs_helper(self):
+        """Periodic validation: ensure climate setpoint matches helper (unless in cooldown).
+        
+        Called every 60 seconds from periodic recompute to detect and correct setpoint drift.
+        Skips validation when in COOLDOWN state to avoid interfering with protection logic.
+        """
+        # Don't interfere if we're actively protecting
+        if self.state == self.STATE_COOLDOWN:
+            return
+            
+        # Read helper setpoint (user's desired value)
+        helper_setpoint = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
+        if helper_setpoint in ['unknown', 'unavailable', None]:
+            return
+            
+        try:
+            desired_setpoint = float(helper_setpoint)
+        except (ValueError, TypeError):
+            return
+            
+        # Read actual climate entity setpoint
+        actual_setpoint = self._get_current_setpoint()
+        if actual_setpoint is None:
+            return
+            
+        # Check for mismatch (allow 0.5°C tolerance for rounding)
+        if abs(actual_setpoint - desired_setpoint) > 0.5:
+            self.ad.log(
+                f"⚠️ Setpoint drift detected: helper={desired_setpoint:.1f}°C, "
+                f"actual={actual_setpoint:.1f}°C - correcting to match helper",
+                level="WARNING"
+            )
+            self._set_setpoint(desired_setpoint)
             
     def _evaluate_cooldown_need(self, kwargs):
         """Delayed check after flame OFF - sensors have had time to update.

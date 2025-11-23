@@ -618,6 +618,9 @@ class PyHeat(hass.Hass):
                 # System is idle - no further processing
                 return
         
+        # Periodic validation: Check OpenTherm setpoint matches helper (unless in cooldown)
+        self.cycling.validate_setpoint_vs_helper()
+        
         # Compute each room
         room_data = {}
         active_rooms = []
