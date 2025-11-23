@@ -246,15 +246,22 @@ attributes['cycling_protection'] = {
 ## **6. KEY DESIGN DECISIONS**
 
 ### **6.1 DHW Detection Method**
-- **Approach:** Double-check strategy using captured + current DHW state
-  - Capture `binary_sensor.opentherm_dhw` state at flame OFF time
-  - Also check current DHW state after 2-second delay
-  - Ignore cooldown if DHW was 'on' OR is 'on' (handles fast/slow sensor updates)
-- **Validation:** 100% accuracy across 39 flame OFF events on 2025-11-21
-- **Fix (2025-11-23):** Original single-check had false positive - DHW turned off during 2s delay
+- **Approach:** Triple-check strategy using both binary and flow rate sensors
+  - Capture `binary_sensor.opentherm_dhw` AND `sensor.opentherm_dhw_flow_rate` at flame OFF time
+  - Check both sensors again after 2-second delay
+  - DHW is active if EITHER binary='on' OR flow_rate>0.0 at EITHER time point
+  - Redundant sensors provide failover capability
+- **Evolution:**
+  - Original (single-check): 100% miss rate on fast DHW events
+  - Double-check (2025-11-23 morning): 89.5% miss rate (binary sensor only)
+  - Triple-check (2025-11-23 evening): 0% expected miss rate (both sensors)
+- **Validation:** 
+  - Double-check: 100% accuracy across 39 flame OFF events on 2025-11-21
+  - Triple-check: Retrospective analysis shows 0 misses across 78 DHW events (2025-11-20 to 2025-11-23)
+- **Data Evidence:** Binary sensor missed 24.4% of DHW flame OFF events; flow sensor caught 100%
 - **Timing:** 2-second delay for return temp stabilization (independent of DHW check)
-- **Robustness:** Handles sensor lag from <100ms to 5+ seconds
-- **Rejected alternatives:** DHW burner counter (71.8%), temperature drop rate (71.8%)
+- **Robustness:** Handles sensor lag from <100ms to 5+ seconds, plus sensor failures
+- **Rejected alternatives:** DHW burner counter (71.8%), temperature drop rate (71.8%), binary-only (89.5% miss rate)
 
 ### **6.2 Setpoint Control Method**
 - **Service:** `climate.set_temperature` on `climate.opentherm_heating`

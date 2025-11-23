@@ -1,7 +1,57 @@
 
 # PyHeat Changelog
 
-## 2025-11-23: Fix DHW Detection False Positive in Cycling Protection 🔧
+## 2025-11-23 (Evening): Eliminate DHW False Positives with Triple-Check Strategy 🎯
+
+**Status:** IMPLEMENTED ✅
+
+**Problem:**
+Post-deployment analysis revealed the double-check strategy (morning fix) still missed **24.4%** of DHW events during flame OFF transitions, resulting in **17 false positive cooldowns** (10.4% error rate) across 4 days of operation.
+
+**Root Cause:**
+The double-check strategy only monitored `binary_sensor.opentherm_dhw`, which proved unreliable:
+- Binary sensor failed to activate for 19 out of 78 DHW flame OFF events (24.4% miss rate)
+- 2-second delay recovery only caught 2 of the 19 missed events (10.5% success)
+- 17 DHW events incorrectly classified as CH shutdowns (89.5% still missed)
+- Example: 2025-11-20 17:33:36 - DHW flow active but binary sensor never showed 'on'
+
+**Data-Driven Analysis:**
+CSV analysis of 224 flame OFF events (2025-11-20 to 2025-11-23):
+- **78 events** occurred during active DHW flow
+- **Binary sensor detected:** 59 (75.6%)
+- **Binary sensor MISSED:** 19 (24.4%)
+- **Flow sensor would catch:** 100% (78/78)
+
+**Solution:**
+Implemented **triple-check strategy** using redundant sensor monitoring:
+1. Capture **both** `binary_sensor.opentherm_dhw` AND `sensor.opentherm_dhw_flow_rate` at flame OFF time
+2. Check **both** sensors again after 2-second delay
+3. DHW is active if **EITHER** sensor shows activity at **EITHER** time point
+4. Helper function `is_dhw_active()` checks: binary='on' OR flow_rate>0.0
+
+**Implementation:**
+- `on_flame_off()`: Capture both DHW binary and flow rate sensors at flame OFF
+- `_evaluate_cooldown_need()`: Triple-check using both sensors at both times
+- Enhanced logging shows all 4 sensor states for debugging
+
+**Expected Results:**
+- ✅ **Zero false positives** (100% DHW detection based on historical data)
+- ✅ **Redundant sensors** provide failover if one sensor fails
+- ✅ **Accurate CH analysis** enables evidence-based optimization
+- ✅ **Validated safety margins** for future tuning
+
+**Files Changed:**
+- `controllers/cycling_protection.py`: Triple-check implementation
+- `docs/changelog.md`: This entry
+- `docs/SHORT_CYCLING_PROTECTION_PLAN.md`: Updated DHW detection method
+- `docs/DHW_FLOW_SENSOR_FIX_PROPOSAL.md`: Full analysis and proposal
+
+**Validation:**
+Retrospective analysis confirms all 19 previously missed DHW events would be caught by checking flow rate sensor.
+
+---
+
+## 2025-11-23 (Morning): Fix DHW Detection False Positive in Cycling Protection 🔧
 
 **Status:** FIXED ✅
 

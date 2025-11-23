@@ -205,7 +205,9 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
                        ├─────────────────────────────────────────┤
                        │  Flame OFF event monitoring:            │
                        │    • 2s delay for sensor stabilization  │
-                       │    • DHW detection (ignore taps)        │
+                       │    • Triple-check DHW detection:        │
+                       │      - Binary + flow rate sensors       │
+                       │      - Captured + current states        │
                        │    • High return temp check             │
                        │  Cooldown logic:                        │
                        │    • Drop setpoint to 30°C              │

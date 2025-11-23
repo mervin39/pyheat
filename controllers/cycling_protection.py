@@ -85,25 +85,28 @@ class CyclingProtection:
         Called when binary_sensor.opentherm_flame changes to 'off'.
         Schedules evaluation after 2-second delay to allow sensors to stabilize.
         
-        Critical: Captures DHW state NOW (at flame OFF time) to avoid missing
-        fast DHW events that turn off before the delayed evaluation runs.
+        Critical: Captures BOTH DHW sensors NOW (at flame OFF time) to avoid
+        missing fast DHW events that turn off before the delayed evaluation runs.
+        Triple-check strategy uses both binary sensor and flow rate for redundancy.
         """
         if new == 'off' and old == 'on':
-            # Capture DHW state at flame OFF time (before delay)
-            dhw_state_at_flame_off = self.ad.get_state(C.OPENTHERM_DHW)
+            # Capture BOTH DHW sensors at flame OFF time (before delay)
+            dhw_binary_at_flame_off = self.ad.get_state(C.OPENTHERM_DHW)
+            dhw_flow_at_flame_off = self.ad.get_state(C.OPENTHERM_DHW_FLOW_RATE)
             
             self.ad.log(
-                f"🔥 Flame OFF detected | DHW state: {dhw_state_at_flame_off} - "
-                f"scheduling cooldown evaluation",
+                f"🔥 Flame OFF detected | DHW binary: {dhw_binary_at_flame_off}, "
+                f"flow: {dhw_flow_at_flame_off} - scheduling cooldown evaluation",
                 level="DEBUG"
             )
             
             # Schedule check after sensor stabilization delay
-            # Pass captured DHW state to evaluation
+            # Pass both captured DHW states to evaluation
             self.ad.run_in(
                 self._evaluate_cooldown_need,
                 C.CYCLING_SENSOR_DELAY_S,
-                dhw_state_at_flame_off=dhw_state_at_flame_off
+                dhw_binary_at_flame_off=dhw_binary_at_flame_off,
+                dhw_flow_at_flame_off=dhw_flow_at_flame_off
             )
             
     def on_setpoint_changed(self, entity, attribute, old, new, kwargs):
@@ -179,34 +182,57 @@ class CyclingProtection:
         """Delayed check after flame OFF - sensors have had time to update.
         
         Evaluates whether cooldown is needed based on:
-        1. DHW status (ignore if DHW active) - DOUBLE-CHECK strategy:
-           - Check DHW state captured at flame OFF time
-           - Also check current DHW state (handles extreme sensor lag)
+        1. DHW status (ignore if DHW active) - TRIPLE-CHECK strategy:
+           - Check both binary and flow rate sensors captured at flame OFF time
+           - Also check both sensors again after 2s delay
+           - DHW is active if EITHER sensor shows activity at EITHER time
         2. Return temperature vs setpoint
         """
-        # FIRST: Check if this is a DHW interruption using double-check strategy
-        dhw_state_at_flame_off = kwargs.get('dhw_state_at_flame_off', 'unknown')
-        dhw_state_now = self.ad.get_state(C.OPENTHERM_DHW)
+        # FIRST: Check if this is a DHW interruption using triple-check strategy
+        # Retrieve captured states from flame OFF time
+        dhw_binary_at_flame_off = kwargs.get('dhw_binary_at_flame_off', 'unknown')
+        dhw_flow_at_flame_off = kwargs.get('dhw_flow_at_flame_off', 'unknown')
         
-        # If DHW was 'on' at flame OFF time OR is 'on' now, it's a DHW event
-        if dhw_state_at_flame_off == 'on' or dhw_state_now == 'on':
+        # Get current states (after 2s delay)
+        dhw_binary_now = self.ad.get_state(C.OPENTHERM_DHW)
+        dhw_flow_now = self.ad.get_state(C.OPENTHERM_DHW_FLOW_RATE)
+        
+        # Helper function to check if DHW is active
+        def is_dhw_active(binary_state, flow_state):
+            """DHW is active if binary='on' OR flow rate is non-zero."""
+            if binary_state == 'on':
+                return True
+            try:
+                flow_rate = float(flow_state)
+                return flow_rate > 0.0
+            except (ValueError, TypeError):
+                # If flow state invalid, rely on binary only
+                return False
+        
+        # TRIPLE-CHECK: DHW at flame OFF OR DHW now
+        dhw_was_active = is_dhw_active(dhw_binary_at_flame_off, dhw_flow_at_flame_off)
+        dhw_is_active = is_dhw_active(dhw_binary_now, dhw_flow_now)
+        
+        if dhw_was_active or dhw_is_active:
             self.ad.log(
-                f"Flame OFF: DHW event detected (was: {dhw_state_at_flame_off}, "
-                f"now: {dhw_state_now}) - ignoring (not a CH shutdown)",
+                f"Flame OFF: DHW event detected | "
+                f"At flame OFF: binary={dhw_binary_at_flame_off}, flow={dhw_flow_at_flame_off} | "
+                f"After 2s: binary={dhw_binary_now}, flow={dhw_flow_now} | "
+                f"Ignoring (not a CH shutdown)",
                 level="DEBUG"
             )
             return
         
-        # If either state is unknown/unavailable, be conservative and skip
-        if dhw_state_at_flame_off == 'unknown' or dhw_state_now in ['unknown', 'unavailable']:
+        # Conservative fallback for uncertain states
+        if dhw_binary_at_flame_off == 'unknown' or dhw_flow_at_flame_off == 'unknown':
             self.ad.log(
-                f"Flame OFF: DHW state uncertain (was: {dhw_state_at_flame_off}, "
-                f"now: {dhw_state_now}) - skipping cooldown evaluation for safety",
+                f"Flame OFF: DHW state uncertain at flame OFF time - "
+                f"skipping cooldown evaluation for safety",
                 level="WARNING"
             )
             return
         
-        # Both checks confirm DHW was/is off - this is a genuine CH shutdown
+        # Both sensors at both times confirm no DHW - this is a genuine CH shutdownhutdown
         # Check if return temp is dangerously high
         return_temp = self._get_return_temp()
         setpoint = self._get_current_setpoint()
@@ -219,9 +245,10 @@ class CyclingProtection:
         threshold = setpoint - C.CYCLING_HIGH_RETURN_DELTA_C
         
         self.ad.log(
-            f"🔥 Flame OFF | DHW: was={dhw_state_at_flame_off}, now={dhw_state_now} | "
-            f"Return: {return_temp:.1f}°C | Setpoint: {setpoint:.1f}°C | "
-            f"Delta: {delta:.1f}°C",
+            f"🔥 Flame OFF: Confirmed CH shutdown | "
+            f"DHW at flame OFF: binary={dhw_binary_at_flame_off}, flow={dhw_flow_at_flame_off} | "
+            f"DHW now: binary={dhw_binary_now}, flow={dhw_flow_now} | "
+            f"Return: {return_temp:.1f}°C | Setpoint: {setpoint:.1f}°C | Delta: {delta:.1f}°C",
             level="INFO"
         )
         
