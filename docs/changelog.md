@@ -1,6 +1,36 @@
 
 # PyHeat Changelog
 
+## 2025-11-23 (Night): Add Periodic OpenTherm Setpoint Validation 🔄
+
+**Status:** IMPLEMENTED ✅
+
+**What it does:**
+Added `validate_setpoint_vs_helper()` method to cycling protection that runs every 60 seconds during the periodic recompute cycle. Compares the helper entity (`input_number.pyheat_opentherm_setpoint`) with the climate entity (`climate.opentherm_heating`) and corrects any drift >0.5°C by syncing from the helper (source of truth).
+
+**Why needed:**
+- Prevents setpoint drift between helper and boiler over time
+- Complements existing periodic checks (boiler state desync every 60s, TRV setpoints every 300s)
+- Provides continuous validation to catch any future sync issues early
+
+**Implementation details:**
+- New method in `CyclingProtectionController`: `validate_setpoint_vs_helper()`
+- Called from `app.py` `recompute_all()` after master enable check, before room computation
+- **Critical protection:** Skips validation during COOLDOWN state to avoid interfering with protection logic
+- Uses same sync logic as `sync_setpoint_on_startup()` and `master_enable_changed()`
+- Logs correction when drift detected: `⚠️ OpenTherm setpoint drift detected (helper: X°C, climate: Y°C) - syncing from helper`
+
+**Testing:**
+- AppDaemon reload successful at 17:23:40
+- Validation runs every 60s without errors
+- Does not interfere with cooldown protection
+
+**Files Changed:**
+- `controllers/cycling_protection.py`: Added `validate_setpoint_vs_helper()` method
+- `app.py`: Added validation call in `recompute_all()` periodic cycle
+
+---
+
 ## 2025-11-23 (Late): Fix OpenTherm Setpoint Not Synced on Master Enable 🔧
 
 **Status:** FIXED ✅
