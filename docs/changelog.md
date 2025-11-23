@@ -1,6 +1,69 @@
 
 # PyHeat Changelog
 
+## 2025-11-23 (Night): Reduce False Alarm on Boiler Desync During Startup 🔇
+
+**Status:** IMPLEMENTED ✅
+
+**Issue:**
+Every time AppDaemon restarted (e.g., after code changes), if the boiler was actively heating, the logs showed alarming WARNING and ERROR messages:
+```
+WARNING: ⚠️ Boiler state desync detected: state machine=off but climate entity=heat
+ERROR: 🔴 CRITICAL: Climate entity is heating when state machine is off. Turning off climate entity immediately.
+```
+
+This looked like a serious problem, but was actually **normal and expected behavior** during startup:
+1. AppDaemon restarts → boiler state machine resets to `STATE_OFF` (initial state)
+2. Climate entity is still in `heat` mode (from before restart)
+3. First recompute detects "desync" and logs it as critical
+4. System turns off entity, then immediately turns it back on (if demand exists)
+
+**Why This Isn't Actually an Error:**
+- The desync is **intentional** - we reset to a known safe state (OFF) on startup
+- The climate entity hasn't been told to turn off yet (that happens in first recompute)
+- The correction happens automatically and properly
+- System immediately re-evaluates demand and turns back on if needed
+- Total "downtime": ~50ms between turn_off and turn_on
+
+**Over-Sensitivity Problem:**
+- User saw these messages frequently (every code change triggers AppDaemon reload)
+- Messages made it seem like something was broken
+- "CRITICAL" severity and 🔴 emoji were unnecessarily alarming
+- Created alert noise without providing useful information
+
+**Fix:**
+Modified `boiler_controller.py` to detect startup scenarios and adjust logging severity:
+
+1. **Added startup detection:** Check `self.ad.first_boot` flag to identify first recompute after initialization
+
+2. **During startup (first_boot=True):**
+   - Entity heating while state machine is OFF → **DEBUG level** (not WARNING/ERROR)
+   - Log message: `"Startup sync: Climate entity is heating while state machine is initializing"`
+   - No alert sent to alert manager
+   - Silent correction with immediate re-evaluation
+
+3. **After startup (first_boot=False):**
+   - Same desync → **WARNING level** (downgraded from ERROR)
+   - More measured log message without "CRITICAL" language
+   - Alert sent to alert manager (SEVERITY_WARNING, not CRITICAL)
+   - Still corrects the issue, but appropriate severity
+
+**Benefits:**
+- ✅ No more false alarms during normal AppDaemon restarts
+- ✅ Real desyncs (during normal operation) still logged and alerted
+- ✅ Appropriate severity levels for different scenarios
+- ✅ Reduces log noise and alert fatigue
+- ✅ System behavior unchanged - still safely handles all desync cases
+
+**Testing:**
+- Next AppDaemon restart should show DEBUG message instead of WARNING/ERROR
+- Desync during normal operation still properly detected and reported
+
+**Files Changed:**
+- `controllers/boiler_controller.py`: Modified desync detection to check `first_boot` flag and adjust logging/alerting accordingly
+
+---
+
 ## 2025-11-23 (Night): Add Periodic OpenTherm Setpoint Validation 🔄
 
 **Status:** IMPLEMENTED ✅

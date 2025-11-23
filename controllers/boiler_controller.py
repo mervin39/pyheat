@@ -116,24 +116,28 @@ class BoilerController:
         # Compare expected entity state vs actual entity state and correct if needed.
         expected_entity_state = "heat" if self.boiler_state == C.STATE_ON else "off"
         
+        # Check if this is during startup (first recompute after initialization)
+        # During AppDaemon restart, the state machine resets to OFF but the entity
+        # may still be in 'heat' mode if heating was active before restart.
+        # This is expected and normal - not a critical error.
+        is_startup = getattr(self.ad, 'first_boot', False)
+        
         if boiler_entity_state not in [expected_entity_state, "unknown", "unavailable"]:
-            self.ad.log(
-                f"⚠️ Boiler state desync detected: state machine={self.boiler_state} "
-                f"(expects entity={expected_entity_state}) but climate entity={boiler_entity_state}. "
-                f"This can occur after master enable toggle, system restart, or entity unavailability. "
-                f"Correcting desynchronization...",
-                level="WARNING"
-            )
-            
             if self.boiler_state == C.STATE_ON and boiler_entity_state == "off":
                 # State machine thinks ON but entity is OFF - reset state machine to OFF
+                self.ad.log(
+                    f"⚠️ Boiler state desync detected: state machine={self.boiler_state} "
+                    f"(expects entity={expected_entity_state}) but climate entity={boiler_entity_state}. "
+                    f"Resetting state machine to OFF.",
+                    level="WARNING"
+                )
                 self._transition_to(C.STATE_OFF, now, "state desync correction - entity is off")
                 # Cancel timers that may be stale
                 self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
                 self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
                 
-                # Report alert
-                if self.alert_manager:
+                # Report alert (only if not during startup)
+                if self.alert_manager and not is_startup:
                     from alert_manager import AlertManager
                     self.alert_manager.report_error(
                         AlertManager.ALERT_BOILER_STATE_DESYNC,
@@ -146,28 +150,40 @@ class BoilerController:
                         auto_clear=True
                     )
             elif self.boiler_state != C.STATE_ON and boiler_entity_state == "heat":
-                # State machine thinks OFF/PENDING/OVERRUN but entity is heating - turn entity off
-                self.ad.log(
-                    f"🔴 CRITICAL: Climate entity is heating when state machine is {self.boiler_state}. "
-                    f"Turning off climate entity immediately.",
-                    level="ERROR"
-                )
+                # State machine thinks OFF/PENDING/OVERRUN but entity is heating
+                # During startup, this is expected and normal (entity hasn't been turned off yet)
+                # After startup, this is unusual and warrants attention
+                if is_startup:
+                    # Normal startup behavior - log at DEBUG level and silently correct
+                    self.ad.log(
+                        f"Startup sync: Climate entity is heating while state machine is initializing. "
+                        f"Correcting state (state machine will re-evaluate demand immediately).",
+                        level="DEBUG"
+                    )
+                else:
+                    # Unexpected desync during normal operation - log as warning
+                    self.ad.log(
+                        f"⚠️ Unexpected desync: Climate entity is heating when state machine is {self.boiler_state}. "
+                        f"Turning off climate entity and re-evaluating demand.",
+                        level="WARNING"
+                    )
+                
                 self._set_boiler_off()
                 # If we were in a state with timers running, preserve them
                 # (e.g., PUMP_OVERRUN timer should continue)
                 
-                # Report critical alert
-                if self.alert_manager:
+                # Report alert only if not during startup and seems problematic
+                if self.alert_manager and not is_startup:
                     from alert_manager import AlertManager
                     self.alert_manager.report_error(
                         AlertManager.ALERT_BOILER_STATE_DESYNC,
-                        AlertManager.SEVERITY_CRITICAL,
-                        f"🔴 CRITICAL: Climate entity heating without state machine control!\n\n"
+                        AlertManager.SEVERITY_WARNING,
+                        f"⚠️ Climate entity was heating without state machine control.\n\n"
                         f"**State Machine:** {self.boiler_state} (expected entity: {expected_entity_state})\n"
                         f"**Climate Entity:** {boiler_entity_state}\n\n"
-                        f"**Action:** Turned off climate entity immediately.\n\n"
-                        f"This prevented uncontrolled heating. The climate entity may have returned from "
-                        f"unavailability with an unexpected state, or was manually controlled.",
+                        f"**Action:** Turned off climate entity and re-evaluating demand.\n\n"
+                        f"This may occur after entity unavailability or manual control. "
+                        f"System will resume normal operation based on current demand.",
                         auto_clear=True
                     )
         else:
