@@ -181,10 +181,20 @@ class LoadCalculator:
             return 0.0
         
         # Get radiator exponent (per-room override or global default)
-        radiator_exponent = room_cfg.get('radiator_exponent', self.global_radiator_exponent)
+        radiator_exponent = room_cfg.get('radiator_exponent')
+        if radiator_exponent is None:
+            radiator_exponent = self.global_radiator_exponent
+        if radiator_exponent is None:
+            # Fallback to constant default if everything else fails
+            radiator_exponent = C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT
+            self.ad.log(
+                f"LoadCalculator: radiator_exponent is None for {room_id}, using constant default {radiator_exponent}",
+                level="WARNING"
+            )
         
         # Get current room temperature (use last known if stale)
-        room_temp, is_stale = self.sensors.get_room_temperature(room_id)
+        from datetime import datetime
+        room_temp, is_stale = self.sensors.get_room_temperature(room_id, datetime.now())
         if room_temp is None:
             self.ad.log(
                 f"LoadCalculator: No temperature available for {room_id}, cannot calculate capacity",
@@ -289,7 +299,13 @@ class LoadCalculator:
             self.estimated_capacities = {}
             return
         
-        self.estimated_capacities = self.get_all_estimated_capacities()
+        try:
+            self.estimated_capacities = self.get_all_estimated_capacities()
+        except Exception as e:
+            self.ad.log(f"LoadCalculator: update_capacities() failed: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+            self.estimated_capacities = {}
     
     def get_total_estimated_capacity(self) -> float:
         """Get sum of all room estimated capacities.
