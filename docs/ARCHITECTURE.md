@@ -33,6 +33,7 @@ pyheat/
 │   └── valve_coordinator.py        # Multi-room valve orchestration
 ├── managers/                       # State and monitoring managers
 │   ├── alert_manager.py            # Alert tracking and notifications
+│   ├── load_calculator.py          # Radiator capacity estimation (EN 442)
 │   ├── override_manager.py         # Override state management
 │   └── sensor_manager.py           # Sensor fusion and staleness
 ├── core/                           # Core utilities
@@ -232,6 +233,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 - **sensor_manager.py** - Temperature sensor fusion, EMA smoothing, and staleness detection
 - **scheduler.py** - Schedule parsing and time-based target calculation
 - **override_manager.py** - Temperature override management (timers and targets)
+- **load_calculator.py** - Radiator capacity estimation using EN 442 thermal model
 - **room_controller.py** - Per-room heating logic and target resolution
 - **valve_coordinator.py** - Single authority for valve command decisions with priority handling
 - **trv_controller.py** - TRV valve commands and setpoint locking
@@ -3691,6 +3693,227 @@ Notifications appear in Home Assistant's notification center (bell icon) and can
 - `get_alert_count(severity)` - Count active alerts by severity
 
 For detailed alert documentation, see [ALERT_MANAGER.md](ALERT_MANAGER.md).
+
+---
+
+## Load Calculator (Radiator Capacity Estimation)
+
+PyHeat includes a load calculator system (`load_calculator.py`) that estimates radiator heat output in real-time using the EN 442 thermal model. This provides visibility into heating system capacity utilization for monitoring and future optimization.
+
+### Design Principles
+
+**Read-Only Monitoring**: Phase 1 implementation provides observability without affecting control decisions. Estimates are exposed via sensors and logged to CSV for analysis.
+
+**Physics-Based Calculation**: Uses EN 442 standard radiator thermal model with measured temperatures and rated radiator specifications.
+
+**Conservative Estimation**: Acknowledges ±20-30% uncertainty due to unknowns (actual flow rate, real radiator condition, installation factors). Not suitable for absolute capacity decisions.
+
+**DHW-Compatible**: Uses helper setpoint (not actual flow temperature) to remain valid during DHW cycles when flow temp may be elevated but heating system is off.
+
+**Cycling-Protection Compatible**: Uses helper setpoint (not climate entity) to remain valid during cycling protection cooldown when climate setpoint temporarily drops to 30°C.
+
+### Thermal Model
+
+The EN 442 standard defines radiator heat transfer as:
+
+```
+P = P₅₀ × (ΔT / 50)^n
+
+Where:
+  P    = Actual heat output (W)
+  P₅₀  = Rated heat output at ΔT = 50°C (W)
+  ΔT   = (T_flow + T_return) / 2 - T_room (°C)
+  n    = Radiator exponent (1.2-1.3 typical)
+```
+
+**PyHeat Implementation:**
+
+```python
+# Calculate mean water temperature from estimated system delta_t
+t_mean_estimated = setpoint - (system_delta_t / 2)
+
+# Calculate actual delta_t for EN 442 formula
+delta_t = t_mean_estimated - room_temp
+
+# Apply EN 442 formula
+estimated_capacity = delta_t50 × (delta_t / 50) ^ radiator_exponent
+```
+
+**Key Assumptions:**
+- **System Delta-T**: Configurable (default 10°C) - difference between flow and return
+- **Flow Temperature**: Uses `input_number.pyheat_opentherm_setpoint` (helper entity, not climate setpoint)
+- **Radiator Exponent**: Per-room configurable (default 1.3 for panels, 1.2 for towel rails)
+- **Delta-T50 Rating**: From manufacturer specifications (configured per-room in `rooms.yaml`)
+
+### Configuration
+
+**Per-Room (rooms.yaml):**
+
+```yaml
+pete:
+  # ... existing room config ...
+  delta_t50: 1900            # Rated output at ΔT=50°C (Watts)
+  radiator_exponent: 1.3     # Optional, overrides global default
+
+bathroom:
+  # ... existing room config ...
+  delta_t50: 415             # Smaller radiator
+  radiator_exponent: 1.2     # Towel rail (different exponent)
+```
+
+**System-Wide (boiler.yaml):**
+
+```yaml
+load_monitoring:
+  enabled: true              # Enable capacity estimation
+  system_delta_t: 10         # Expected flow-return delta (°C)
+  radiator_exponent: 1.3     # Global default (overrideable per-room)
+```
+
+**Validation:**
+- All rooms must have `delta_t50` configured (raises error on missing)
+- `system_delta_t` must be positive
+- `radiator_exponent` typically 1.2-1.3 (not validated, user responsibility)
+
+### Home Assistant Entities
+
+**Per-Room Sensors** (`sensor.pyheat_{room}_estimated_dump_capacity`):
+- **State**: Estimated capacity in Watts (or 0 if room off/no target)
+- **Attributes**:
+  - `delta_t50_rating`: Configured rated output (W)
+  - `room_temperature`: Current fused room temperature (°C)
+  - `desired_setpoint`: Target setpoint from helper entity (°C)
+  - `delta_t`: Calculated ΔT for EN 442 formula (°C)
+  - `radiator_exponent`: Exponent used in calculation
+
+**System Total** (`sensor.pyheat_status` attribute):
+- **Attribute**: `total_estimated_dump_capacity`
+- **Value**: Sum of all per-room estimated capacities (W)
+- **Location**: Added to existing status sensor attributes
+
+### CSV Logging
+
+**Added Columns** (heating_logs/YYYY-MM-DD.csv):
+- `total_estimated_dump_capacity`: System-wide total (W)
+- `{room}_estimated_capacity`: Per-room values (7 columns for 7 rooms)
+
+**Update Frequency**: Logged every 60 seconds during periodic recompute cycle.
+
+**Use Case**: Historical analysis of heating capacity utilization, correlation with outdoor temperature, boiler cycling patterns.
+
+### Integration with PyHeat
+
+**Initialization** (app.py):
+
+```python
+from managers.load_calculator import LoadCalculator
+
+# After sensor_manager initialization
+self.load_calculator = LoadCalculator(self, self.config, self.sensors)
+try:
+    self.load_calculator.initialize()
+except ValueError as e:
+    self.log(f"LoadCalculator initialization failed: {e}", level="ERROR")
+```
+
+**Periodic Updates** (app.py recompute):
+
+```python
+# Calculate estimated capacities
+self.load_calculator.update_capacities(
+    room_data,  # Dict with room_id -> (target, actual_temp, heating_active)
+    self.get_entity("input_number.pyheat_opentherm_setpoint").state
+)
+
+# Collect for logging
+load_data = {
+    'total': self.load_calculator.total_estimated_capacity,
+    'rooms': self.load_calculator.estimated_capacities.copy()
+}
+```
+
+**Status Publishing** (status_publisher.py):
+
+```python
+# Create per-room capacity sensors
+for room_id in config.rooms:
+    self.set_state(
+        f"sensor.pyheat_{room_id}_estimated_dump_capacity",
+        state=capacity_watts,
+        attributes={
+            "delta_t50_rating": room_config['delta_t50'],
+            # ... other attributes
+        }
+    )
+
+# Add system total to status sensor
+status_attributes['total_estimated_dump_capacity'] = total_capacity
+```
+
+### Limitations and Future Work
+
+**Current Limitations (Phase 1):**
+- ±20-30% uncertainty due to flow rate unknowns and real-world factors
+- Uses estimated mean water temp (not measured flow/return)
+- No validation against actual boiler output
+- Read-only monitoring (no control integration)
+
+**Future Enhancements (Phase 2+):**
+- Room selection algorithm integration (prefer high-capacity rooms when multiple need heat)
+- Load-based valve interlock threshold (replace fixed 2-valve minimum with capacity-based check)
+- Boiler sizing validation (ensure boiler can meet calculated demand)
+- Flow/return temperature sensors for improved accuracy
+- Correlation analysis with outdoor temperature and boiler cycling frequency
+
+**When NOT to Use:**
+- Absolute capacity calculations (use ±20-30% as guideline only)
+- Safety-critical decisions (thermal model is estimation not measurement)
+- Real-time control logic (Phase 1 is monitoring-only by design)
+
+### API Methods
+
+**Public Interface:**
+
+```python
+def initialize() -> None:
+    """Validate configuration and prepare for calculations. Raises ValueError on missing delta_t50."""
+
+def update_capacities(room_data: Dict, helper_setpoint: float) -> None:
+    """
+    Calculate estimated capacities for all rooms.
+    
+    Args:
+        room_data: Dict[room_id] -> (target_temp, actual_temp, heating_active)
+        helper_setpoint: Value from input_number.pyheat_opentherm_setpoint
+    
+    Updates:
+        self.estimated_capacities: Dict[room_id] -> capacity_watts
+        self.total_estimated_capacity: Sum of all room capacities
+    """
+
+def get_estimated_capacity(room_id: str) -> float:
+    """Get most recent estimated capacity for a room (Watts)."""
+
+def calculate_estimated_dump_capacity(
+    delta_t50: float,
+    room_temp: float, 
+    desired_setpoint: float,
+    radiator_exponent: float
+) -> float:
+    """
+    Calculate estimated radiator capacity using EN 442 thermal model.
+    Returns capacity in Watts, or 0.0 if calculation invalid.
+    """
+```
+
+**Internal State:**
+
+```python
+self.estimated_capacities: Dict[str, float]  # room_id -> estimated_watts
+self.total_estimated_capacity: float          # Sum of all rooms
+self.system_delta_t: float                    # Configured flow-return delta
+self.global_exponent: float                   # Global default radiator exponent
+```
 
 ---
 

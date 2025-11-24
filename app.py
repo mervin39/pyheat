@@ -25,6 +25,7 @@ from typing import Dict, List, Optional
 # Import PyHeat modules
 from config_loader import ConfigLoader
 from sensor_manager import SensorManager
+from load_calculator import LoadCalculator
 from scheduler import Scheduler
 from override_manager import OverrideManager
 from room_controller import RoomController
@@ -58,6 +59,7 @@ class PyHeat(hass.Hass):
         self.config = ConfigLoader(self)
         self.alerts = AlertManager(self)  # Initialize alert manager first
         self.sensors = SensorManager(self, self.config)
+        self.load_calculator = LoadCalculator(self, self.config, self.sensors)
         self.overrides = OverrideManager(self, self.config)
         self.scheduler = Scheduler(self, self.config, self.overrides)
         self.trvs = TRVController(self, self.config, self.alerts)
@@ -67,6 +69,7 @@ class PyHeat(hass.Hass):
         self.cycling = CyclingProtection(self, self.config, self.alerts)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
+        self.status.load_calculator_ref = self.load_calculator  # Allow status publisher to get capacity data
         self.services = ServiceHandler(self, self.config, self.overrides)
         self.api = APIHandler(self, self.services)
         
@@ -107,6 +110,21 @@ class PyHeat(hass.Hass):
         
         # Initialize sensor values from current state
         self.sensors.initialize_from_ha()
+        
+        # Initialize load calculator (validates delta_t50 configuration)
+        try:
+            self.load_calculator.initialize_from_ha()
+        except ValueError as e:
+            self.error(f"LoadCalculator initialization failed: {e}")
+            self.log("PyHeat initialization failed - load calculator configuration error")
+            # Report critical alert for config failure
+            self.alerts.report_error(
+                AlertManager.ALERT_CONFIG_LOAD_FAILURE,
+                AlertManager.SEVERITY_CRITICAL,
+                f"LoadCalculator initialization failed:\n\n{e}",
+                auto_clear=False  # Requires manual intervention
+            )
+            return
         
         # Initialize TRV state from current valve positions
         self.trvs.initialize_from_ha()
@@ -621,6 +639,9 @@ class PyHeat(hass.Hass):
         # Periodic validation: Check OpenTherm setpoint matches helper (unless in cooldown)
         self.cycling.validate_setpoint_vs_helper()
         
+        # Update load calculator capacities
+        self.load_calculator.update_capacities()
+        
         # Compute each room
         room_data = {}
         active_rooms = []
@@ -759,6 +780,14 @@ class PyHeat(hass.Hass):
             # Get cycling protection state for logging
             cycling_data = self.cycling.get_state_dict()
             
+            # Get load calculator data for logging
+            load_data = None
+            if self.load_calculator.enabled:
+                load_data = {
+                    'total_estimated_capacity': self.load_calculator.get_total_estimated_capacity(),
+                    'estimated_capacities': self.load_calculator.estimated_capacities.copy()
+                }
+            
             self.heating_logger.log_state(
                 trigger=trigger,
                 opentherm_data=opentherm_data,
@@ -766,6 +795,7 @@ class PyHeat(hass.Hass):
                 pump_overrun_active=pump_overrun_active,
                 room_data=log_room_data,
                 total_valve_pct=total_valve_pct,
-                cycling_data=cycling_data
+                cycling_data=cycling_data,
+                load_data=load_data
             )
 

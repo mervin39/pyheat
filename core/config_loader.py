@@ -73,6 +73,8 @@ class ConfigLoader:
                 'precision': room.get('precision', 1),
                 'smoothing': room.get('smoothing', {}),  # Optional temperature smoothing config
                 'sensors': room.get('sensors', []),
+                'delta_t50': room.get('delta_t50'),  # Required for load calculation, validated later
+                'radiator_exponent': room.get('radiator_exponent'),  # Optional per-room override
                 'trv': {
                     'entity_id': room['trv']['entity_id'],
                     'cmd_valve': C.TRV_ENTITY_PATTERNS['cmd_valve'].format(trv_base=trv_base),
@@ -150,6 +152,12 @@ class ConfigLoader:
         # Interlock defaults (reasonable default if not specified)
         interlock_cfg = bc.setdefault('interlock', {})
         interlock_cfg.setdefault('min_valve_open_percent', C.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT)
+        
+        # Load monitoring defaults (for capacity estimation)
+        load_cfg = bc.setdefault('load_monitoring', {})
+        load_cfg.setdefault('enabled', True)
+        load_cfg.setdefault('system_delta_t', C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT)
+        load_cfg.setdefault('radiator_exponent', C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT)
         
         self.ad.log(f"Loaded boiler config: entity_id={bc['entity_id']}")
     

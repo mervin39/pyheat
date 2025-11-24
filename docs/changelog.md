@@ -1,6 +1,133 @@
 
 # PyHeat Changelog
 
+## 2025-11-24: Load-Based Capacity Estimation (Phase 1) 📊
+
+**Status:** IMPLEMENTED ✅
+
+**Feature:**
+Added real-time radiator capacity estimation using EN 442 thermal model. This is a **read-only monitoring feature** that provides visibility into heating system capacity utilization without affecting control decisions.
+
+**Motivation:**
+- Historical heating logs showed periods of high demand with limited visibility into why certain rooms were selected
+- No quantitative data on radiator capacity vs. actual heat demand
+- Need baseline monitoring before implementing load-based room selection (Phase 2)
+- Provide data for correlation analysis with outdoor temperature and boiler cycling patterns
+
+**Implementation:**
+
+1. **New Component: `managers/load_calculator.py` (~320 lines)**
+   - Calculates estimated radiator heat output using EN 442 standard thermal model
+   - Formula: `P = P₅₀ × (ΔT / 50)^n`
+   - Uses helper setpoint (not climate entity) to remain valid during cycling protection cooldown
+   - Per-room and system-wide capacity tracking
+   - Validates configuration on initialization (requires delta_t50 for all rooms)
+
+2. **Configuration Schema Updates:**
+   - **`core/constants.py`**: Added `LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT` (10°C), `LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT` (1.3)
+   - **`core/config_loader.py`**: Added `delta_t50` and `radiator_exponent` to room schema, `load_monitoring` section to boiler config
+   - **`config/rooms.yaml`**: Added delta_t50 values for all 6 rooms (pete: 1900W, games: 2500W, lounge: 2290W, abby: 2800W, office: 900W, bathroom: 415W)
+   - **`config/boiler.yaml`**: Added `load_monitoring` section (enabled: true, system_delta_t: 10, radiator_exponent: 1.3)
+
+3. **Integration into Control Loop:**
+   - **`app.py`**: 
+     - Added LoadCalculator import and initialization (after SensorManager)
+     - Added `update_capacities()` call in periodic recompute
+     - Collect load_data for logging (total + per-room capacities)
+     - Error handling for initialization failures
+
+4. **Status Publishing:**
+   - **`services/status_publisher.py`**:
+     - Created per-room capacity sensors: `sensor.pyheat_{room}_estimated_dump_capacity`
+     - Added attributes: delta_t50_rating, room_temperature, desired_setpoint, delta_t, radiator_exponent
+     - Added `total_estimated_dump_capacity` to status sensor attributes
+
+5. **CSV Logging:**
+   - **`services/heating_logger.py`**:
+     - Added 8 new columns: `total_estimated_dump_capacity` + 7 per-room columns
+     - Updated log_state() signature to accept load_data parameter
+     - Logged every 60 seconds during periodic recompute
+
+**Thermal Model Details:**
+
+EN 442 Standard Formula:
+```
+P = P₅₀ × (ΔT / 50)^n
+
+Where:
+  P    = Actual heat output (W)
+  P₅₀  = Rated output at ΔT = 50°C (from manufacturer specs)
+  ΔT   = (T_flow + T_return) / 2 - T_room
+  n    = Radiator exponent (1.2 for towel rails, 1.3 for panels)
+```
+
+**PyHeat Implementation Approach:**
+- **System Delta-T**: Configurable (10°C default) - assumes flow-return temperature difference
+- **Estimated Mean Water Temp**: `setpoint - (system_delta_t / 2)`
+- **Flow Temp Source**: Uses `input_number.pyheat_opentherm_setpoint` (helper entity)
+  - **Critical**: NOT using climate entity setpoint to avoid invalidation during cycling protection cooldown (when climate drops to 30°C)
+  - **Critical**: NOT using actual flow temp to remain valid during DHW cycles (when flow may be elevated but heating is off)
+
+**Configuration Values Used:**
+- **Delta-T50 Ratings** (from radiators.md manufacturer specs):
+  - Pete's room: 1900W (2x panels)
+  - Games room: 2500W (large double panel)
+  - Lounge: 2290W (2x panels)
+  - Abby's room: 2800W (large double panel)
+  - Office: 900W (single panel)
+  - Bathroom: 415W (towel rail)
+- **Radiator Exponents**:
+  - Global default: 1.3 (standard panels)
+  - Bathroom override: 1.2 (towel rail geometry)
+- **System Delta-T**: 10°C (typical for residential heating systems)
+
+**Home Assistant Entities Created:**
+- `sensor.pyheat_pete_estimated_dump_capacity`
+- `sensor.pyheat_games_estimated_dump_capacity`
+- `sensor.pyheat_lounge_estimated_dump_capacity`
+- `sensor.pyheat_abby_estimated_dump_capacity`
+- `sensor.pyheat_office_estimated_dump_capacity`
+- `sensor.pyheat_bathroom_estimated_dump_capacity`
+- `sensor.pyheat_hallway_estimated_dump_capacity`
+- System total added as attribute to `sensor.pyheat_status`
+
+**CSV Logging Columns Added:**
+- `total_estimated_dump_capacity`
+- `pete_estimated_capacity`
+- `games_estimated_capacity`
+- `lounge_estimated_capacity`
+- `abby_estimated_capacity`
+- `office_estimated_capacity`
+- `bathroom_estimated_capacity`
+- `hallway_estimated_capacity`
+
+**Known Limitations:**
+- ±20-30% uncertainty due to unknowns (actual flow rate, real radiator condition, installation factors)
+- Uses estimated mean water temp (not measured flow/return)
+- Not suitable for absolute capacity decisions (monitoring only)
+- Phase 1 is read-only - no integration with control logic
+
+**Future Enhancements (Phase 2+):**
+- Room selection algorithm integration (prefer high-capacity rooms when multiple need heat)
+- Load-based valve interlock threshold (replace fixed 2-valve minimum with capacity-based check)
+- Boiler sizing validation (ensure boiler can meet calculated demand)
+- Flow/return temperature sensors for improved accuracy
+- Correlation analysis with outdoor temperature and boiler cycling
+
+**Testing & Verification:**
+- ✅ AppDaemon restarted successfully
+- ✅ LoadCalculator initialized: "LoadCalculator initialized: system_delta_t=10°C, global_exponent=1.3"
+- ✅ No errors or tracebacks in logs
+- ✅ PyHeat initialized successfully with all 6 rooms configured
+- ✅ Periodic recompute running normally
+
+**Documentation Updates:**
+- ✅ Updated `docs/ARCHITECTURE.md` with LoadCalculator section (design, thermal model, configuration, integration)
+- ✅ Updated `docs/changelog.md` (this entry)
+- ✅ Updated `debug/LOAD_BASED_SELECTION_PROPOSAL.md` with finalized decisions
+
+---
+
 ## 2025-11-23 (Night): Reduce False Alarm on Boiler Desync During Startup 🔇
 
 **Status:** IMPLEMENTED ✅

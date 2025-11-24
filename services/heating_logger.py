@@ -100,6 +100,7 @@ class HeatingLogger:
             # System aggregates
             'num_rooms_calling',
             'total_valve_pct',
+            'total_estimated_dump_capacity',
         ]
         
         # Add per-room columns grouped by property type
@@ -117,6 +118,8 @@ class HeatingLogger:
             headers.append(f'{room_id}_mode')
         for room_id in self.room_ids:
             headers.append(f'{room_id}_override')
+        for room_id in self.room_ids:
+            headers.append(f'{room_id}_estimated_dump_capacity')
         
         return headers
     
@@ -281,7 +284,7 @@ class HeatingLogger:
     
     def log_state(self, trigger: str, opentherm_data: Dict, boiler_state: str, 
                   pump_overrun_active: bool, room_data: Dict, total_valve_pct: int,
-                  cycling_data: Dict = None):
+                  cycling_data: Dict = None, load_data: Dict = None):
         """Log current heating system state to CSV.
         
         Args:
@@ -292,6 +295,7 @@ class HeatingLogger:
             room_data: Dict of room states {room_id: room_dict}
             total_valve_pct: Total valve opening percentage
             cycling_data: Optional dict with cycling protection state
+            load_data: Optional dict with load calculator data (total_estimated_capacity, estimated_capacities)
         """
         # Check date rotation
         self._check_date_rotation()
@@ -404,6 +408,7 @@ class HeatingLogger:
             # System aggregates
             'num_rooms_calling': sum(1 for r in room_data.values() if r.get('calling', False)),
             'total_valve_pct': total_valve_pct,
+            'total_estimated_dump_capacity': round(load_data.get('total_estimated_capacity', 0), 0) if load_data else 0,
         }
         
         # Add per-room data (round temps to 2dp)
@@ -416,6 +421,7 @@ class HeatingLogger:
             row[f'{room_id}_valve_cmd'] = room.get('valve_cmd', '')
             row[f'{room_id}_mode'] = room.get('mode', '')
             row[f'{room_id}_override'] = room.get('override', '')
+            row[f'{room_id}_estimated_dump_capacity'] = round(load_data.get('estimated_capacities', {}).get(room_id, 0), 0) if load_data else 0
         
         # Write row
         self.csv_writer.writerow(row)

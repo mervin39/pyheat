@@ -271,6 +271,15 @@ class StatusPublisher:
         
         attrs['total_valve_percent'] = total_valve
         
+        # Add load monitoring data if available
+        if hasattr(self, 'load_calculator_ref') and self.load_calculator_ref:
+            if self.load_calculator_ref.enabled:
+                attrs['total_estimated_dump_capacity'] = round(self.load_calculator_ref.get_total_estimated_capacity(), 0)
+                attrs['estimated_capacities'] = {
+                    room_id: round(capacity, 0)
+                    for room_id, capacity in self.load_calculator_ref.estimated_capacities.items()
+                }
+        
         # Set state
         self.ad.set_state(C.STATUS_ENTITY, state=state, attributes=attrs)
         
@@ -402,6 +411,40 @@ class StatusPublisher:
             )
         except Exception as e:
             self.ad.log(f"ERROR: Failed to set {valve_entity}: {type(e).__name__}: {e}", level="ERROR")
+        
+        # Estimated dump capacity sensor (if load monitoring enabled)
+        if hasattr(self, 'load_calculator_ref') and self.load_calculator_ref:
+            if self.load_calculator_ref.enabled:
+                capacity_entity = f"sensor.pyheat_{room_id}_estimated_dump_capacity"
+                
+                room_cfg = self.config.rooms.get(room_id, {})
+                delta_t50 = room_cfg.get('delta_t50')
+                radiator_exponent = room_cfg.get('radiator_exponent', 
+                    self.ad.config.boiler_config.get('load_monitoring', {}).get('radiator_exponent', 1.3))
+                
+                estimated_capacity = self.load_calculator_ref.estimated_capacities.get(room_id, 0.0)
+                
+                # Get calculation details
+                desired_setpoint = self.load_calculator_ref.last_known_setpoint
+                system_delta_t = self.ad.config.boiler_config.get('load_monitoring', {}).get('system_delta_t', 10)
+                estimated_mean_water_temp = desired_setpoint - (system_delta_t / 2.0) if desired_setpoint else None
+                delta_t = (estimated_mean_water_temp - data['temp']) if estimated_mean_water_temp and data['temp'] else None
+                
+                self.ad.set_state(
+                    capacity_entity,
+                    state=round(estimated_capacity, 0),
+                    attributes={
+                        "unit_of_measurement": "W",
+                        "device_class": "power",
+                        "friendly_name": f"{room_name} Estimated Dump Capacity",
+                        "delta_t50_rating": delta_t50,
+                        "room_temp": round(data['temp'], 1) if data['temp'] else None,
+                        "desired_setpoint": desired_setpoint,
+                        "estimated_mean_water_temp": round(estimated_mean_water_temp, 1) if estimated_mean_water_temp else None,
+                        "delta_t": round(delta_t, 1) if delta_t else None,
+                        "radiator_exponent": radiator_exponent
+                    }
+                )
             import traceback
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
         

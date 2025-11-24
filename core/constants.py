@@ -172,6 +172,21 @@ HELPER_OPENTHERM_SETPOINT = "input_number.pyheat_opentherm_setpoint"
 HELPER_CYCLING_STATE = "input_text.pyheat_cycling_protection_state"
 
 # ============================================================================
+# Load-Based Capacity Estimation (EN 442 Thermal Model)
+# ============================================================================
+
+# System delta T assumption for mean water temperature estimation
+# Mean water temp = setpoint - (system_delta_t / 2)
+# Observed range: 7-16°C, default to middle of range
+LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT = 10  # °C
+
+# Radiator heat transfer exponent (EN 442 standard)
+# Panel radiators: 1.3 (standard double panel convector)
+# Towel rails: 1.2-1.25 (tube geometry, air gaps)
+# Can be overridden per-room in rooms.yaml
+LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT = 1.3
+
+# ============================================================================
 # TRV Entity Derivation Patterns
 # ============================================================================
 
