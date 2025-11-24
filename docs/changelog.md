@@ -44,7 +44,7 @@ Added real-time radiator capacity estimation using EN 442 thermal model. This is
 
 5. **CSV Logging:**
    - **`services/heating_logger.py`**:
-     - Added 8 new columns: `total_estimated_dump_capacity` + 7 per-room columns
+     - Added 7 new columns: `total_estimated_dump_capacity` + 6 per-room columns
      - Updated log_state() signature to accept load_data parameter
      - Logged every 60 seconds during periodic recompute
 
@@ -90,13 +90,12 @@ Where:
 
 **CSV Logging Columns Added:**
 - `total_estimated_dump_capacity`
-- `pete_estimated_capacity`
-- `games_estimated_capacity`
-- `lounge_estimated_capacity`
-- `abby_estimated_capacity`
-- `office_estimated_capacity`
-- `bathroom_estimated_capacity`
-- `hallway_estimated_capacity`
+- `pete_estimated_dump_capacity`
+- `games_estimated_dump_capacity`
+- `lounge_estimated_dump_capacity`
+- `abby_estimated_dump_capacity`
+- `office_estimated_dump_capacity`
+- `bathroom_estimated_dump_capacity`
 
 **Known Limitations:**
 - ±20-30% uncertainty due to unknowns (actual flow rate, real radiator condition, installation factors)
