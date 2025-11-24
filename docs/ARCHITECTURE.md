@@ -3777,19 +3777,40 @@ load_monitoring:
 
 ### Home Assistant Entities
 
-**Per-Room Sensors** (`sensor.pyheat_{room}_estimated_dump_capacity`):
-- **State**: Estimated capacity in Watts (or 0 if room off/no target)
-- **Attributes**:
-  - `delta_t50_rating`: Configured rated output (W)
-  - `room_temperature`: Current fused room temperature (°C)
-  - `desired_setpoint`: Target setpoint from helper entity (°C)
-  - `delta_t`: Calculated ΔT for EN 442 formula (°C)
-  - `radiator_exponent`: Exponent used in calculation
+**Status Sensor** (`sensor.pyheat_status`):
+- **Per-Room Attributes** (in `rooms` dictionary):
+  - Standard fields: `mode`, `temperature`, `target`, `calling_for_heat`, `valve_percent`, `is_stale`
+  - **New field**: `estimated_dump_capacity` (Watts) - radiator capacity estimate for this room
+- **System Attributes**:
+  - **New attribute**: `total_estimated_dump_capacity` (Watts) - sum of all per-room capacities
 
-**System Total** (`sensor.pyheat_status` attribute):
-- **Attribute**: `total_estimated_dump_capacity`
-- **Value**: Sum of all per-room estimated capacities (W)
-- **Location**: Added to existing status sensor attributes
+**Example structure:**
+```yaml
+sensor.pyheat_status:
+  state: heating
+  attributes:
+    rooms:
+      pete:
+        mode: auto
+        temperature: 16.3
+        target: 19.0
+        calling_for_heat: true
+        valve_percent: 80
+        is_stale: false
+        estimated_dump_capacity: 1502  # NEW
+      games:
+        mode: auto
+        temperature: 18.5
+        target: 20.0
+        calling_for_heat: true
+        valve_percent: 60
+        is_stale: false
+        estimated_dump_capacity: 1923  # NEW
+      # ... other rooms
+    total_estimated_dump_capacity: 8450  # NEW
+    total_valve_percent: 240
+    # ... other system attributes
+```
 
 ### CSV Logging
 

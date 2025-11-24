@@ -38,9 +38,9 @@ Added real-time radiator capacity estimation using EN 442 thermal model. This is
 
 4. **Status Publishing:**
    - **`services/status_publisher.py`**:
-     - Created per-room capacity sensors: `sensor.pyheat_{room}_estimated_dump_capacity`
-     - Added attributes: delta_t50_rating, room_temperature, desired_setpoint, delta_t, radiator_exponent
+     - Added `estimated_dump_capacity` field to per-room attributes in `sensor.pyheat_status`
      - Added `total_estimated_dump_capacity` to status sensor attributes
+     - No separate per-room capacity sensors created (data integrated into existing status entity)
 
 5. **CSV Logging:**
    - **`services/heating_logger.py`**:
@@ -81,15 +81,12 @@ Where:
   - Bathroom override: 1.2 (towel rail geometry)
 - **System Delta-T**: 10°C (typical for residential heating systems)
 
-**Home Assistant Entities Created:**
-- `sensor.pyheat_pete_estimated_dump_capacity`
-- `sensor.pyheat_games_estimated_dump_capacity`
-- `sensor.pyheat_lounge_estimated_dump_capacity`
-- `sensor.pyheat_abby_estimated_dump_capacity`
-- `sensor.pyheat_office_estimated_dump_capacity`
-- `sensor.pyheat_bathroom_estimated_dump_capacity`
-- `sensor.pyheat_hallway_estimated_dump_capacity`
-- System total added as attribute to `sensor.pyheat_status`
+**Home Assistant Integration:**
+- **Status Entity**: `sensor.pyheat_status`
+  - Added `estimated_dump_capacity` to each room's attributes (in `rooms` dictionary)
+  - Added `total_estimated_dump_capacity` to top-level attributes
+  - All capacity values in Watts, rounded to integer
+  - Integrated into existing entity structure (no new sensors created)
 
 **CSV Logging Columns Added:**
 - `total_estimated_dump_capacity`
