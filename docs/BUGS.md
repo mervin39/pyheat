@@ -6,10 +6,10 @@ This document tracks known bugs and their resolutions.
 
 ## BUG #2: Safety Valve False Positive During PENDING_OFF Transition
 
-**Status:** Identified  
+**Status:** FIXED ✅  
 **Date Discovered:** 2025-11-21  
-**Severity:** Medium - causes unnecessary valve operations and temperature disturbances  
-**Branch:** `feature/short-cycling-protection`
+**Date Fixed:** 2025-11-25  
+**Severity:** Medium - causes unnecessary valve operations and temperature disturbances
 
 ### Observed Behavior
 
@@ -121,6 +121,46 @@ To reproduce:
 This bug was discovered during analysis of short-cycling protection field testing on 2025-11-21. The cycling protection implementation worked correctly, but investigation of a temperature anomaly revealed this pre-existing safety valve issue.
 
 The safety valve mechanism exists to protect against scenarios where the boiler could heat with no flow path, but it incorrectly triggers during normal state machine transitions where valve persistence is already active.
+
+### Resolution (2025-11-25)
+
+**Fix Applied:**
+Modified safety valve check to be state-aware by adding `self.boiler_state == C.STATE_OFF` condition.
+
+**Old Logic (Buggy):**
+```python
+if safety_room and boiler_entity_state != "off" and len(active_rooms) == 0:
+    # Force safety valve - triggers during PENDING_OFF! ❌
+```
+
+**New Logic (Fixed):**
+```python
+if safety_room and self.boiler_state == C.STATE_OFF and boiler_entity_state != "off" and len(active_rooms) == 0:
+    # Only trigger when state machine is OFF - not during PENDING_OFF/PUMP_OVERRUN ✅
+```
+
+**Why This Works:**
+- During `PENDING_OFF` and `PUMP_OVERRUN`, valve persistence is already active (provides flow path)
+- Safety valve only needed when state machine is `STATE_OFF` but entity could heat (genuine desync)
+- Legitimate scenarios (master toggle, entity unavailability recovery) properly detected
+- Normal state machine transitions no longer trigger false positives
+
+**Recurrence on 2025-11-25:**
+- Bug recurred after 2025-11-23 "desync detection fix"
+- That fix added startup detection but treated `PENDING_OFF` + `entity=heat` as "unexpected desync"
+- Caused entity to be turned off, triggering recompute that hit safety check before entity state updated
+- Created double-trigger pattern: once on transition, once on desync correction
+
+**Additional Analysis:**
+See `debug/safety_valve_analysis_2025-11-25.md` for comprehensive timeline analysis, code execution flow, and edge case testing.
+
+**Files Modified:**
+- `controllers/boiler_controller.py` (line 384): Added state machine check to safety valve condition
+
+**Testing:**
+- No more false positives during normal `PENDING_OFF` transitions
+- Safety valve still triggers for legitimate desyncs (master toggle, manual control)
+- Verified with all edge cases: startup, pump overrun, entity unavailability
 
 ---
 

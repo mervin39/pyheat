@@ -378,11 +378,13 @@ class BoilerController:
                     )
         
         # CRITICAL SAFETY: Emergency valve override
-        # If climate entity is not OFF (could heat at any time) but no rooms calling for heat,
-        # force safety room valve open to ensure there's a path for hot water
+        # If state machine is OFF but climate entity could heat (not "off") and no rooms calling,
+        # force safety room valve open to ensure there's a path for hot water.
+        # NOTE: Only triggers when state machine is STATE_OFF - during PENDING_OFF and PUMP_OVERRUN,
+        # valve persistence is already active and provides adequate flow path.
         safety_room = self.config.boiler_config.get('safety_room')
-        if safety_room and boiler_entity_state != "off" and len(active_rooms) == 0:
-            # Climate entity is not off but no demand - force valve open for safety!
+        if safety_room and self.boiler_state == C.STATE_OFF and boiler_entity_state != "off" and len(active_rooms) == 0:
+            # Climate entity could heat but state machine is OFF with no demand - force valve open for safety!
             persisted_valves[safety_room] = 100
             self.ad.log(
                 f"🔴 SAFETY: Climate entity is {boiler_entity_state} with no demand! Forcing {safety_room} valve to 100% for safety",
