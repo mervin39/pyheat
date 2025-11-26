@@ -307,7 +307,7 @@ class BoilerController:
             elif not self._is_timer_active(C.HELPER_BOILER_OFF_DELAY_TIMER):
                 # Off-delay timer completed - check if we can transition to pump overrun
                 boiler_entity_state = self._get_boiler_entity_state()
-                boiler_is_off = boiler_entity_state in ["off", "idle"]
+                boiler_is_off = boiler_entity_state == "off"
                 
                 # If boiler is already physically off (e.g., from desync handler), enter pump overrun immediately
                 # Otherwise, check min_on_time before turning it off
