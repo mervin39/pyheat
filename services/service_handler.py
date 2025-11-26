@@ -384,7 +384,12 @@ class ServiceHandler:
             return {"success": False, "error": str(e)}
         
     def svc_reload_config(self, namespace, domain, service, kwargs):
-        """Service handler: reload configuration."""
+        """Service handler: reload configuration.
+        
+        Note: This service performs a hot reload of all config files.
+        For structural changes (rooms, sensors), automatic file watching will
+        trigger an app restart instead. Manual service calls always hot reload.
+        """
         self.ad.log("Service call: pyheat.reload_config")
         try:
             self.config.reload()
@@ -392,7 +397,7 @@ class ServiceHandler:
                 self.trigger_recompute_callback("config_reloaded")
             return {
                 "success": True,
-                "message": "Configuration reloaded",
+                "message": "Configuration reloaded (hot reload)",
                 "room_count": len(self.config.rooms),
                 "schedule_count": len(self.config.schedules)
             }

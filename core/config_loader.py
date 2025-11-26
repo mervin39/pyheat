@@ -293,6 +293,20 @@ class ConfigLoader:
                     changed = True
         return changed
     
+    def get_changed_files(self) -> list:
+        """Get list of configuration files that have been modified.
+        
+        Returns:
+            List of file paths that have changed since last check
+        """
+        changed_files = []
+        for filepath, old_mtime in self.config_file_mtimes.items():
+            if os.path.exists(filepath):
+                new_mtime = os.path.getmtime(filepath)
+                if new_mtime != old_mtime:
+                    changed_files.append(filepath)
+        return changed_files
+    
     def reload(self) -> None:
         """Reload all configuration files."""
         self.ad.log("Reloading configuration...")

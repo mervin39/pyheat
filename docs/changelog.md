@@ -1,6 +1,50 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Hybrid Config Reload Strategy (Simplification) 🔧
+
+**Status:** IMPLEMENTED ✅
+
+**Problem:**
+Previous attempt to support dynamic sensor registration on config reload added 55+ lines of complex code spread across 3 files, with ongoing maintenance burden. While functional, it was over-engineered for a rare event (adding sensors) and didn't fully solve all config reload scenarios (room additions/removals, boiler config changes).
+
+**Solution: Hybrid Reload Strategy**
+Implemented simpler approach with different behaviors based on which config files changed:
+
+1. **schedules.yaml only → Hot reload** (no interruption)
+   - Safe because schedules don't affect sensors, callbacks, or system structure
+   - Allows rapid iteration when editing schedules via pyheat-web
+   - Configuration reloaded in-place, recompute triggered
+
+2. **Other config files → App restart** (2-3s interruption)
+   - rooms.yaml, boiler.yaml, or any combination
+   - Triggers `restart_app("pyheat")` for clean re-initialization
+   - Handles ALL structural changes: sensors, rooms, TRVs, boiler config
+   - Much simpler than trying to surgically update running components
+
+**Code Changes:**
+- Added `get_changed_files()` to ConfigLoader (~10 LOC)
+- Updated `check_config_files()` in app.py with hybrid logic (~20 LOC)
+- Updated service handler documentation
+- **Total: ~30 LOC vs 55 LOC in previous approach (45% reduction)**
+
+**Benefits:**
+- ✅ Much simpler code (30 LOC vs 55 LOC)
+- ✅ Future-proof - handles ANY config change correctly
+- ✅ No maintenance burden - works for all current and future config additions
+- ✅ Still supports rapid schedule iteration (most common edit)
+- ✅ Clean state after structural changes (no risk of partial reload)
+- ✅ Easy to understand: "schedules hot reload, everything else restarts"
+
+**Trade-offs:**
+- Minor 2-3s interruption when adding sensors or changing rooms (rare event)
+- Acceptable given significant reduction in code complexity
+
+**Files Modified:**
+- `app.py`: Hybrid reload logic in `check_config_files()`
+- `core/config_loader.py`: Added `get_changed_files()` method
+- `services/service_handler.py`: Updated service documentation
+
 ## 2025-11-25: Fix Safety Valve False Positives During PENDING_OFF (BUG #2) 🐛
 
 **Status:** FIXED ✅

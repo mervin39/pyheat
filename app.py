@@ -561,11 +561,32 @@ class PyHeat(hass.Hass):
         self.trvs.check_all_setpoints()
 
     def check_config_files(self, kwargs):
-        """Periodic check for configuration file changes."""
+        """Periodic check for configuration file changes.
+        
+        Strategy:
+        - schedules.yaml only: Hot reload (no service interruption)
+        - Other config files: Restart app for clean state
+        """
         if self.config.check_for_changes():
-            self.log("Configuration files changed, reloading...")
-            self.config.reload()
-            self.trigger_recompute("config_files_changed")
+            changed_files = self.config.get_changed_files()
+            
+            # Check if ONLY schedules.yaml changed
+            schedules_only = all('schedules.yaml' in f for f in changed_files)
+            
+            if schedules_only:
+                # Safe to hot reload - schedules don't affect callbacks or sensors
+                self.log("Schedules changed, hot reloading...")
+                self.config.reload()
+                self.trigger_recompute("schedules_changed")
+            else:
+                # Structural changes (rooms, boiler, sensors, etc.) - restart for clean state
+                import os
+                filenames = ', '.join([os.path.basename(f) for f in changed_files])
+                self.log(f"Config files changed ({filenames}), restarting app for clean reload...")
+                
+                # Use AppDaemon's restart_app() to trigger a clean reload
+                # This will re-initialize all components, callbacks, and sensors
+                self.restart_app("pyheat")
 
     # ========================================================================
     # Recompute Logic
