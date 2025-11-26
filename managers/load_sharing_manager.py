@@ -47,7 +47,6 @@ class LoadSharingManager:
         self.context = LoadSharingContext()
         
         # Configuration (loaded from boiler.yaml)
-        self.enabled = False
         self.min_calling_capacity_w = 3500  # Activation threshold
         self.target_capacity_w = 4000       # Target capacity to reach
         self.min_activation_duration_s = 300  # 5 minutes minimum
@@ -59,23 +58,23 @@ class LoadSharingManager:
     def initialize_from_ha(self) -> None:
         """Load configuration and initial state from Home Assistant.
         
-        Phase 0: Reads config but stays disabled.
+        Load sharing is controlled solely by input_boolean.pyheat_load_sharing_enable.
+        No config file enable flag - just load thresholds and parameters.
         """
-        # Load load_sharing config from boiler.yaml
+        # Load load_sharing config from boiler.yaml (thresholds and parameters only)
         ls_config = self.config.boiler_config.get('load_sharing', {})
-        self.enabled = ls_config.get('enabled', False)
         self.min_calling_capacity_w = ls_config.get('min_calling_capacity_w', 3500)
         self.target_capacity_w = ls_config.get('target_capacity_w', 4000)
         self.min_activation_duration_s = ls_config.get('min_activation_duration_s', 300)
         self.tier3_timeout_s = ls_config.get('tier3_timeout_s', 900)
         
-        # Check master enable switch
+        # Check master enable switch (single source of truth)
         master_enabled = self._is_master_enabled()
         
-        if not self.enabled or not master_enabled:
+        if not master_enabled:
             self.context.state = LoadSharingState.DISABLED
             self.ad.log(
-                f"LoadSharingManager: DISABLED (config={self.enabled}, master={master_enabled})",
+                f"LoadSharingManager: DISABLED (master switch off)",
                 level="INFO"
             )
         else:
@@ -188,7 +187,6 @@ class LoadSharingManager:
             ],
             'trigger_capacity': self.context.trigger_capacity,
             'trigger_rooms': list(self.context.trigger_calling_rooms),
-            'enabled': self.enabled,
             'master_enabled': self._is_master_enabled()
         }
     

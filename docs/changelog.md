@@ -83,9 +83,9 @@ Implemented core load sharing logic with entry condition evaluation and Tier 1 s
 - `services/status_publisher.py`: Added load sharing status to system status
 
 **Configuration:**
-- **boiler.yaml**: `load_sharing.enabled: false` (disabled by default)
-- **Master switch**: `input_boolean.pyheat_load_sharing_enable` (set to false to disable)
-- **Per-room**: `load_sharing.schedule_lookahead_m: 60` (default, optional)
+- **Enable/Disable**: `input_boolean.pyheat_load_sharing_enable` (single source of truth, off by default)
+- **Thresholds**: `boiler.yaml` load_sharing section (capacity thresholds, timing parameters)
+- **Per-room**: `load_sharing.schedule_lookahead_m: 60` (default, optional in rooms.yaml)
 
 **Next Steps:**
 - Phase 2: Implement Tier 2 extended lookahead (2× window fallback)
