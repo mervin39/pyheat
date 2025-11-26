@@ -4,9 +4,10 @@ valve_coordinator.py - Central authority for valve command decisions
 
 Responsibilities:
 - Apply persistence overrides from boiler (pump overrun, interlock)
+- Apply load sharing overrides from load sharing manager
 - Apply corrections from TRV feedback
 - Coordinate with TRV controller to send actual commands
-- Manage priority: safety > corrections > normal
+- Manage priority: safety > load_sharing > corrections > normal
 """
 
 from datetime import datetime
@@ -23,8 +24,9 @@ class ValveCoordinator:
     
     Priority Order (highest to lowest):
     1. Persistence overrides (boiler safety: pump overrun, interlock)
-    2. Correction overrides (unexpected TRV positions)
-    3. Normal desired values (from room heating logic)
+    2. Load sharing overrides (intelligent load balancing)
+    3. Correction overrides (unexpected TRV positions)
+    4. Normal desired values (from room heating logic)
     """
     
     def __init__(self, ad, trv_controller):
@@ -41,6 +43,9 @@ class ValveCoordinator:
         self.persistence_overrides = {}  # {room_id: valve_percent}
         self.persistence_reason = None
         self.persistence_active = False
+        
+        # Load sharing overrides from load sharing manager
+        self.load_sharing_overrides = {}  # {room_id: valve_percent}
         
     def set_persistence_overrides(self, overrides: Dict[str, int], reason: str) -> None:
         """Set persistence overrides from boiler controller.
@@ -85,14 +90,42 @@ class ValveCoordinator:
         """
         return self.persistence_active
     
+    def set_load_sharing_overrides(self, overrides: Dict[str, int]) -> None:
+        """Set load sharing overrides from load sharing manager.
+        
+        Called by app.py after evaluating load sharing needs.
+        
+        Args:
+            overrides: Dict mapping room_id -> valve_percent for load sharing rooms
+        """
+        self.load_sharing_overrides = overrides.copy() if overrides else {}
+        
+        if self.load_sharing_overrides:
+            rooms_str = ', '.join(f"{rid}={pct}%" for rid, pct in overrides.items())
+            self.ad.log(
+                f"Load sharing overrides ACTIVE: [{rooms_str}]",
+                level="DEBUG"
+            )
+    
+    def clear_load_sharing_overrides(self) -> None:
+        """Clear load sharing overrides.
+        
+        Called when load sharing deactivates.
+        """
+        if self.load_sharing_overrides:
+            self.ad.log("Load sharing overrides CLEARED", level="DEBUG")
+        
+        self.load_sharing_overrides = {}
+    
     def apply_valve_command(self, room_id: str, desired_percent: int, 
                            now: datetime) -> int:
         """Apply final valve command with all overrides considered.
         
         This method determines the final valve position to command based on:
-        1. Persistence overrides (highest priority)
-        2. Correction overrides (unexpected positions)
-        3. Normal desired value (default)
+        1. Persistence overrides (highest priority - safety)
+        2. Load sharing overrides (intelligent load balancing)
+        3. Correction overrides (unexpected positions)
+        4. Normal desired value (default)
         
         Args:
             room_id: Room identifier
@@ -110,7 +143,12 @@ class ValveCoordinator:
             final_percent = self.persistence_overrides[room_id]
             reason = f"persistence: {self.persistence_reason}"
         
-        # Priority 2: Correction overrides (if no persistence)
+        # Priority 2: Load sharing overrides (if no persistence)
+        elif room_id in self.load_sharing_overrides:
+            final_percent = self.load_sharing_overrides[room_id]
+            reason = "load_sharing"
+        
+        # Priority 3: Correction overrides (if no persistence or load sharing)
         elif room_id in self.trvs.unexpected_valve_positions:
             final_percent = self.trvs.unexpected_valve_positions[room_id]['expected']
             reason = "correction"

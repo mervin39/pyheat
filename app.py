@@ -691,8 +691,18 @@ class PyHeat(hass.Hass):
             self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             raise
         
+        # Evaluate load sharing needs
+        cycling_state = self.cycling.state if hasattr(self.cycling, 'state') else 'NORMAL'
+        load_sharing_commands = self.load_sharing.evaluate(room_data, boiler_state, cycling_state)
+        
+        # Apply load sharing overrides to valve coordinator
+        if load_sharing_commands:
+            self.valve_coordinator.set_load_sharing_overrides(load_sharing_commands)
+        else:
+            self.valve_coordinator.clear_load_sharing_overrides()
+        
         # Apply all valve commands through valve coordinator
-        # The coordinator handles persistence overrides, corrections, and normal commands
+        # The coordinator handles persistence overrides, load sharing, corrections, and normal commands
         for room_id in self.config.rooms.keys():
             data = room_data[room_id]
             desired_valve = data['valve_percent']

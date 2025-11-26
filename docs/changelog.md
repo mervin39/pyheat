@@ -1,6 +1,105 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Load Sharing Feature - Phase 1 Tier 1 Selection 🎯
+
+**Status:** IMPLEMENTED ✅
+
+**Phase:** Tier 1 Schedule-Aware Pre-Warming (Phase 1 of 4)
+
+**Branch:** `feature/load-sharing-phase1`
+
+**Summary:**
+Implemented core load sharing logic with entry condition evaluation and Tier 1 schedule-aware room selection. The system now intelligently activates pre-warming for rooms with upcoming schedules when primary calling rooms have insufficient radiator capacity, reducing boiler short-cycling while minimizing unwanted heating.
+
+**What Was Added:**
+
+1. **Entry Condition Evaluation** (`managers/load_sharing_manager.py`)
+   - **Capacity Check**: Activates when total calling capacity < 3500W (configurable)
+   - **Cycling Risk Detection**: Requires either:
+     - Cycling protection in COOLDOWN state, OR
+     - High return temperature (within 15°C of setpoint)
+   - **Prevents unnecessary activation**: Only activates with evidence of cycling risk
+
+2. **Tier 1 Selection Algorithm** (`managers/load_sharing_manager.py`)
+   - **Schedule-aware pre-warming**: Selects rooms with upcoming schedule blocks
+   - **Selection criteria**:
+     - Room in "auto" mode (respects user intent)
+     - Not currently calling for heat
+     - Has schedule block within lookahead window (default 60 minutes)
+     - Schedule target > current temperature (only pre-warm if needed)
+   - **Sorted by need**: Rooms with highest temperature deficit selected first
+   - **Initial valve opening**: 70% for Tier 1 rooms
+
+3. **Exit Condition Logic** (`managers/load_sharing_manager.py`)
+   - **Exit Trigger A**: Original calling rooms stopped calling → deactivate
+   - **Exit Trigger B**: Additional rooms started calling → recalculate capacity
+     - If new capacity ≥ 4000W → deactivate (sufficient now)
+     - If still insufficient → update trigger set and continue
+   - **Exit Trigger C**: Load sharing room now naturally calling → remove from load sharing
+   - **Minimum activation duration**: 5 minutes (prevents rapid oscillation)
+
+4. **Valve Coordinator Integration** (`controllers/valve_coordinator.py`)
+   - **Added load sharing priority tier**: safety > load_sharing > corrections > normal
+   - **set_load_sharing_overrides()**: Apply load sharing valve commands
+   - **clear_load_sharing_overrides()**: Clear when load sharing deactivates
+   - **Priority handling**: Load sharing commands override normal room logic but respect safety
+
+5. **App Integration** (`app.py`)
+   - **Load sharing evaluation**: Called in recompute cycle after boiler state update
+   - **Cycling state passed**: evaluate() receives cycling protection state
+   - **Valve coordinator updated**: Load sharing commands applied before normal valve logic
+   - **Seamless integration**: No changes to existing heating logic
+
+6. **Status Publishing** (`services/status_publisher.py`)
+   - **Load sharing status**: Published to sensor.pyheat_status attributes
+   - **Status includes**:
+     - Current state (disabled/inactive/tier1_active/etc.)
+     - Active rooms with tier, valve %, reason, duration
+     - Trigger capacity and trigger rooms
+     - Enabled flags (config and master)
+   - **Real-time visibility**: Load sharing state visible in Home Assistant
+
+**Key Design Decisions:**
+
+- **Evidence-based activation**: Only activates with both low capacity AND cycling risk
+- **Schedule-aligned**: Prioritizes rooms that will need heat anyway (minimal waste)
+- **Respects user intent**: Only "auto" mode rooms eligible (never "off" or "manual")
+- **Graceful degradation**: If no Tier 1 rooms available, stays inactive (Phase 2/3 will add fallbacks)
+- **Minimum activation duration**: 5-minute minimum prevents rapid on/off cycling
+
+**Testing:**
+- ✅ AppDaemon starts without errors
+- ✅ LoadSharingManager initializes correctly
+- ✅ No errors or warnings in logs
+- ✅ Status publishing includes load sharing state
+- ✅ Valve coordinator priority system updated
+- ✅ Ready for real-world testing
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: Implemented evaluate(), entry/exit conditions, Tier 1 selection
+- `controllers/valve_coordinator.py`: Added load sharing priority tier
+- `app.py`: Integrated load sharing evaluation in recompute cycle
+- `services/status_publisher.py`: Added load sharing status to system status
+
+**Configuration:**
+- **boiler.yaml**: `load_sharing.enabled: false` (disabled by default)
+- **Master switch**: `input_boolean.pyheat_load_sharing_enable` (set to false to disable)
+- **Per-room**: `load_sharing.schedule_lookahead_m: 60` (default, optional)
+
+**Next Steps:**
+- Phase 2: Implement Tier 2 extended lookahead (2× window fallback)
+- Phase 3: Implement Tier 3 fallback priority list
+- Phase 4: Full system integration and real-world testing
+- Enable by default after validation
+
+**Known Limitations:**
+- Phase 1 only: If no Tier 1 rooms available, load sharing stays inactive
+- No escalation yet: Always uses 70% valve opening (Phase 2+ will add escalation)
+- No Tier 2/3: Extended window and priority list not yet implemented
+
+---
+
 ## 2025-11-26: Load Sharing Feature - Phase 0 Infrastructure 🏗️
 
 **Status:** IMPLEMENTED ✅

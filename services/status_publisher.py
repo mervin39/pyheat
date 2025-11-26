@@ -256,6 +256,11 @@ class StatusPublisher:
                 'cooldowns_last_hour': cooldowns_last_hour
             }
         
+        # Add load sharing state if available
+        if hasattr(self.ad, 'load_sharing'):
+            load_sharing_status = self.ad.load_sharing.get_status()
+            attrs['load_sharing'] = load_sharing_status
+        
         # Add per-room data
         total_valve = 0
         for room_id, data in room_data.items():
