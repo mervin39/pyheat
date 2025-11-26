@@ -102,6 +102,13 @@ class ConfigLoader:
             if 'min_interval_s' not in vu:
                 vu['min_interval_s'] = C.VALVE_UPDATE_DEFAULT['min_interval_s']
             
+            # Load and validate load_sharing configuration (Phase 0)
+            ls_cfg = room.get('load_sharing', {})
+            room_cfg['load_sharing'] = {
+                'schedule_lookahead_m': ls_cfg.get('schedule_lookahead_m', C.LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT),
+                'fallback_priority': ls_cfg.get('fallback_priority', None),  # None = not in fallback list
+            }
+            
             # Validate sensor timeout_m (must be >= TIMEOUT_MIN_M)
             for sensor in room_cfg['sensors']:
                 timeout_m = sensor.get('timeout_m', 180)
@@ -158,6 +165,14 @@ class ConfigLoader:
         load_cfg.setdefault('enabled', True)
         load_cfg.setdefault('system_delta_t', C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT)
         load_cfg.setdefault('radiator_exponent', C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT)
+        
+        # Load sharing defaults (Phase 0)
+        ls_cfg = bc.setdefault('load_sharing', {})
+        ls_cfg.setdefault('enabled', False)  # Disabled by default in Phase 0
+        ls_cfg.setdefault('min_calling_capacity_w', C.LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT)
+        ls_cfg.setdefault('target_capacity_w', C.LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT)
+        ls_cfg.setdefault('min_activation_duration_s', C.LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT)
+        ls_cfg.setdefault('tier3_timeout_s', C.LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT)
         
         self.ad.log(f"Loaded boiler config: entity_id={bc['entity_id']}")
     

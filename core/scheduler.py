@@ -290,3 +290,83 @@ class Scheduler:
         
         # No next change found (truly forever)
         return None
+    
+    def get_next_schedule_block(self, room_id: str, from_time: datetime, 
+                               within_minutes: int) -> Optional[tuple[datetime, datetime, float]]:
+        """Get the next schedule block within a time window.
+        
+        Used by load sharing to determine if a room has an upcoming schedule
+        that would benefit from pre-warming.
+        
+        Args:
+            room_id: Room identifier
+            from_time: Start time to search from
+            within_minutes: Maximum lookahead window in minutes
+            
+        Returns:
+            Tuple of (block_start_datetime, block_end_datetime, target_temp) or None
+            
+        Phase 0: Infrastructure only
+        """
+        schedule = self.config.schedules.get(room_id)
+        if not schedule:
+            return None
+        
+        default_target = schedule.get('default_target', 16.0)
+        week_schedule = schedule.get('week', {})
+        
+        # Calculate end time of search window
+        from datetime import timedelta
+        search_end = from_time + timedelta(minutes=within_minutes)
+        
+        # Search through schedule blocks
+        current_time = from_time
+        while current_time <= search_end:
+            day_name = current_time.strftime('%A').lower()
+            day_schedule = week_schedule.get(day_name, {})
+            blocks = day_schedule.get('blocks', [])
+            
+            current_time_str = current_time.strftime('%H:%M')
+            
+            # Find next block that starts after current_time on this day
+            for block in blocks:
+                block_start_str = block['start']
+                block_end_str = block.get('end', '23:59')
+                block_target = block['target']
+                
+                # Parse times for comparison
+                block_start_h, block_start_m = map(int, block_start_str.split(':'))
+                block_end_h, block_end_m = map(int, block_end_str.split(':'))
+                current_h, current_m = map(int, current_time_str.split(':'))
+                
+                # Convert to minutes since midnight for comparison
+                block_start_mins = block_start_h * 60 + block_start_m
+                block_end_mins = block_end_h * 60 + block_end_m
+                current_mins = current_h * 60 + current_m
+                
+                # Check if block starts within our window
+                if block_start_mins >= current_mins:
+                    # Calculate absolute datetimes
+                    block_start_dt = current_time.replace(
+                        hour=block_start_h, 
+                        minute=block_start_m, 
+                        second=0, 
+                        microsecond=0
+                    )
+                    block_end_dt = current_time.replace(
+                        hour=block_end_h, 
+                        minute=block_end_m, 
+                        second=0, 
+                        microsecond=0
+                    )
+                    
+                    # Only return if block_target is higher than default (heating needed)
+                    if block_target > default_target and block_start_dt <= search_end:
+                        return (block_start_dt, block_end_dt, block_target)
+            
+            # Move to next day
+            current_time = (current_time + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+        
+        return None

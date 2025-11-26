@@ -1,6 +1,99 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Load Sharing Feature - Phase 0 Infrastructure 🏗️
+
+**Status:** IMPLEMENTED ✅
+
+**Phase:** Infrastructure Preparation (Phase 0 of 4)
+
+**Summary:**
+Implemented foundational infrastructure for load sharing feature without any behavioral changes. This phase sets up the state machine, configuration schema, and integration points required for future load sharing logic.
+
+**What Was Added:**
+
+1. **State Machine Infrastructure** (`managers/load_sharing_state.py`)
+   - `LoadSharingState` enum: 8 states (DISABLED, INACTIVE, TIER1_ACTIVE, etc.)
+   - `RoomActivation` dataclass: Tracks individual room activations
+   - `LoadSharingContext` dataclass: Single source of truth for load sharing state
+   - Computed properties: tier1_rooms, tier2_rooms, tier3_rooms
+   - Helper methods: activation_duration(), can_exit(), has_tier3_timeouts()
+
+2. **LoadSharingManager Skeleton** (`managers/load_sharing_manager.py`)
+   - Initialized with state machine context
+   - Configuration loading from boiler.yaml
+   - Master enable switch integration
+   - evaluate() method (Phase 0: returns empty dict)
+   - Method stubs for future tier selection logic
+   - get_status() for HA entity publishing
+
+3. **Configuration Schema**
+   - **boiler.yaml**: Added `load_sharing` section with defaults:
+     - enabled: false (disabled in Phase 0)
+     - min_calling_capacity_w: 3500
+     - target_capacity_w: 4000
+     - min_activation_duration_s: 300
+     - tier3_timeout_s: 900
+   - **rooms.yaml**: Added optional `load_sharing` section per room:
+     - schedule_lookahead_m: 60 (default)
+     - fallback_priority: null (optional)
+   - **ConfigLoader** updated to parse new sections with validation
+
+4. **Constants** (`core/constants.py`)
+   - HELPER_LOAD_SHARING_ENABLE entity reference
+   - Load sharing capacity thresholds
+   - Timing constraints (min activation, tier 3 timeout)
+   - Valve opening percentages for each tier
+   - Schedule lookahead default
+
+5. **Scheduler API Extension** (`core/scheduler.py`)
+   - Added `get_next_schedule_block(room_id, from_time, within_minutes)` method
+   - Returns next schedule block within time window for pre-warming logic
+   - Phase 0: Infrastructure only (no behavioral changes)
+
+6. **Home Assistant Integration** (`ha_yaml/pyheat_package.yaml`)
+   - Added `input_boolean.pyheat_load_sharing_enable` (master on/off switch)
+   - Initial state: false (disabled)
+
+7. **App Integration** (`app.py`)
+   - Imported LoadSharingManager
+   - Initialized manager in startup sequence
+   - Wired into initialization (but always disabled)
+
+**Key Design Decisions:**
+
+- **Disabled by default**: Feature completely inactive in Phase 0
+- **No behavioral changes**: evaluate() always returns empty dict
+- **State machine ready**: Full state infrastructure for future phases
+- **Configuration validated**: Warns on missing required fields
+- **Graceful degradation**: Missing config uses sensible defaults
+
+**Testing:**
+- ✅ AppDaemon starts without errors
+- ✅ Configuration loads successfully
+- ✅ LoadSharingManager initializes (disabled state)
+- ✅ No behavioral changes to heating system
+- ✅ Ready for Phase 1 implementation
+
+**Files Added:**
+- `managers/load_sharing_state.py` (~160 lines)
+- `managers/load_sharing_manager.py` (~230 lines)
+
+**Files Modified:**
+- `core/constants.py`: Added load sharing constants
+- `core/config_loader.py`: Parse load_sharing config sections
+- `core/scheduler.py`: Added get_next_schedule_block() method
+- `ha_yaml/pyheat_package.yaml`: Added master enable helper
+- `app.py`: Integrated LoadSharingManager
+
+**Next Steps:**
+- Phase 1: Implement Tier 1 schedule-aware selection logic
+- Phase 2: Add Tier 2 extended lookahead
+- Phase 3: Add Tier 3 fallback priority list
+- Phase 4: Full integration and testing
+
+---
+
 ## 2025-11-26: Fix Pump Overrun Blocked by min_on_time
 
 **Status:** IMPLEMENTED ✅

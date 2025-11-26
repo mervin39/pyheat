@@ -305,6 +305,32 @@ STARTUP_SECOND_DELAY_S = 10   # Second recompute for late-restoring sensors
 TEMPERATURE_SMOOTHING_ALPHA_DEFAULT = 0.3
 
 # ============================================================================
+# Load Sharing Configuration
+# ============================================================================
+
+# Load sharing master enable switch (Home Assistant helper)
+HELPER_LOAD_SHARING_ENABLE = "input_boolean.pyheat_load_sharing_enable"
+
+# Load sharing capacity thresholds (watts)
+LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT = 3500  # Activation threshold
+LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT = 4000       # Target capacity to reach
+
+# Load sharing timing constraints (seconds)
+LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT = 300  # 5 minutes minimum
+LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT = 900           # 15 minutes max for Tier 3
+
+# Load sharing valve opening defaults (percent)
+LOAD_SHARING_TIER1_INITIAL_PCT = 70   # Schedule-aware rooms start here
+LOAD_SHARING_TIER1_ESCALATED_PCT = 80 # Escalated if insufficient
+LOAD_SHARING_TIER2_INITIAL_PCT = 40   # Extended window rooms (gentle)
+LOAD_SHARING_TIER2_ESCALATED_PCT = 50 # Escalated if insufficient
+LOAD_SHARING_TIER3_INITIAL_PCT = 50   # Fallback rooms (compromise)
+LOAD_SHARING_TIER3_ESCALATED_PCT = 60 # Escalated if insufficient
+
+# Load sharing schedule lookahead defaults (minutes)
+LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT = 60  # Default lookahead window
+
+# ============================================================================
 # Logging
 # ============================================================================
 

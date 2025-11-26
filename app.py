@@ -26,6 +26,7 @@ from typing import Dict, List, Optional
 from config_loader import ConfigLoader
 from sensor_manager import SensorManager
 from load_calculator import LoadCalculator
+from load_sharing_manager import LoadSharingManager
 from scheduler import Scheduler
 from override_manager import OverrideManager
 from room_controller import RoomController
@@ -62,6 +63,7 @@ class PyHeat(hass.Hass):
         self.load_calculator = LoadCalculator(self, self.config, self.sensors)
         self.overrides = OverrideManager(self, self.config)
         self.scheduler = Scheduler(self, self.config, self.overrides)
+        self.load_sharing = LoadSharingManager(self, self.config, self.scheduler, self.load_calculator, self.sensors)
         self.trvs = TRVController(self, self.config, self.alerts)
         self.valve_coordinator = ValveCoordinator(self, self.trvs)
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
@@ -125,6 +127,9 @@ class PyHeat(hass.Hass):
                 auto_clear=False  # Requires manual intervention
             )
             return
+        
+        # Initialize load sharing manager (Phase 0: disabled by default)
+        self.load_sharing.initialize_from_ha()
         
         # Initialize TRV state from current valve positions
         self.trvs.initialize_from_ha()
