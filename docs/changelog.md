@@ -1,6 +1,84 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Load Sharing Phase 4 - Configuration Fix 🔧
+
+**Status:** FIXED ✅
+
+**Branch:** `feature/load-sharing-phase4`
+
+**Summary:**
+Fixed bedroom exclusion from Tier 3 fallback. The initial configuration used `fallback_priority: 99` for bedrooms, but this was ineffective because the Tier 3 implementation activates **ALL** rooms with any fallback_priority value (sorted by priority but all activated together). The correct way to exclude rooms is to omit `fallback_priority` entirely, as the code explicitly checks `if fallback_priority is None: continue`.
+
+**Issue Identified:**
+- Original config: Pete and Abby rooms had `fallback_priority: 99`
+- Problem: `_select_tier3_rooms()` returns ALL candidates with any priority
+- Result: Priority 99 rooms would still be activated in Tier 3 (just last in order)
+- Expected behavior: Bedrooms should NEVER be used in Tier 3 fallback
+
+**Fix Applied:**
+- **Pete's Room**: Removed `fallback_priority: 99` → Now has only `schedule_lookahead_m: 30`
+- **Abby's Room**: Removed `fallback_priority: 99` → Now has only `schedule_lookahead_m: 30`
+- Both rooms remain eligible for Tier 1 and Tier 2 (schedule-based pre-warming)
+- Both rooms are now correctly excluded from Tier 3 fallback
+
+**Updated Configuration:**
+
+```yaml
+# Bedrooms - Tier 1/2 only (schedule-based pre-warming)
+pete/abby:
+  load_sharing:
+    schedule_lookahead_m: 30  # Conservative pre-warming
+    # No fallback_priority = excluded from Tier 3
+
+# Living spaces - All tiers available
+lounge:
+  load_sharing:
+    schedule_lookahead_m: 90
+    fallback_priority: 1  # First choice for Tier 3
+
+games:
+  load_sharing:
+    schedule_lookahead_m: 60
+    fallback_priority: 2  # Second choice for Tier 3
+
+office:
+  load_sharing:
+    schedule_lookahead_m: 45
+    fallback_priority: 3  # Third choice for Tier 3
+
+bathroom:
+  load_sharing:
+    schedule_lookahead_m: 60
+    fallback_priority: 4  # Fourth choice for Tier 3
+```
+
+**How Tier 3 Selection Works:**
+1. `_select_tier3_rooms()` iterates all rooms
+2. For each room: `if fallback_priority is None: continue` (skip this room)
+3. All rooms WITH a fallback_priority are added to candidates
+4. Candidates are sorted by priority (1, 2, 3, 4, ...)
+5. ALL sorted candidates are returned and activated together
+6. Therefore, to exclude a room, it must have NO fallback_priority
+
+**Testing:**
+- ✅ AppDaemon restarted successfully
+- ✅ LoadSharingManager initialized correctly
+- ✅ No errors in logs
+- ✅ Bedrooms now correctly excluded from Tier 3
+
+**Files Modified:**
+- `config/rooms.yaml`: Removed fallback_priority from Pete and Abby rooms
+- `docs/changelog.md`: Configuration fix entry
+
+**Tier Coverage After Fix:**
+- **Lounge, Games, Office, Bathroom**: All 3 tiers (Tier 1, Tier 2, Tier 3)
+- **Pete's Room, Abby's Room**: Tier 1 and Tier 2 only (no Tier 3 fallback)
+
+This ensures bedrooms are only pre-warmed when they have an upcoming schedule (privacy-respecting), never as a fallback dump radiator.
+
+---
+
 ## 2025-11-26: Load Sharing Feature - Phase 4 Production Deployment 🚀
 
 **Status:** DEPLOYED ✅
