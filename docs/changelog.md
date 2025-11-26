@@ -1,6 +1,78 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: CRITICAL FIX - Restore Missing Valve Persistence Integration (BUG #3) 🚨
+
+**Status:** FIXED ✅
+
+**Branch:** `feature/load-sharing-phase4`
+
+**Commit:** f0985b6
+
+**Summary:**
+Fixed critical bug where valve persistence (pump overrun and interlock) was not being passed to ValveCoordinator, breaking override functionality and valve commands. Bug existed since ValveCoordinator introduction on 2025-11-19 but was masked by coincidental valve states.
+
+**Root Cause:**
+When ValveCoordinator was introduced (commit d6d063b on 2025-11-19), the integration in `app.py` was incomplete. The boiler controller returns `persisted_valves` from `update_state()`, but `app.py` never called `valve_coordinator.set_persistence_overrides()` with these values. The old code that explicitly applied persisted valves was removed without being replaced by the new integration.
+
+**Symptoms:**
+- Override commands appeared to work (API returned success, timer started, target updated)
+- But valve stayed at 0% - no TRV command sent
+- No "Setting TRV for room 'bathroom': 100% open" log message
+- Valve commands silently skipped despite room calling for heat
+- CSV logs showed: `calling=True, valve_cmd=0, valve_fb=0, override=True`
+
+**Why Bug Was Hidden:**
+Analysis of heating logs revealed yesterday's "successful" override (2025-11-25 06:52) was a false positive:
+- Bathroom valve was already commanded to 100% from hours earlier (06:45+)
+- When override was triggered, valve was already open
+- No new command needed, so bug wasn't exposed
+- Today's test started with valve at 0%, exposing the real issue
+
+**Investigation Timeline:**
+1. Override triggered at 14:42:32 with valve at 0%
+2. Room controller calculated valve=100% correctly ✓
+3. Boiler turned ON correctly ✓
+4. "Valve persistence ACTIVE: interlock" logged ✓
+5. But `apply_valve_command()` received no persistence overrides ✗
+6. No TRV command sent ✗
+7. Valve remained at 0% indefinitely ✗
+
+**Fix:**
+Added missing integration in `app.py` after `boiler.update_state()` (line 713):
+```python
+# Apply persistence overrides to valve coordinator (safety-critical)
+if persisted_valves:
+    # Determine reason based on boiler state
+    if valves_must_stay_open:
+        reason = "pump_overrun"
+    else:
+        reason = "interlock"
+    self.valve_coordinator.set_persistence_overrides(persisted_valves, reason)
+else:
+    self.valve_coordinator.clear_persistence_overrides()
+```
+
+**Testing:**
+Test override on bathroom (valve starting at 0%):
+- Override triggered: 15:20:23
+- TRV command sent: "Setting TRV for room 'bathroom': 100% open (was 0%)" ✓
+- Hardware feedback confirmed: valve_fb changed 0% → 100% at 15:20:23 ✓
+- CSV logs verified: valve_cmd and valve_fb both 100% ✓
+- Override now works correctly ✓
+
+**Impact:**
+- **Critical**: Overrides completely broken since 2025-11-19
+- **Safety**: Pump overrun valve persistence not working
+- **Reliability**: Valve interlock not working during state transitions
+- **Now resolved**: All valve persistence mechanisms restored
+
+**Files Changed:**
+- `app.py`: Added persistence override integration (11 lines)
+- `controllers/valve_coordinator.py`: No changes needed (interface already existed)
+
+---
+
 ## 2025-11-26: Load Sharing Phase 4 - Tier 3 Progressive Addition Fix 🔧
 
 **Status:** FIXED ✅
