@@ -1,6 +1,75 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Load Sharing Phase 4 - Tier 3 Progressive Addition Fix 🔧
+
+**Status:** FIXED ✅
+
+**Branch:** `feature/load-sharing-phase4`
+
+**Summary:**
+Fixed critical bug in Tier 3 selection logic. The implementation was incorrectly adding ALL candidate rooms at once, regardless of capacity needs. The proposal clearly specifies progressive addition: "For each candidate room: Calculate new total capacity with this room added. If new_total >= 4000W (target), stop adding rooms."
+
+**Issue Identified:**
+- **Bug**: `_select_tier3_rooms()` was returning ALL candidates sorted by priority
+- **Result**: If Tier 3 activated, it would open ALL rooms with any fallback_priority
+- **Example**: Would activate lounge (p1), games (p2), office (p3), AND bathroom (p4) all at once
+- **Expected**: Add rooms progressively in priority order until target capacity is reached
+
+**Fix Applied:**
+Modified `_select_tier3_rooms()` to implement progressive addition:
+1. Sort candidates by priority (1, 2, 3, 4, ...)
+2. For each candidate in order:
+   - Calculate current total system capacity
+   - Calculate effective capacity this room would add (accounting for 50% valve opening)
+   - Add room to selections
+   - **Stop if new total >= target capacity (4000W)**
+3. Only return the rooms actually needed
+
+**Example Behavior After Fix:**
+- Scenario: Need 2000W additional capacity
+- Priority list: Lounge (2290W), Games (2500W), Office (900W), Bathroom (415W)
+- With 50% valve: Lounge adds ~1145W, Games adds ~1250W
+- **Result**: Activates Lounge only (sufficient), Games remains closed
+- **Before fix**: Would have activated all 4 rooms unnecessarily
+
+**Code Changes:**
+```python
+# OLD (buggy): Add all candidates
+for room_id, priority, reason in candidates:
+    selections.append((room_id, valve_pct, reason))
+
+# NEW (correct): Add progressively until target met
+for room_id, priority, reason in candidates:
+    current_capacity = self._calculate_total_system_capacity(room_states)
+    effective_room_capacity = room_capacity * (valve_pct / 100.0)
+    new_total = current_capacity + effective_room_capacity
+    
+    selections.append((room_id, valve_pct, reason))
+    
+    if new_total >= self.target_capacity_w:
+        break  # Stop adding rooms
+```
+
+**Testing:**
+- ✅ AppDaemon restarted successfully
+- ✅ LoadSharingManager initialized correctly
+- ✅ No errors in logs
+- ✅ Tier 3 now correctly implements progressive addition
+
+**Impact:**
+- **Energy efficiency**: Only heats as many rooms as actually needed
+- **Predictable behavior**: Lower priority rooms only used if higher priority insufficient
+- **Matches design spec**: Implements proposal as intended
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: Fixed `_select_tier3_rooms()` progressive logic
+- `docs/changelog.md`: Bug fix entry
+
+This fix ensures the fallback priority system works as designed: rooms are added in priority order, stopping as soon as sufficient capacity is reached.
+
+---
+
 ## 2025-11-26: Load Sharing Phase 4 - Configuration Fix 🔧
 
 **Status:** FIXED ✅

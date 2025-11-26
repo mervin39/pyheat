@@ -593,6 +593,8 @@ class LoadSharingManager:
         - Has fallback_priority configured (rooms without this are excluded)
         - NO temperature check - ultimate fallback accepts any auto mode room
         
+        Progressive addition: Add rooms in priority order until capacity target is met.
+        
         Sorted by: fallback_priority ASC (lower number = higher priority)
         
         Args:
@@ -638,16 +640,47 @@ class LoadSharingManager:
         # Sort by priority (ascending - lower number = higher priority)
         candidates.sort(key=lambda x: x[1])
         
-        # Return as list of (room_id, valve_pct, reason)
+        # Add rooms progressively until target capacity is met
         # Initial valve opening: 50% for Tier 3 (compromise between flow and energy)
         selections = []
+        
         for room_id, priority, reason in candidates:
-            selections.append((room_id, C.LOAD_SHARING_TIER3_INITIAL_PCT, reason))
+            # Calculate what capacity would be if we add this room
+            # Get current total capacity
+            current_capacity = self._calculate_total_system_capacity(room_states)
+            
+            # Calculate capacity this room would add
+            room_capacity = self.load_calculator.get_estimated_capacity(room_id)
+            if room_capacity is None:
+                self.ad.log(
+                    f"Load sharing Tier 3: Skipping {room_id} - no capacity estimate",
+                    level="DEBUG"
+                )
+                continue
+            
+            # Adjust for valve opening (50% valve reduces effective capacity)
+            valve_pct = C.LOAD_SHARING_TIER3_INITIAL_PCT
+            effective_room_capacity = room_capacity * (valve_pct / 100.0)
+            new_total_capacity = current_capacity + effective_room_capacity
+            
+            # Add this room to selections
+            selections.append((room_id, valve_pct, reason))
+            
             self.ad.log(
                 f"Load sharing Tier 3 selection: {room_id} - priority={priority}, "
-                f"valve={C.LOAD_SHARING_TIER3_INITIAL_PCT}%",
+                f"valve={valve_pct}%, adds {effective_room_capacity:.0f}W "
+                f"(total: {new_total_capacity:.0f}W)",
                 level="DEBUG"
             )
+            
+            # Stop if we've reached target capacity
+            if new_total_capacity >= self.target_capacity_w:
+                self.ad.log(
+                    f"Load sharing Tier 3: Target capacity reached ({new_total_capacity:.0f}W >= {self.target_capacity_w}W), "
+                    f"stopping at {len(selections)} room(s)",
+                    level="INFO"
+                )
+                break
         
         return selections
     
