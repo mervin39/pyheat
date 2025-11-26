@@ -94,6 +94,10 @@ class LoadSharingManager:
         """
         try:
             state = self.ad.get_state(self.master_enable_entity)
+            self.ad.log(
+                f"LoadSharingManager: Master enable check - entity={self.master_enable_entity}, state={state}",
+                level="DEBUG"
+            )
             return state == 'on'
         except Exception as e:
             self.ad.log(

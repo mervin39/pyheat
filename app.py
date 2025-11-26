@@ -27,6 +27,7 @@ from config_loader import ConfigLoader
 from sensor_manager import SensorManager
 from load_calculator import LoadCalculator
 from load_sharing_manager import LoadSharingManager
+from load_sharing_state import LoadSharingState
 from scheduler import Scheduler
 from override_manager import OverrideManager
 from room_controller import RoomController
@@ -222,6 +223,9 @@ class PyHeat(hass.Hass):
         if self.entity_exists(C.HELPER_HOLIDAY_MODE):
             self.listen_state(self.holiday_mode_changed, C.HELPER_HOLIDAY_MODE)
         
+        if self.entity_exists(C.HELPER_LOAD_SHARING_ENABLE):
+            self.listen_state(self.load_sharing_enable_changed, C.HELPER_LOAD_SHARING_ENABLE)
+        
         # Per-room callbacks
         for room_id in self.config.rooms.keys():
             # Mode changes
@@ -353,6 +357,22 @@ class PyHeat(hass.Hass):
     def holiday_mode_changed(self, entity, attribute, old, new, kwargs):
         self.log(f"Holiday mode changed: {old} -> {new}")
         self.trigger_recompute("holiday_mode_changed")
+
+    def load_sharing_enable_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"Load sharing enable changed: {old} -> {new}")
+        # Update load sharing state (will be DISABLED if off, INACTIVE if on)
+        if new == "off":
+            # Deactivate load sharing and update state to DISABLED
+            if self.load_sharing.context.is_active():
+                self.load_sharing._deactivate("master enable toggled off")
+            self.load_sharing.context.state = LoadSharingState.DISABLED
+            self.valve_coordinator.clear_load_sharing_overrides()
+        else:
+            # Set to INACTIVE (ready to activate if conditions met)
+            self.load_sharing.context.state = LoadSharingState.INACTIVE
+        
+        # Trigger recompute to re-evaluate load sharing
+        self.trigger_recompute("load_sharing_enable_changed")
 
     def room_mode_changed(self, entity, attribute, old, new, kwargs):
         room_id = kwargs.get('room_id')
