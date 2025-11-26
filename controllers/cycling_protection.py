@@ -125,8 +125,8 @@ class CyclingProtection:
         if self.state == self.STATE_COOLDOWN:
             # Defer application until cooldown ends
             self.ad.log(
-                f"🎯 User changed setpoint to {new_setpoint:.1f}°C during cooldown - "
-                f"will apply after recovery (currently at {C.CYCLING_COOLDOWN_SETPOINT}°C)",
+                f"User changed setpoint to {new_setpoint:.1f}C during cooldown - "
+                f"will apply after recovery (currently at {C.CYCLING_COOLDOWN_SETPOINT}C)",
                 level="INFO"
             )
             self.saved_setpoint = new_setpoint
@@ -134,7 +134,7 @@ class CyclingProtection:
         else:
             # Apply immediately
             self.ad.log(
-                f"🎯 Applying user setpoint change: {old}°C → {new_setpoint:.1f}°C",
+                f"Applying user setpoint change: {old}C -> {new_setpoint:.1f}C",
                 level="INFO"
             )
             self._set_setpoint(new_setpoint)
@@ -173,7 +173,7 @@ class CyclingProtection:
             
         # Apply to climate entity
         self.ad.log(
-            f"Startup: Syncing climate entity to helper setpoint: {desired_setpoint:.1f}°C",
+            f"Startup: Syncing climate entity to helper setpoint: {desired_setpoint:.1f}C",
             level="INFO"
         )
         self._set_setpoint(desired_setpoint)
@@ -206,8 +206,8 @@ class CyclingProtection:
         # Check for mismatch (allow 0.5°C tolerance for rounding)
         if abs(actual_setpoint - desired_setpoint) > 0.5:
             self.ad.log(
-                f"⚠️ Setpoint drift detected: helper={desired_setpoint:.1f}°C, "
-                f"actual={actual_setpoint:.1f}°C - correcting to match helper",
+                f"WARNING: Setpoint drift detected: helper={desired_setpoint:.1f}C, "
+                f"actual={actual_setpoint:.1f}C - correcting to match helper",
                 level="WARNING"
             )
             self._set_setpoint(desired_setpoint)
@@ -279,10 +279,10 @@ class CyclingProtection:
         threshold = setpoint - C.CYCLING_HIGH_RETURN_DELTA_C
         
         self.ad.log(
-            f"🔥 Flame OFF: Confirmed CH shutdown | "
+            f"Flame OFF: Confirmed CH shutdown | "
             f"DHW at flame OFF: binary={dhw_binary_at_flame_off}, flow={dhw_flow_at_flame_off} | "
             f"DHW now: binary={dhw_binary_now}, flow={dhw_flow_now} | "
-            f"Return: {return_temp:.1f}°C | Setpoint: {setpoint:.1f}°C | Delta: {delta:.1f}°C",
+            f"Return: {return_temp:.1f}C | Setpoint: {setpoint:.1f}C | Delta: {delta:.1f}C",
             level="INFO"
         )
         
@@ -292,8 +292,8 @@ class CyclingProtection:
         else:
             # Normal conditions - no cooldown needed
             self.ad.log(
-                f"Flame OFF: Normal conditions (return {return_temp:.1f}°C, "
-                f"threshold {threshold:.1f}°C) - no cooldown needed",
+                f"Flame OFF: Normal conditions (return {return_temp:.1f}C, "
+                f"threshold {threshold:.1f}C) - no cooldown needed",
                 level="DEBUG"
             )
             
@@ -323,7 +323,7 @@ class CyclingProtection:
         
         if len(recent_cooldowns) >= C.CYCLING_EXCESSIVE_COUNT:
             self.ad.log(
-                f"⚠️ EXCESSIVE CYCLING: {len(recent_cooldowns)} cooldowns in "
+                f"WARNING: EXCESSIVE CYCLING: {len(recent_cooldowns)} cooldowns in "
                 f"{C.CYCLING_EXCESSIVE_WINDOW_S/60:.0f} minutes!",
                 level="WARNING"
             )
@@ -343,7 +343,7 @@ class CyclingProtection:
                     f"{cooldown_details}\n\n"
                     f"This suggests cooldown isn't solving the root cause. "
                     f"Consider:\n"
-                    f"- Increasing recovery delta (currently {C.CYCLING_RECOVERY_DELTA_C}°C)\n"
+                    f"- Increasing recovery delta (currently {C.CYCLING_RECOVERY_DELTA_C}C)\n"
                     f"- Lowering flow temperature setpoint\n"
                     f"- Checking if only 1 room is calling for heat\n\n"
                     f"System will continue trying to protect the boiler.",
@@ -358,9 +358,9 @@ class CyclingProtection:
         
         # Log cooldown entry
         self.ad.log(
-            f"❄️ COOLDOWN STARTED | "
-            f"Return: {return_temp:.1f}°C >= Threshold: {threshold:.1f}°C | "
-            f"Saved setpoint: {original_setpoint:.1f}°C → New: {C.CYCLING_COOLDOWN_SETPOINT}°C",
+            f"COOLDOWN STARTED | "
+            f"Return: {return_temp:.1f}C >= Threshold: {threshold:.1f}C | "
+            f"Saved setpoint: {original_setpoint:.1f}C -> New: {C.CYCLING_COOLDOWN_SETPOINT}C",
             level="WARNING"
         )
         
@@ -407,9 +407,9 @@ class CyclingProtection:
         # Check for timeout
         if time_in_cooldown > C.CYCLING_COOLDOWN_MAX_DURATION_S:
             self.ad.log(
-                f"🚨 COOLDOWN TIMEOUT: Stuck in cooldown for {int(time_in_cooldown/60)} minutes! "
-                f"Return temp: {return_temp:.1f}°C, "
-                f"Target: {recovery_threshold:.1f}°C",
+                f"ERROR: COOLDOWN TIMEOUT: Stuck in cooldown for {int(time_in_cooldown/60)} minutes! "
+                f"Return temp: {return_temp:.1f}C, "
+                f"Target: {recovery_threshold:.1f}C",
                 level="ERROR"
             )
             
@@ -433,7 +433,7 @@ class CyclingProtection:
         
         # Log progress
         self.ad.log(
-            f"Cooldown check: {return_temp:.1f}°C (target: {recovery_threshold:.1f}°C) "
+            f"Cooldown check: {return_temp:.1f}C (target: {recovery_threshold:.1f}C) "
             f"[{int(time_in_cooldown)}s elapsed]",
             level="DEBUG"
         )
@@ -441,7 +441,7 @@ class CyclingProtection:
         # Check if recovery threshold reached
         if return_temp <= recovery_threshold:
             self.ad.log(
-                f"✅ Recovery threshold reached: {return_temp:.1f}°C <= {recovery_threshold:.1f}°C "
+                f"Recovery threshold reached: {return_temp:.1f}C <= {recovery_threshold:.1f}C "
                 f"(cooldown duration: {int(time_in_cooldown/60)}m {int(time_in_cooldown%60)}s)",
                 level="INFO"
             )
@@ -471,9 +471,9 @@ class CyclingProtection:
         # Log exit
         return_temp = self._get_return_temp()
         self.ad.log(
-            f"✅ COOLDOWN ENDED | "
-            f"Duration: {int(duration)}s | Return: {return_temp:.1f}°C | "
-            f"Restored setpoint: {self.saved_setpoint:.1f}°C",
+            f"COOLDOWN ENDED | "
+            f"Duration: {int(duration)}s | Return: {return_temp:.1f}C | "
+            f"Restored setpoint: {self.saved_setpoint:.1f}C",
             level="INFO"
         )
         

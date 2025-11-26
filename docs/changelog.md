@@ -1,6 +1,35 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Remove Unicode Characters from Log Messages
+
+**Status:** IMPLEMENTED ✅
+
+**Problem:**
+AppDaemon's logging system has encoding issues with unicode characters when writing to log files. The degree symbol (°) and emojis (✅, 🎯, ❄️, 🚨, ⚠️, 🔥) were being written as replacement characters (`��`) in `/opt/appdata/appdaemon/conf/logs/appdaemon.log`. 
+
+Root cause: Python's logging module opens files without explicit UTF-8 encoding, defaulting to locale encoding which doesn't properly handle unicode characters even with `LANG=C.UTF-8` in Docker containers.
+
+**Solution:**
+Replaced all unicode characters in log messages with ASCII equivalents:
+- `°C` → `C`
+- `✅` → removed (text speaks for itself)
+- `🎯` → removed
+- `❄️` → removed
+- `🚨` → "ERROR:" prefix
+- `⚠️` → "WARNING:" prefix  
+- `🔥` → removed
+- `→` → `->`
+
+**Code Changes:**
+- `controllers/cycling_protection.py`: 13 log statements updated
+- `managers/override_manager.py`: 1 log statement updated
+- Comments and status text (non-logged) retain unicode for readability
+
+**Note:** Status text visible in Home Assistant UI still uses unicode (e.g., `°` in temperature displays) - only logging messages affected.
+
+---
+
 ## 2025-11-26: Hybrid Config Reload Strategy (Simplification) 🔧
 
 **Status:** IMPLEMENTED ✅
