@@ -1,6 +1,54 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Fix Pump Overrun Blocked by min_on_time
+
+**Status:** IMPLEMENTED ✅
+
+**Problem:**
+When the boiler was already physically OFF (e.g., turned off by the desync handler), the system would still wait for `min_on_time` to elapse before transitioning from `PENDING_OFF` to `PUMP_OVERRUN`. This caused:
+
+1. **Delayed pump overrun activation**: Valves stayed at their persisted positions but without proper pump overrun state tracking
+2. **Vulnerability to restarts**: If AppDaemon restarted before `min_on_time` elapsed, valve positions were lost and closed immediately
+3. **Incorrect logic**: `min_on_time` should only prevent *turning the boiler off too early*, not delay the state transition when it's already off
+
+**Example Timeline (2025-11-26 08:26-08:29):**
+- 08:26:40: Entered `PENDING_OFF` (30s off-delay)
+- 08:26:44: Desync handler turned boiler OFF (but state stayed `PENDING_OFF`)
+- 08:27:10: Off-delay expired, but `min_on_time` not elapsed (started 08:25:50, needs 180s)
+- 08:27:10-08:28:50: Stuck in `PENDING_OFF` with message "waiting for min_on_time"
+- 08:28:50: Would have transitioned to `PUMP_OVERRUN` (44 seconds later)
+- 08:29:34: AppDaemon restarted, lost valve positions before pump overrun could activate
+
+**Solution:**
+Modified `PENDING_OFF` logic to check if boiler is physically OFF before applying `min_on_time` constraint:
+
+```python
+# Check current boiler state
+boiler_entity_state = self._get_boiler_entity_state()
+boiler_is_off = boiler_entity_state in ["off", "idle"]
+
+# If already off OR min_on_time elapsed, enter pump overrun
+if boiler_is_off or self._check_min_on_time_elapsed():
+    self._transition_to(C.STATE_PUMP_OVERRUN, ...)
+    if not boiler_is_off:
+        self._set_boiler_off()  # Only turn off if still on
+```
+
+**Behavior Changes:**
+- ✅ Boiler already OFF → immediate transition to `PUMP_OVERRUN` (preserves valve positions)
+- ✅ Boiler still ON → wait for `min_on_time` before turning off and entering pump overrun
+- ✅ Maintains anti-cycling protection while fixing the stuck state issue
+- ✅ More resilient to AppDaemon restarts during shutdown sequence
+
+**Files Modified:**
+- `controllers/boiler_controller.py`: Updated `PENDING_OFF` state logic
+
+**Testing Notes:**
+This fix ensures pump overrun activates as soon as the off-delay expires if the boiler is already off, preventing the 2+ minute delay that could result in lost valve positions during restart.
+
+---
+
 ## 2025-11-26: Remove Unicode Characters from Log Messages
 
 **Status:** IMPLEMENTED ✅

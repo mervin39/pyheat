@@ -305,19 +305,29 @@ class BoilerController:
                 self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
                 reason = f"Returned to ON: demand resumed ({len(active_rooms)} room(s))"
             elif not self._is_timer_active(C.HELPER_BOILER_OFF_DELAY_TIMER):
-                # Off-delay timer completed, check min_on_time
-                if not self._check_min_on_time_elapsed():
-                    reason = f"Pending OFF: waiting for min_on_time"
-                else:
-                    # Turn off and enter pump overrun
-                    self._transition_to(C.STATE_PUMP_OVERRUN, now, "off-delay elapsed, turning off")
-                    self._set_boiler_off()
+                # Off-delay timer completed - check if we can transition to pump overrun
+                boiler_entity_state = self._get_boiler_entity_state()
+                boiler_is_off = boiler_entity_state in ["off", "idle"]
+                
+                # If boiler is already physically off (e.g., from desync handler), enter pump overrun immediately
+                # Otherwise, check min_on_time before turning it off
+                if boiler_is_off or self._check_min_on_time_elapsed():
+                    # Enter pump overrun state
+                    self._transition_to(C.STATE_PUMP_OVERRUN, now, "off-delay elapsed, entering pump overrun")
+                    
+                    # Turn off boiler if it's still on
+                    if not boiler_is_off:
+                        self._set_boiler_off()
+                    
                     self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
                     self._start_timer(C.HELPER_BOILER_MIN_OFF_TIMER, self._get_min_off_time())
                     self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self._get_pump_overrun())
                     self._save_pump_overrun_valves()
                     reason = "Pump overrun: boiler commanded off"
                     valves_must_stay_open = True
+                else:
+                    # Boiler is still on but min_on_time hasn't elapsed yet
+                    reason = f"Pending OFF: waiting for min_on_time to turn off boiler"
             else:
                 reason = f"Pending OFF: off-delay timer active"
         
