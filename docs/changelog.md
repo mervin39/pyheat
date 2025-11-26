@@ -1,6 +1,115 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Load Sharing Feature - Phase 2 Tier 2 Extended Lookahead 🎯
+
+**Status:** IMPLEMENTED ✅
+
+**Phase:** Tier 2 Extended Lookahead with Escalation (Phase 2 of 4)
+
+**Branch:** `feature/load-sharing-phase2`
+
+**Summary:**
+Implemented Tier 2 extended lookahead selection and comprehensive escalation logic. The system now cascades through multiple tiers with intelligent valve opening adjustments. When Tier 1 rooms (60-minute lookahead) are insufficient, the system escalates Tier 1 to 80% valve opening, then adds Tier 2 rooms with extended 2× lookahead windows at 40% valve opening. This provides graceful capacity expansion while minimizing unwanted heating.
+
+**What Was Added:**
+
+1. **Tier 2 Selection Logic** (`managers/load_sharing_manager.py`)
+   - **Extended lookahead**: 2× the configured `schedule_lookahead_m` per room
+   - **Example**: Room with 60 min lookahead → checks 120 min window
+   - **Selection criteria**: Same as Tier 1 but with wider time window
+     - Room in "auto" mode
+     - Not currently calling
+     - Not already in Tier 1
+     - Has schedule block within 2× window
+     - Schedule target > current temperature
+   - **Sorted by need**: Highest temperature deficit first
+   - **Initial valve opening**: 40% (gentle pre-warming for extended window)
+
+2. **Escalation System** (`managers/load_sharing_manager.py`)
+   - **Tier 1 escalation**: 70% → 80% valve opening
+   - **Tier 2 escalation**: 40% → 50% valve opening
+   - **Strategy**: Maximize existing selections before adding new rooms
+   - **Cascading logic**:
+     1. Try Tier 1 at 70%
+     2. If insufficient → Escalate Tier 1 to 80%
+     3. If still insufficient → Add Tier 2 at 40%
+     4. If still insufficient → Escalate Tier 2 to 50%
+   - **State transitions**: TIER1_ACTIVE → TIER1_ESCALATED → TIER2_ACTIVE → TIER2_ESCALATED
+
+3. **Capacity Calculation** (`managers/load_sharing_manager.py`)
+   - **_calculate_total_system_capacity()**: Comprehensive capacity calculation
+   - **Includes**:
+     - All naturally calling rooms at full capacity
+     - All load sharing rooms with valve adjustment
+   - **Valve adjustment**: `effective_capacity = capacity × (valve_pct / 100)`
+   - **Used for**: Determining when to stop adding rooms/escalating
+
+4. **Enhanced evaluate() Logic** (`managers/load_sharing_manager.py`)
+   - **Cascading activation**: Automatically progresses through tiers
+   - **Capacity checks**: After each tier/escalation, check if target met
+   - **Early exit**: Stops cascading when sufficient capacity reached
+   - **Logging**: Detailed capacity reporting at each step
+
+**Key Design Decisions:**
+
+- **Extended window = 2× base window**: Catches rooms with later schedules
+- **Lower valve % for extended window**: 40% vs 70% reduces energy waste
+- **Escalate existing before adding new**: Maximizes efficiency
+- **Capacity-driven cascading**: Only progresses if previous tier insufficient
+- **State tracking**: Each tier/escalation has explicit state for visibility
+
+**Escalation Strategy Details:**
+
+The cascading logic prioritizes increasing valve openings on already-selected rooms over adding new rooms:
+
+1. **Tier 1 Initial (70%)**: Primary schedule-aware selections
+2. **Tier 1 Escalated (80%)**: Increase existing Tier 1 rooms if insufficient
+3. **Tier 2 Initial (40%)**: Add extended window rooms if still insufficient
+4. **Tier 2 Escalated (50%)**: Increase Tier 2 rooms if needed
+5. **Tier 3 (Future)**: Fallback priority list as ultimate safety net
+
+This approach minimizes the number of rooms heated while maximizing heat delivery from rooms that will need it anyway.
+
+**Testing:**
+- ✅ AppDaemon restarts without errors
+- ✅ LoadSharingManager initializes correctly
+- ✅ No errors, warnings, or tracebacks in logs
+- ✅ State machine transitions properly defined
+- ✅ Capacity calculation logic implemented
+- ✅ Ready for real-world testing
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: 
+  - Added `_select_tier2_rooms()` with 2× lookahead logic
+  - Added `_escalate_tier1_rooms()` and `_escalate_tier2_rooms()`
+  - Added `_activate_tier2()` for Tier 2 room activation
+  - Added `_calculate_total_system_capacity()` for comprehensive capacity tracking
+  - Enhanced `evaluate()` with cascading tier logic
+- `docs/load_sharing_todo.md`: Phase 2 completion tracking
+- `docs/changelog.md`: Phase 2 entry
+
+**Configuration:**
+- **Per-room lookahead**: `load_sharing.schedule_lookahead_m: 60` (default)
+  - Tier 1 uses this value (60 min)
+  - Tier 2 uses 2× this value (120 min)
+- **Capacity thresholds**: `boiler.yaml` load_sharing section
+  - `min_calling_capacity_w: 3500` (activation threshold)
+  - `target_capacity_w: 4000` (stop adding rooms)
+
+**Next Steps:**
+- Phase 3: Implement Tier 3 fallback priority list (ultimate safety net)
+- Phase 4: Full system integration, real-world testing, and validation
+- Enable by default after validation
+- CSV log analysis to validate cycling reduction
+
+**Known Limitations:**
+- Phase 2 only: If no Tier 1/2 rooms available, load sharing stays inactive
+- No Tier 3 yet: Priority list fallback not implemented (safety net missing)
+- Valve adjustment formula is simplified estimate (may need real-world tuning)
+
+---
+
 ## 2025-11-26: Load Sharing Feature - Phase 1 Tier 1 Selection 🎯
 
 **Status:** IMPLEMENTED ✅

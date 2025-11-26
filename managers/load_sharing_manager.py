@@ -136,12 +136,75 @@ class LoadSharingManager:
         # If currently inactive, check entry conditions
         if not self.context.is_active():
             if self._evaluate_entry_conditions(room_states, cycling_protection_state):
-                # Entry conditions met - select Tier 1 rooms
+                # Entry conditions met - start with Tier 1 selection
                 tier1_selections = self._select_tier1_rooms(room_states, now)
                 
                 if tier1_selections:
                     # Activate load sharing with Tier 1
                     self._activate_tier1(room_states, tier1_selections, now)
+                    
+                    # Check if Tier 1 capacity is sufficient
+                    total_capacity = self._calculate_total_system_capacity(room_states)
+                    
+                    if total_capacity >= self.target_capacity_w:
+                        self.ad.log(
+                            f"Load sharing: Tier 1 sufficient ({total_capacity:.0f}W >= {self.target_capacity_w}W)",
+                            level="INFO"
+                        )
+                    else:
+                        # Tier 1 insufficient - escalate to 80%
+                        self.ad.log(
+                            f"Load sharing: Tier 1 insufficient ({total_capacity:.0f}W < {self.target_capacity_w}W) - escalating",
+                            level="INFO"
+                        )
+                        self._escalate_tier1_rooms()
+                        
+                        # Recalculate with escalated Tier 1
+                        total_capacity = self._calculate_total_system_capacity(room_states)
+                        
+                        if total_capacity >= self.target_capacity_w:
+                            self.ad.log(
+                                f"Load sharing: Tier 1 escalated sufficient ({total_capacity:.0f}W >= {self.target_capacity_w}W)",
+                                level="INFO"
+                            )
+                        else:
+                            # Still insufficient - try Tier 2
+                            self.ad.log(
+                                f"Load sharing: Tier 1 escalated insufficient ({total_capacity:.0f}W < {self.target_capacity_w}W) - trying Tier 2",
+                                level="INFO"
+                            )
+                            tier2_selections = self._select_tier2_rooms(room_states, now)
+                            
+                            if tier2_selections:
+                                self._activate_tier2(tier2_selections, now)
+                                
+                                # Recalculate with Tier 2 added
+                                total_capacity = self._calculate_total_system_capacity(room_states)
+                                
+                                if total_capacity >= self.target_capacity_w:
+                                    self.ad.log(
+                                        f"Load sharing: Tier 2 sufficient ({total_capacity:.0f}W >= {self.target_capacity_w}W)",
+                                        level="INFO"
+                                    )
+                                else:
+                                    # Escalate Tier 2
+                                    self.ad.log(
+                                        f"Load sharing: Tier 2 insufficient ({total_capacity:.0f}W < {self.target_capacity_w}W) - escalating",
+                                        level="INFO"
+                                    )
+                                    self._escalate_tier2_rooms()
+                                    
+                                    # Final capacity check
+                                    total_capacity = self._calculate_total_system_capacity(room_states)
+                                    self.ad.log(
+                                        f"Load sharing: Tier 2 escalated - final capacity {total_capacity:.0f}W",
+                                        level="INFO"
+                                    )
+                            else:
+                                self.ad.log(
+                                    f"Load sharing: No Tier 2 rooms available (Phase 3 not yet implemented)",
+                                    level="INFO"
+                                )
                     
                     # Return valve commands for activated rooms
                     return {room_id: room.valve_pct for room_id, room in self.context.active_rooms.items()}
@@ -348,16 +411,94 @@ class LoadSharingManager:
         
         return selections
     
-    def _select_tier2_rooms(self, room_states: Dict) -> List[Tuple[str, int, str]]:
+    def _select_tier2_rooms(self, room_states: Dict, now: datetime) -> List[Tuple[str, int, str]]:
         """Select Tier 2 (extended lookahead) rooms.
         
-        Phase 2: Implement extended window logic.
-        Phase 0: Stub returns empty list.
+        Phase 2: Extended window selection (2× schedule_lookahead_m).
+        Same criteria as Tier 1 but with wider time window.
         
+        Selection criteria:
+        - Room in "auto" mode
+        - Not currently calling for heat
+        - Not already in Tier 1
+        - Has schedule block within 2× lookahead window
+        - Schedule target > current temperature
+        
+        Sorted by: (scheduled_target - current_temp) DESC (neediest first)
+        
+        Args:
+            room_states: Room state dict from room_controller
+            now: Current datetime
+            
         Returns:
             List of (room_id, valve_pct, reason) tuples
         """
-        return []
+        candidates = []
+        tier1_room_ids = set(self.context.active_rooms.keys())
+        
+        for room_id, state in room_states.items():
+            # Skip if not in auto mode
+            if state.get('mode') != 'auto':
+                continue
+            
+            # Skip if already calling
+            if state.get('calling', False):
+                continue
+            
+            # Skip if already in Tier 1
+            if room_id in tier1_room_ids:
+                continue
+            
+            # Get room config for lookahead window (2× the configured window)
+            room_cfg = self.config.rooms.get(room_id, {})
+            load_sharing_cfg = room_cfg.get('load_sharing', {})
+            base_lookahead_m = load_sharing_cfg.get('schedule_lookahead_m', C.LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT)
+            extended_lookahead_m = base_lookahead_m * 2
+            
+            # Check for schedule block within extended window
+            next_block = self.scheduler.get_next_schedule_block(room_id, now, within_minutes=extended_lookahead_m)
+            
+            if next_block is None:
+                # No schedule block within extended window
+                continue
+            
+            start_time, end_time, target_temp = next_block
+            current_temp = state.get('temp')
+            
+            if current_temp is None:
+                # No temperature data - skip
+                continue
+            
+            # Only pre-warm if schedule target is higher than current temp
+            if target_temp <= current_temp:
+                continue
+            
+            # Calculate need (temperature deficit)
+            need = target_temp - current_temp
+            
+            # Calculate time until schedule
+            minutes_until = (start_time - now).total_seconds() / 60
+            
+            # Determine reason string
+            reason = f"schedule_{int(minutes_until)}m_ext"
+            
+            candidates.append((room_id, need, target_temp, minutes_until, reason))
+        
+        # Sort by need (descending) - neediest rooms first
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        # Return as list of (room_id, valve_pct, reason)
+        # Initial valve opening: 40% for Tier 2 (gentle pre-warming for extended window)
+        selections = []
+        for room_id, need, target, minutes, reason in candidates:
+            selections.append((room_id, C.LOAD_SHARING_TIER2_INITIAL_PCT, reason))
+            self.ad.log(
+                f"Load sharing Tier 2 candidate: {room_id} - need={need:.1f}C, target={target:.1f}C, "
+                f"minutes_until={minutes:.0f}, valve={C.LOAD_SHARING_TIER2_INITIAL_PCT}%",
+                level="DEBUG"
+            )
+        
+        return selections
     
     def _select_tier3_rooms(self, room_states: Dict) -> List[Tuple[str, int, str]]:
         """Select Tier 3 (fallback priority) rooms.
@@ -411,6 +552,34 @@ class LoadSharingManager:
         self.ad.log(
             f"Load sharing ACTIVATED (Tier 1): {len(tier1_selections)} room(s) [{room_list}] | "
             f"Trigger: {len(calling_rooms)} room(s) at {trigger_capacity:.0f}W",
+            level="INFO"
+        )
+    
+    def _activate_tier2(self, tier2_selections: List[Tuple[str, int, str]], now: datetime) -> None:
+        """Activate Tier 2 rooms (add to existing Tier 1).
+        
+        Args:
+            tier2_selections: List of (room_id, valve_pct, reason) tuples
+            now: Current datetime
+        """
+        # Activate selected Tier 2 rooms
+        for room_id, valve_pct, reason in tier2_selections:
+            activation = RoomActivation(
+                room_id=room_id,
+                tier=2,
+                valve_pct=valve_pct,
+                activated_at=now,
+                reason=reason
+            )
+            self.context.active_rooms[room_id] = activation
+        
+        # Update state
+        self.context.state = LoadSharingState.TIER2_ACTIVE
+        
+        # Log activation
+        room_list = ', '.join([f"{rid}={vpct}%" for rid, vpct, _ in tier2_selections])
+        self.ad.log(
+            f"Load sharing: Added {len(tier2_selections)} Tier 2 room(s) [{room_list}]",
             level="INFO"
         )
     
@@ -495,3 +664,73 @@ class LoadSharingManager:
             return True
         
         return False
+    
+    def _calculate_total_system_capacity(self, room_states: Dict) -> float:
+        """Calculate total system capacity including calling rooms and load sharing rooms.
+        
+        Includes:
+        - All naturally calling rooms at their current capacity
+        - All load sharing rooms at their effective capacity (valve adjusted)
+        
+        Args:
+            room_states: Room state dict
+            
+        Returns:
+            Total system capacity in watts
+        """
+        total = 0.0
+        
+        # Add calling rooms
+        for room_id, state in room_states.items():
+            if state.get('calling', False):
+                capacity = self.load_calculator.get_estimated_capacity(room_id)
+                if capacity is not None:
+                    total += capacity
+        
+        # Add load sharing rooms (with valve adjustment)
+        for room_id, activation in self.context.active_rooms.items():
+            capacity = self.load_calculator.get_estimated_capacity(room_id)
+            if capacity is not None:
+                # Apply valve adjustment - rough estimate
+                # valve_pct / 100 gives flow factor (e.g., 70% = 0.7)
+                # Apply flow efficiency multiplier (assume ~1.0 for simplicity)
+                effective_capacity = capacity * (activation.valve_pct / 100.0)
+                total += effective_capacity
+        
+        return total
+    
+    def _escalate_tier1_rooms(self) -> None:
+        """Escalate Tier 1 rooms from 70% to 80% valve opening.
+        
+        Called when Tier 1 rooms alone are insufficient to reach target capacity.
+        Updates context state and room valve percentages.
+        """
+        for room_id, activation in self.context.active_rooms.items():
+            if activation.tier == 1:
+                activation.valve_pct = C.LOAD_SHARING_TIER1_ESCALATED_PCT
+        
+        self.context.state = LoadSharingState.TIER1_ESCALATED
+        
+        self.ad.log(
+            f"Load sharing: Escalating {len(self.context.tier1_rooms)} Tier 1 rooms to "
+            f"{C.LOAD_SHARING_TIER1_ESCALATED_PCT}%",
+            level="INFO"
+        )
+    
+    def _escalate_tier2_rooms(self) -> None:
+        """Escalate Tier 2 rooms from 40% to 50% valve opening.
+        
+        Called when Tier 1 escalated + Tier 2 initial are insufficient.
+        Updates context state and room valve percentages.
+        """
+        for room_id, activation in self.context.active_rooms.items():
+            if activation.tier == 2:
+                activation.valve_pct = C.LOAD_SHARING_TIER2_ESCALATED_PCT
+        
+        self.context.state = LoadSharingState.TIER2_ESCALATED
+        
+        self.ad.log(
+            f"Load sharing: Escalating {len(self.context.tier2_rooms)} Tier 2 rooms to "
+            f"{C.LOAD_SHARING_TIER2_ESCALATED_PCT}%",
+            level="INFO"
+        )
