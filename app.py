@@ -711,17 +711,6 @@ class PyHeat(hass.Hass):
             self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             raise
         
-        # Apply persistence overrides to valve coordinator (safety-critical)
-        if persisted_valves:
-            # Determine reason based on boiler state
-            if valves_must_stay_open:
-                reason = "pump_overrun"
-            else:
-                reason = "interlock"
-            self.valve_coordinator.set_persistence_overrides(persisted_valves, reason)
-        else:
-            self.valve_coordinator.clear_persistence_overrides()
-        
         # Evaluate load sharing needs
         cycling_state = self.cycling.state if hasattr(self.cycling, 'state') else 'NORMAL'
         load_sharing_commands = self.load_sharing.evaluate(room_data, boiler_state, cycling_state)
