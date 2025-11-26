@@ -1,6 +1,140 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: Load Sharing Feature - Phase 3 Tier 3 Fallback Priority 📋
+
+**Status:** IMPLEMENTED ✅
+
+**Phase:** Tier 3 Fallback Priority (Phase 3 of 4)
+
+**Branch:** `feature/load-sharing-phase3`
+
+**Summary:**
+Implemented Tier 3 fallback priority selection as the ultimate safety net for load sharing. When schedule-based selection (Tier 1 and Tier 2) fails to provide sufficient capacity, the system now falls back to an explicit priority list configured per room. This ensures deterministic behavior during schedule-free periods (weekends, holidays) while accepting the trade-off of heating rooms without upcoming schedules to prevent boiler cycling.
+
+**What Was Added:**
+
+1. **Tier 3 Selection Logic** (`managers/load_sharing_manager.py`)
+   - **Priority-based selection**: Uses explicit `fallback_priority` ranking from room configs
+   - **Selection criteria**:
+     - Room in "auto" mode (respects user intent)
+     - Not currently calling for heat
+     - Not already in Tier 1 or Tier 2
+     - Has `fallback_priority` configured (rooms without this excluded)
+     - **NO temperature check** - ultimate fallback accepts any auto mode room
+   - **Sorted by priority**: Lower number = higher priority (1, 2, 3, ...)
+   - **Initial valve opening**: 50% (compromise between flow and energy)
+
+2. **Tier 3 Activation and Escalation** (`managers/load_sharing_manager.py`)
+   - **_activate_tier3()**: Adds fallback rooms to load sharing control
+   - **WARNING level logging**: Tier 3 activation logged with WARNING to indicate schedule gap
+   - **Escalation**: 50% → 60% valve opening if still insufficient
+   - **State transitions**: TIER2_ESCALATED → TIER3_ACTIVE → TIER3_ESCALATED
+
+3. **Tier 3 Timeout Handling** (`managers/load_sharing_manager.py`)
+   - **15-minute timeout**: Maximum activation duration for Tier 3 rooms
+   - **Checked in exit conditions**: Removes timed-out rooms individually
+   - **Prevents long-term unwanted heating**: Balances cycling prevention with energy efficiency
+   - **Timeout only for Tier 3**: Tier 1/2 rooms persist for full calling pattern duration
+
+4. **Complete Cascade Integration** (`managers/load_sharing_manager.py`)
+   - **Full tier progression**:
+     1. Tier 1 at 70% (schedule-aware)
+     2. Tier 1 escalated to 80%
+     3. Tier 2 at 40% (extended lookahead)
+     4. Tier 2 escalated to 50%
+     5. Tier 3 at 50% (fallback priority)
+     6. Tier 3 escalated to 60%
+   - **Graceful degradation**: Falls through to next tier only if previous insufficient
+   - **Multiple entry points**: Can activate Tier 3 directly if no Tier 2 rooms available
+   - **All tiers exhausted handling**: Accepts cycling as "lesser evil" if all tiers fail
+
+**Key Design Decisions:**
+
+- **No temperature check for Tier 3**: Ultimate fallback doesn't require heating need
+  - Trade-off: May heat rooms above target to prevent boiler cycling
+  - Justification: Cycling prevention prioritized over minimal energy waste
+- **WARNING level logging**: Alerts user that schedule coverage may need improvement
+- **15-minute timeout**: Balances cycling prevention with energy efficiency
+- **Explicit exclusion via omission**: Rooms without `fallback_priority` never used in Tier 3
+- **Priority-based determinism**: Ensures predictable behavior during schedule gaps
+
+**Escalation Strategy - Complete System:**
+
+The full cascading logic now provides comprehensive coverage:
+
+1. **Tier 1 Initial (70%)**: Primary schedule-aware selections (within 60 min)
+2. **Tier 1 Escalated (80%)**: Increase existing Tier 1 rooms
+3. **Tier 2 Initial (40%)**: Add extended window rooms (within 120 min)
+4. **Tier 2 Escalated (50%)**: Increase Tier 2 rooms
+5. **Tier 3 Initial (50%)**: Add fallback priority rooms (any auto mode room)
+6. **Tier 3 Escalated (60%)**: Final escalation attempt
+7. **All Tiers Exhausted**: Accept cycling (logged at INFO level)
+
+This approach maximizes efficiency by prioritizing schedule-aligned pre-warming while ensuring deterministic behavior as a last resort.
+
+**Configuration Example:**
+
+```yaml
+# rooms.yaml
+- id: lounge
+  load_sharing:
+    schedule_lookahead_m: 90   # Tier 1 window (90 min), Tier 2 window (180 min)
+    fallback_priority: 1        # First choice for Tier 3 fallback
+
+- id: games
+  load_sharing:
+    schedule_lookahead_m: 60   # Default windows
+    fallback_priority: 2        # Second choice for fallback
+
+- id: pete
+  load_sharing:
+    schedule_lookahead_m: 30   # Conservative pre-warming
+    # No fallback_priority = excluded from Tier 3 (never heated as fallback)
+```
+
+**Testing:**
+- ✅ AppDaemon restarts without errors
+- ✅ LoadSharingManager initializes correctly
+- ✅ No errors, warnings, or tracebacks in logs
+- ✅ Tier 3 selection logic implemented
+- ✅ Timeout handling integrated into exit conditions
+- ✅ Complete cascade from Tier 1 → Tier 2 → Tier 3
+- ✅ Ready for Phase 4 integration testing
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: 
+  - Added `_select_tier3_rooms()` with priority-based selection
+  - Added `_activate_tier3()` and `_escalate_tier3_rooms()`
+  - Enhanced `_evaluate_exit_conditions()` with Tier 3 timeout (Exit Trigger D)
+  - Integrated Tier 3 into evaluate() cascade with multiple entry points
+  - Added "all tiers exhausted" handling
+- `docs/load_sharing_todo.md`: Phase 3 completion tracking
+- `docs/changelog.md`: Phase 3 entry
+
+**Capacity Thresholds:**
+- **Activation**: Total calling capacity < 3500W (configurable)
+- **Target**: Stop adding rooms when capacity ≥ 4000W
+- **Minimum duration**: 5 minutes before allowing exit
+- **Tier 3 timeout**: 15 minutes maximum for fallback rooms
+
+**Next Steps:**
+- Phase 4: Full system integration and real-world testing
+- Enable by default after validation period
+- CSV log analysis to validate cycling reduction
+- Monitor WARNING logs for Tier 3 activations (indicates schedule gaps)
+- Consider adding per-room capacity visualization
+
+**Known Limitations:**
+- Tier 3 timeout may cause premature deactivation if primary room still calling
+  - Mitigation: System will reactivate if cycling risk persists
+- Priority list requires manual configuration and maintenance
+  - Future: Could auto-generate based on room usage patterns
+- Valve adjustment formula is simplified estimate
+  - May need real-world tuning based on observed cycling correlation
+
+---
+
 ## 2025-11-26: Load Sharing Feature - Phase 2 Tier 2 Extended Lookahead 🎯
 
 **Status:** IMPLEMENTED ✅
