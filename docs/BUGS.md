@@ -312,6 +312,186 @@ After fix is applied, verify:
 
 ---
 
+## BUG #3: Override Functionality Broken - Valve Commands Not Sent
+
+**Status:** INVESTIGATING  
+**Date Discovered:** 2025-11-26 (14:42:32 test override)  
+**Severity:** CRITICAL - completely breaks override functionality  
+**Branch:** feature/load-sharing-phase4
+
+### Observed Behavior
+
+When setting a temperature override via the API:
+```bash
+curl -X POST "http://localhost:5050/api/appdaemon/pyheat_override" \
+  -H "Content-Type: application/json" \
+  -d '{"room": "bathroom", "target": 22.0, "minutes": 60}'
+```
+
+**What works:**
+- Override service returns success ✓
+- Timer started: `timer.pyheat_bathroom_override` active for 60 minutes ✓
+- Target updated: 10.0°C → 22.0°C ✓
+- Room controller calculates valve should be 100% (error=11.27°C, band 0→max) ✓
+- Boiler turned ON correctly ✓
+
+**What fails:**
+- No "Setting TRV for room 'bathroom': 100%" log message ✗
+- Valve command never sent to TRV hardware ✗
+- Feedback sensor remains at 0% ✗
+- Heating CSV logs show: `bathroom_valve_cmd=0` throughout override period ✗
+
+### Root Cause Analysis
+
+**Valve command flow:**
+```
+app.py → valve_coordinator.apply_valve_command() → trvs.set_valve() → TRV hardware
+```
+
+**Execution trace at 14:42:32:**
+1. Room controller computed bathroom calling=True, valve_percent=100%
+2. Boiler controller calculated total_from_bands=100%, returned persisted_valves
+3. Valve coordinator called with desired_percent=100%
+4. TRV controller: **Silent early return** - no "Setting TRV" log generated
+
+**Possible cause:** Change detection in `trv_controller.py` line 160-162:
+```python
+last_commanded = self.trv_last_commanded.get(room_id)
+if last_commanded == percent:
+    return  # Silent early return if value unchanged
+```
+
+**Mystery:** `trv_last_commanded['bathroom']` should be 0 (from 14:33:19 command), desired percent is 100. These are different, so change detection should NOT have blocked the command. Yet no "Setting TRV" log appears.
+
+**False positive from yesterday (2025-11-25):** Override appeared to work at 06:52:09, but valve was already at 100% from hours earlier. No new command was needed, so bug wasn't exposed.
+
+**Most likely culprit:** One of the recent load sharing commits (2025-11-25 23:00 to 2025-11-26 14:13) modified the valve command flow in a way that causes `set_valve()` to silently skip commands.
+
+### Evidence
+
+**AppDaemon Logs (2025-11-26 14:42:32):**
+```
+14:42:32.232444 INFO: Override set: room=bathroom, target=22.0C, duration=3600s
+14:42:32.293179 INFO: Room 'bathroom': valve band 0 -> max (error=11.27°C, valve=100%)
+14:42:32.300486 INFO: Boiler: off -> on (demand and conditions met)
+14:42:32.305969 INFO: Boiler ON
+[MISSING: "Setting TRV for room 'bathroom': 100% open" - this line never appears]
+```
+
+**Last TRV command:** 14:33:19 (setting valve to 0% after pump overrun). No subsequent command at 14:42:32.
+
+**CSV Logs (heating_logs/2025-11-26.csv):**
+```csv
+time,bathroom_override,bathroom_calling,bathroom_valve_cmd,bathroom_valve_fb
+14:42:38,True,True,0,0
+14:42:46,True,True,0,0
+... (continued for 13+ minutes, valve_cmd never changed from 0)
+```
+
+**Comparison with working override (2025-11-25 06:52) - FALSE POSITIVE:**
+```csv
+time,bathroom_override,bathroom_calling,bathroom_valve_cmd,bathroom_valve_fb
+06:52:09,True,True,100,0
+06:52:14,True,True,100,100      ← Valve already at 100% from hours earlier
+```
+Further investigation revealed bathroom valve was already commanded to 100% since at least 06:45:00. Room was NOT calling for heat (calling=False, target=10.0). When override triggered, valve was already open, so no new command was needed.
+
+### Related Code Locations
+
+**Valve command path:**
+- `app.py` lines 690-745: Main recompute loop
+- `controllers/room_controller.py` line 292: `_persist_calling_state()` when calling changes
+- `controllers/room_controller.py` line 171-194: `_persist_calling_state()` implementation
+- `controllers/boiler_controller.py` line 59-175: `update_state()` - builds valve persistence
+- `controllers/valve_coordinator.py` line 120-175: `apply_valve_command()` - priority system
+- `controllers/trv_controller.py` line 140-185: `set_valve()` - rate limiting and change detection
+
+**trv_controller.py line 157-166 (change detection):**
+```python
+last_commanded = self.trv_last_commanded.get(room_id)
+if last_commanded == percent:
+    return
+```
+
+**trv_controller.py line 177 (the log that never appeared):**
+```python
+self.ad.log(f"Setting TRV for room '{room_id}': {percent}% open (was {last_commanded}%)")
+```
+
+### Fix Strategy
+
+**Debug steps needed:**
+1. Add debug logging before line 163 in trv_controller.py to log `last_commanded` and `percent` values
+2. Check if `trv_last_commanded` has unexpected state
+3. Add debug logging at start of `set_valve()` to confirm method is being called
+4. Trace execution path through valve_coordinator to confirm `apply_valve_command()` calls `set_valve()`
+5. Check if there's a code path that updates `trv_last_commanded` without sending commands
+
+**Attempted Fix #1: Valve Persistence Integration (DID NOT FIX BUG)**
+
+**Date Attempted:** 2025-11-26 15:17  
+**Commit:** f0985b6 (reverted in d286732)  
+**Status:** UNCERTAIN RELEVANCE
+
+**Theory:** ValveCoordinator introduced 2025-11-19 with incomplete integration. The boiler returns `persisted_valves`, but `app.py` never called `valve_coordinator.set_persistence_overrides()`.
+
+**Fix Applied:** Added code in app.py after `boiler.update_state()`:
+```python
+if persisted_valves:
+    if valves_must_stay_open:
+        reason = "pump_overrun"
+    else:
+        reason = "interlock"
+    self.valve_coordinator.set_persistence_overrides(persisted_valves, reason)
+else:
+    self.valve_coordinator.clear_persistence_overrides()
+```
+
+**Test Results:** Override triggered at 15:20:23, TRV command WAS sent, but user reports this did NOT fix the actual bug. The valve command sent during test was likely due to different initial conditions.
+
+**Conclusion:** This fix addresses a real architectural issue (missing persistence integration) but does not solve the override bug. The fix may still be relevant for proper valve persistence handling during pump overrun and interlock states. **Relevance: UNCERTAIN** - may be necessary but not sufficient.
+
+### Impact Assessment
+
+**Severity:** CRITICAL
+- All temperature overrides completely non-functional
+- Room calling for heat but valve stays closed
+- Boiler runs but no heat delivered to overridden room
+- User cannot manually control room temperatures
+- Workaround: None
+
+**Scope:**
+- Affects all rooms when using override service
+- May affect normal heating operation if similar issue exists in non-override path
+- System continues to heat based on schedules (non-override heating may still work)
+
+**Commits since last known working state (2025-11-25 23:00 to 2025-11-26 14:13):**
+- 10 commits related to Load Sharing implementation (Phase 0-4)
+- 2 commits for boiler controller bug fixes
+- 1 commit for unicode character removal
+- 1 commit for config reload strategy
+
+### Testing Notes
+
+**To reproduce:**
+1. Ensure bathroom valve is at 0% to start (critical to avoid false positives)
+2. Set override via API: `curl -X POST http://localhost:5050/api/appdaemon/pyheat_override -d '{"room":"bathroom","target":22.0,"minutes":60}'`
+3. Check AppDaemon logs for "Setting TRV for room 'bathroom'" - will be missing
+4. Check heating CSV logs - `bathroom_valve_cmd` will remain at 0 despite override active
+5. Check HA entity: `sensor.trv_bathroom_valve_opening_degree_z2m` - will remain at previous value
+
+**Important:** Start with valve at 0% to avoid false positives like 2025-11-25's test.
+
+### Context
+
+Discovered during fact-finding investigation into override functionality. User reported overrides worked yesterday but stopped working after today's load sharing implementation.
+
+Initial analysis suggested yesterday's override worked, but deeper investigation revealed it was a false positive - the valve was already at 100% from hours earlier, so no new command was needed when the override was triggered.
+
+The actual bug has likely been present since one of the recent load sharing commits, but was masked by coincidental valve states until today's test exposed it.
+
+---
+
 ## Bug Template
 
 ```markdown
