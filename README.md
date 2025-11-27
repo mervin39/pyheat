@@ -9,6 +9,7 @@ PyHeat provides multi-room heating control with:
 - **Smart TRV control** via zigbee2mqtt (TRVZB devices)
 - **Boiler management** with safety interlocks and anti-cycling
 - **Short-cycling protection** via return temperature monitoring and setpoint manipulation
+- **Load sharing** - intelligent multi-room heating to prevent boiler short-cycling
 - **Sensor fusion** with staleness detection and optional EMA smoothing
 - **Multiple control modes**: Auto (scheduled), Manual, and Off per room
 - **Override** functionality with flexible parameters (absolute/delta temp, duration/end time)
@@ -21,8 +22,10 @@ PyHeat provides multi-room heating control with:
 - **app.py** - Main AppDaemon application orchestration
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
 - **cycling_protection.py** - Automatic short-cycling prevention via return temperature monitoring
+- **load_sharing_manager.py** - Intelligent load balancing using schedule-aware pre-warming
 - **room_controller.py** - Per-room heating logic and target resolution
 - **trv_controller.py** - TRV valve command and setpoint locking
+- **valve_coordinator.py** - Single authority for valve commands with priority system
 - **sensor_manager.py** - Temperature sensor fusion and staleness detection
 - **scheduler.py** - Schedule parsing and time-based target calculation
 - **service_handler.py** - Home Assistant service handlers for programmatic control
@@ -38,9 +41,10 @@ PyHeat provides multi-room heating control with:
 2. **Target Resolution**: Precedence: Off → Manual → Override → Schedule → Default
 3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override response
 4. **Valve Control**: 3 stepped heating bands (Band 1: 40%, Band 2: 70%, Band Max: 100%) based on temperature error with hysteresis
-5. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
-6. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
-7. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 10°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
+5. **Load Sharing**: Intelligently opens additional room valves when primary calling rooms have insufficient capacity to prevent boiler short-cycling. Uses three-tier cascade: schedule-aware pre-warming → extended lookahead → fallback priority list
+6. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
+7. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
+8. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 10°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
 
 ## Installation
 
@@ -188,6 +192,41 @@ data:
 ```
 
 When timer expires, room returns to scheduled target.
+
+### Load Sharing
+
+**Intelligent load balancing** to prevent boiler short-cycling when primary calling rooms have insufficient radiator capacity.
+
+**How it works:**
+1. Detects when calling rooms cannot dissipate boiler output (low capacity + cycling evidence)
+2. Opens additional room valves using three-tier cascading strategy:
+   - **Tier 1**: Rooms with schedules starting soon (schedule-aware pre-warming)
+   - **Tier 2**: Rooms with schedules in extended window (2× lookahead)
+   - **Tier 3**: Fallback priority list for off-schedule periods
+3. Persists until calling pattern changes (not arbitrary timers)
+
+**Control:**
+- Master switch: `input_boolean.pyheat_load_sharing_enable`
+- Status: `sensor.pyheat_load_sharing_status` (state, active rooms, reason)
+- Per-room status visible in room sensor attributes
+
+**Configuration:**
+```yaml
+# rooms.yaml - optional per-room tuning
+rooms:
+  - id: lounge
+    load_sharing:
+      schedule_lookahead_m: 60    # Check schedules within 60 min (default)
+      fallback_priority: 1         # Lower = higher priority for fallback
+
+# boiler.yaml - system thresholds
+boiler:
+  load_sharing:
+    min_calling_capacity_w: 3500  # Activation threshold
+    target_capacity_w: 4000       # Target to reach
+```
+
+See [docs/load_sharing_proposal.md](docs/load_sharing_proposal.md) for complete design details.
 
 ### Holiday Mode
 

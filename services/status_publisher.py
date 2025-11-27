@@ -256,10 +256,15 @@ class StatusPublisher:
                 'cooldowns_last_hour': cooldowns_last_hour
             }
         
+        # Add load sharing state if available
+        if hasattr(self.ad, 'load_sharing'):
+            load_sharing_status = self.ad.load_sharing.get_status()
+            attrs['load_sharing'] = load_sharing_status
+        
         # Add per-room data
         total_valve = 0
         for room_id, data in room_data.items():
-            attrs['rooms'][room_id] = {
+            room_attrs = {
                 'mode': data.get('mode', 'off'),
                 'temperature': round(data['temp'], 1) if data['temp'] is not None else None,
                 'target': round(data['target'], 1) if data['target'] is not None else None,
@@ -267,9 +272,22 @@ class StatusPublisher:
                 'valve_percent': data.get('valve_percent', 0),
                 'is_stale': data.get('is_stale', True),
             }
+            
+            # Add estimated capacity if load monitoring enabled
+            if hasattr(self, 'load_calculator_ref') and self.load_calculator_ref:
+                if self.load_calculator_ref.enabled:
+                    estimated_capacity = self.load_calculator_ref.estimated_capacities.get(room_id, 0.0)
+                    room_attrs['estimated_dump_capacity'] = round(estimated_capacity, 0)
+            
+            attrs['rooms'][room_id] = room_attrs
             total_valve += data.get('valve_percent', 0)
         
         attrs['total_valve_percent'] = total_valve
+        
+        # Add total estimated capacity if available
+        if hasattr(self, 'load_calculator_ref') and self.load_calculator_ref:
+            if self.load_calculator_ref.enabled:
+                attrs['total_estimated_dump_capacity'] = round(self.load_calculator_ref.get_total_estimated_capacity(), 0)
         
         # Set state
         self.ad.set_state(C.STATUS_ENTITY, state=state, attributes=attrs)
@@ -402,8 +420,8 @@ class StatusPublisher:
             )
         except Exception as e:
             self.ad.log(f"ERROR: Failed to set {valve_entity}: {type(e).__name__}: {e}", level="ERROR")
-            import traceback
-            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+        
+        # Capacity data now in sensor.pyheat_status room attributes - no separate sensors needed
         
         # Calling binary sensor
         calling_entity = f"binary_sensor.pyheat_{room_id}_calling_for_heat"

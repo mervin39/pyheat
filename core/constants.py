@@ -172,6 +172,21 @@ HELPER_OPENTHERM_SETPOINT = "input_number.pyheat_opentherm_setpoint"
 HELPER_CYCLING_STATE = "input_text.pyheat_cycling_protection_state"
 
 # ============================================================================
+# Load-Based Capacity Estimation (EN 442 Thermal Model)
+# ============================================================================
+
+# System delta T assumption for mean water temperature estimation
+# Mean water temp = setpoint - (system_delta_t / 2)
+# Observed range: 7-16°C, default to middle of range
+LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT = 10  # °C
+
+# Radiator heat transfer exponent (EN 442 standard)
+# Panel radiators: 1.3 (standard double panel convector)
+# Towel rails: 1.2-1.25 (tube geometry, air gaps)
+# Can be overridden per-room in rooms.yaml
+LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT = 1.3
+
+# ============================================================================
 # TRV Entity Derivation Patterns
 # ============================================================================
 
@@ -288,6 +303,32 @@ STARTUP_SECOND_DELAY_S = 10   # Second recompute for late-restoring sensors
 # Time constant: ~3 sensor updates for 95% of step change to reflect
 # With sensors updating every 30-60s, this means 1.5-3 minutes to fully respond
 TEMPERATURE_SMOOTHING_ALPHA_DEFAULT = 0.3
+
+# ============================================================================
+# Load Sharing Configuration
+# ============================================================================
+
+# Load sharing master enable switch (Home Assistant helper)
+HELPER_LOAD_SHARING_ENABLE = "input_boolean.pyheat_load_sharing_enable"
+
+# Load sharing capacity thresholds (watts)
+LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT = 3500  # Activation threshold
+LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT = 4000       # Target capacity to reach
+
+# Load sharing timing constraints (seconds)
+LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT = 300  # 5 minutes minimum
+LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT = 900           # 15 minutes max for Tier 3
+
+# Load sharing valve opening defaults (percent)
+LOAD_SHARING_TIER1_INITIAL_PCT = 70   # Schedule-aware rooms start here
+LOAD_SHARING_TIER1_ESCALATED_PCT = 80 # Escalated if insufficient
+LOAD_SHARING_TIER2_INITIAL_PCT = 40   # Extended window rooms (gentle)
+LOAD_SHARING_TIER2_ESCALATED_PCT = 50 # Escalated if insufficient
+LOAD_SHARING_TIER3_INITIAL_PCT = 50   # Fallback rooms (compromise)
+LOAD_SHARING_TIER3_ESCALATED_PCT = 60 # Escalated if insufficient
+
+# Load sharing schedule lookahead defaults (minutes)
+LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT = 60  # Default lookahead window
 
 # ============================================================================
 # Logging

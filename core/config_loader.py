@@ -73,6 +73,8 @@ class ConfigLoader:
                 'precision': room.get('precision', 1),
                 'smoothing': room.get('smoothing', {}),  # Optional temperature smoothing config
                 'sensors': room.get('sensors', []),
+                'delta_t50': room.get('delta_t50'),  # Required for load calculation, validated later
+                'radiator_exponent': room.get('radiator_exponent'),  # Optional per-room override
                 'trv': {
                     'entity_id': room['trv']['entity_id'],
                     'cmd_valve': C.TRV_ENTITY_PATTERNS['cmd_valve'].format(trv_base=trv_base),
@@ -99,6 +101,13 @@ class ConfigLoader:
             vu = room_cfg['valve_update']
             if 'min_interval_s' not in vu:
                 vu['min_interval_s'] = C.VALVE_UPDATE_DEFAULT['min_interval_s']
+            
+            # Load and validate load_sharing configuration (Phase 0)
+            ls_cfg = room.get('load_sharing', {})
+            room_cfg['load_sharing'] = {
+                'schedule_lookahead_m': ls_cfg.get('schedule_lookahead_m', C.LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT),
+                'fallback_priority': ls_cfg.get('fallback_priority', None),  # None = not in fallback list
+            }
             
             # Validate sensor timeout_m (must be >= TIMEOUT_MIN_M)
             for sensor in room_cfg['sensors']:
@@ -150,6 +159,20 @@ class ConfigLoader:
         # Interlock defaults (reasonable default if not specified)
         interlock_cfg = bc.setdefault('interlock', {})
         interlock_cfg.setdefault('min_valve_open_percent', C.BOILER_MIN_VALVE_OPEN_PERCENT_DEFAULT)
+        
+        # Load monitoring defaults (for capacity estimation)
+        load_cfg = bc.setdefault('load_monitoring', {})
+        load_cfg.setdefault('enabled', True)
+        load_cfg.setdefault('system_delta_t', C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT)
+        load_cfg.setdefault('radiator_exponent', C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT)
+        
+        # Load sharing defaults (Phase 0)
+        ls_cfg = bc.setdefault('load_sharing', {})
+        ls_cfg.setdefault('enabled', False)  # Disabled by default in Phase 0
+        ls_cfg.setdefault('min_calling_capacity_w', C.LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT)
+        ls_cfg.setdefault('target_capacity_w', C.LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT)
+        ls_cfg.setdefault('min_activation_duration_s', C.LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT)
+        ls_cfg.setdefault('tier3_timeout_s', C.LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT)
         
         self.ad.log(f"Loaded boiler config: entity_id={bc['entity_id']}")
     
@@ -284,6 +307,20 @@ class ConfigLoader:
                     self.ad.log(f"Config file changed: {filepath}", level="INFO")
                     changed = True
         return changed
+    
+    def get_changed_files(self) -> list:
+        """Get list of configuration files that have been modified.
+        
+        Returns:
+            List of file paths that have changed since last check
+        """
+        changed_files = []
+        for filepath, old_mtime in self.config_file_mtimes.items():
+            if os.path.exists(filepath):
+                new_mtime = os.path.getmtime(filepath)
+                if new_mtime != old_mtime:
+                    changed_files.append(filepath)
+        return changed_files
     
     def reload(self) -> None:
         """Reload all configuration files."""

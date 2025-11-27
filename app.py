@@ -25,6 +25,9 @@ from typing import Dict, List, Optional
 # Import PyHeat modules
 from config_loader import ConfigLoader
 from sensor_manager import SensorManager
+from load_calculator import LoadCalculator
+from load_sharing_manager import LoadSharingManager
+from load_sharing_state import LoadSharingState
 from scheduler import Scheduler
 from override_manager import OverrideManager
 from room_controller import RoomController
@@ -58,15 +61,19 @@ class PyHeat(hass.Hass):
         self.config = ConfigLoader(self)
         self.alerts = AlertManager(self)  # Initialize alert manager first
         self.sensors = SensorManager(self, self.config)
+        self.load_calculator = LoadCalculator(self, self.config, self.sensors)
         self.overrides = OverrideManager(self, self.config)
         self.scheduler = Scheduler(self, self.config, self.overrides)
+        self.load_sharing = LoadSharingManager(self, self.config, self.scheduler, self.load_calculator, self.sensors)
         self.trvs = TRVController(self, self.config, self.alerts)
         self.valve_coordinator = ValveCoordinator(self, self.trvs)
+        self.valve_coordinator.initialize_from_ha()  # Initialize pump overrun state from HA
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
         self.cycling = CyclingProtection(self, self.config, self.alerts)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
+        self.status.load_calculator_ref = self.load_calculator  # Allow status publisher to get capacity data
         self.services = ServiceHandler(self, self.config, self.overrides)
         self.api = APIHandler(self, self.services)
         
@@ -107,6 +114,24 @@ class PyHeat(hass.Hass):
         
         # Initialize sensor values from current state
         self.sensors.initialize_from_ha()
+        
+        # Initialize load calculator (validates delta_t50 configuration)
+        try:
+            self.load_calculator.initialize_from_ha()
+        except ValueError as e:
+            self.error(f"LoadCalculator initialization failed: {e}")
+            self.log("PyHeat initialization failed - load calculator configuration error")
+            # Report critical alert for config failure
+            self.alerts.report_error(
+                AlertManager.ALERT_CONFIG_LOAD_FAILURE,
+                AlertManager.SEVERITY_CRITICAL,
+                f"LoadCalculator initialization failed:\n\n{e}",
+                auto_clear=False  # Requires manual intervention
+            )
+            return
+        
+        # Initialize load sharing manager (Phase 0: disabled by default)
+        self.load_sharing.initialize_from_ha()
         
         # Initialize TRV state from current valve positions
         self.trvs.initialize_from_ha()
@@ -198,6 +223,9 @@ class PyHeat(hass.Hass):
         
         if self.entity_exists(C.HELPER_HOLIDAY_MODE):
             self.listen_state(self.holiday_mode_changed, C.HELPER_HOLIDAY_MODE)
+        
+        if self.entity_exists(C.HELPER_LOAD_SHARING_ENABLE):
+            self.listen_state(self.load_sharing_enable_changed, C.HELPER_LOAD_SHARING_ENABLE)
         
         # Per-room callbacks
         for room_id in self.config.rooms.keys():
@@ -330,6 +358,22 @@ class PyHeat(hass.Hass):
     def holiday_mode_changed(self, entity, attribute, old, new, kwargs):
         self.log(f"Holiday mode changed: {old} -> {new}")
         self.trigger_recompute("holiday_mode_changed")
+
+    def load_sharing_enable_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"Load sharing enable changed: {old} -> {new}")
+        # Update load sharing state (will be DISABLED if off, INACTIVE if on)
+        if new == "off":
+            # Deactivate load sharing and update state to DISABLED
+            if self.load_sharing.context.is_active():
+                self.load_sharing._deactivate("master enable toggled off")
+            self.load_sharing.context.state = LoadSharingState.DISABLED
+            self.valve_coordinator.clear_load_sharing_overrides()
+        else:
+            # Set to INACTIVE (ready to activate if conditions met)
+            self.load_sharing.context.state = LoadSharingState.INACTIVE
+        
+        # Trigger recompute to re-evaluate load sharing
+        self.trigger_recompute("load_sharing_enable_changed")
 
     def room_mode_changed(self, entity, attribute, old, new, kwargs):
         room_id = kwargs.get('room_id')
@@ -543,11 +587,32 @@ class PyHeat(hass.Hass):
         self.trvs.check_all_setpoints()
 
     def check_config_files(self, kwargs):
-        """Periodic check for configuration file changes."""
+        """Periodic check for configuration file changes.
+        
+        Strategy:
+        - schedules.yaml only: Hot reload (no service interruption)
+        - Other config files: Restart app for clean state
+        """
         if self.config.check_for_changes():
-            self.log("Configuration files changed, reloading...")
-            self.config.reload()
-            self.trigger_recompute("config_files_changed")
+            changed_files = self.config.get_changed_files()
+            
+            # Check if ONLY schedules.yaml changed
+            schedules_only = all('schedules.yaml' in f for f in changed_files)
+            
+            if schedules_only:
+                # Safe to hot reload - schedules don't affect callbacks or sensors
+                self.log("Schedules changed, hot reloading...")
+                self.config.reload()
+                self.trigger_recompute("schedules_changed")
+            else:
+                # Structural changes (rooms, boiler, sensors, etc.) - restart for clean state
+                import os
+                filenames = ', '.join([os.path.basename(f) for f in changed_files])
+                self.log(f"Config files changed ({filenames}), restarting app for clean reload...")
+                
+                # Use AppDaemon's restart_app() to trigger a clean reload
+                # This will re-initialize all components, callbacks, and sensors
+                self.restart_app("pyheat")
 
     # ========================================================================
     # Recompute Logic
@@ -621,6 +686,9 @@ class PyHeat(hass.Hass):
         # Periodic validation: Check OpenTherm setpoint matches helper (unless in cooldown)
         self.cycling.validate_setpoint_vs_helper()
         
+        # Update load calculator capacities
+        self.load_calculator.update_capacities()
+        
         # Compute each room
         room_data = {}
         active_rooms = []
@@ -644,8 +712,18 @@ class PyHeat(hass.Hass):
             self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             raise
         
+        # Evaluate load sharing needs
+        cycling_state = self.cycling.state if hasattr(self.cycling, 'state') else 'NORMAL'
+        load_sharing_commands = self.load_sharing.evaluate(room_data, boiler_state, cycling_state)
+        
+        # Apply load sharing overrides to valve coordinator
+        if load_sharing_commands:
+            self.valve_coordinator.set_load_sharing_overrides(load_sharing_commands)
+        else:
+            self.valve_coordinator.clear_load_sharing_overrides()
+        
         # Apply all valve commands through valve coordinator
-        # The coordinator handles persistence overrides, corrections, and normal commands
+        # The coordinator handles persistence overrides, load sharing, corrections, and normal commands
         for room_id in self.config.rooms.keys():
             data = room_data[room_id]
             desired_valve = data['valve_percent']
@@ -759,6 +837,14 @@ class PyHeat(hass.Hass):
             # Get cycling protection state for logging
             cycling_data = self.cycling.get_state_dict()
             
+            # Get load calculator data for logging
+            load_data = None
+            if self.load_calculator.enabled:
+                load_data = {
+                    'total_estimated_capacity': self.load_calculator.get_total_estimated_capacity(),
+                    'estimated_capacities': self.load_calculator.estimated_capacities.copy()
+                }
+            
             self.heating_logger.log_state(
                 trigger=trigger,
                 opentherm_data=opentherm_data,
@@ -766,6 +852,7 @@ class PyHeat(hass.Hass):
                 pump_overrun_active=pump_overrun_active,
                 room_data=log_room_data,
                 total_valve_pct=total_valve_pct,
-                cycling_data=cycling_data
+                cycling_data=cycling_data,
+                load_data=load_data
             )
 

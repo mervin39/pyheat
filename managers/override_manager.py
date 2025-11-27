@@ -112,7 +112,7 @@ class OverrideManager:
             self.ad.log(f"Override timer entity {timer_entity} does not exist", level="WARNING")
             return False
         
-        self.ad.log(f"Override set: room={room_id}, target={target:.1f}°C, duration={duration_seconds}s")
+        self.ad.log(f"Override set: room={room_id}, target={target:.1f}C, duration={duration_seconds}s")
         return True
     
     def cancel_override(self, room_id: str) -> bool:
