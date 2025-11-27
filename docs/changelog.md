@@ -1,6 +1,68 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Documentation Update - Load Sharing and Pump Overrun Refactor
+
+**Status:** COMPLETE ✅
+
+**Branch:** `feature/load-sharing-phase4`
+
+**Summary:**
+Comprehensive documentation update to reflect the current state of PyHeat after load sharing implementation (Phases 0-4) and pump overrun refactor. All documentation now accurately describes the system architecture and features.
+
+**Changes:**
+
+1. **`README.md`**: Updated with load sharing feature
+   - Added load sharing to feature overview list
+   - Added load_sharing_manager.py and valve_coordinator.py to key components
+   - Updated heating logic section with load sharing description
+   - Added dedicated "Load Sharing" section with configuration examples
+   - Reference to docs/load_sharing_proposal.md for complete design details
+
+2. **`docs/ARCHITECTURE.md`**: Major additions for load sharing
+   - New comprehensive "Load Sharing" section (~400 lines):
+     - State machine architecture with 8 explicit states
+     - LoadSharingContext as single source of truth
+     - Three-tier cascading strategy (Tier 1/2/3) with detailed explanations
+     - Entry conditions (low capacity + cycling risk evidence)
+     - Exit conditions (Triggers A/B/C based on calling pattern changes)
+     - Valve command priority system (4-level with load sharing at Priority 2)
+     - Configuration examples (boiler.yaml and rooms.yaml)
+     - Capacity calculation with valve adjustment
+     - Status publishing and logging patterns
+     - Performance metrics and edge cases handled
+     - Integration verification with all existing systems
+   - Updated project structure to include load_sharing_manager.py and load_sharing_state.py
+   - Updated core components list with load sharing modules
+   - Updated high-level data flow diagram to include load sharing evaluation step
+   - Updated ValveCoordinator section:
+     - Priority system now 4-level (was 3-level)
+     - Added Priority 2: Load sharing overrides (new)
+     - Added set_load_sharing_overrides() and clear_load_sharing_overrides() methods
+     - Updated apply_valve_command() logic flow
+     - Updated integration points in app.py
+     - Updated logging examples
+     - Updated state management with load sharing state
+
+**Files Modified:**
+- `README.md`: Added load sharing feature documentation (~40 lines)
+- `docs/ARCHITECTURE.md`: Added comprehensive load sharing section (~420 lines)
+
+**Documentation Coverage:**
+- ✅ Load sharing feature overview and rationale
+- ✅ State machine design and transitions
+- ✅ Three-tier cascading selection strategy
+- ✅ Entry/exit conditions with calling pattern tracking
+- ✅ ValveCoordinator integration and priority system
+- ✅ Configuration examples and tuning guidelines
+- ✅ Performance characteristics and edge cases
+- ✅ Integration with existing systems (verified compatible)
+- ✅ Pump overrun refactor fully documented in changelog
+
+**Note:** Detailed design documentation already exists in `docs/load_sharing_proposal.md` (comprehensive 1000+ line design document from implementation planning).
+
+---
+
 ## 2025-11-27: Complete Pump Overrun Refactor - Remove Legacy Persistence
 
 **Status:** COMPLETE ✅
