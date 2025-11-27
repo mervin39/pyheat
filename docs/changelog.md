@@ -1,6 +1,72 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Load Sharing - Configurable Return Temperature Delta Threshold
+
+**Status:** COMPLETE ✅
+
+**Branch:** `main`
+
+**Summary:**
+Made the return temperature delta threshold configurable in `boiler.yaml` instead of being hardcoded. This threshold determines when load sharing activates due to cycling risk (when return temp is too close to setpoint).
+
+**Problem:**
+The return temperature delta threshold for load sharing was hardcoded at 15°C in `load_sharing_manager.py`, with a misleading comment claiming it matched cycling protection's threshold. In reality:
+- **Cycling protection** uses 10°C delta (from `constants.py`)
+- **Load sharing** was using hardcoded 15°C
+- No way for users to tune this critical parameter
+
+This inconsistency made load sharing more conservative (triggers earlier) than cycling protection, which is good for prevention but should be configurable.
+
+**Example:**
+- Setpoint: 70°C
+- Cycling protection triggers: return temp >= 60°C (70 - 10)
+- Load sharing triggers: return temp >= 55°C (70 - 15)
+
+**Solution:**
+Made the threshold configurable via `boiler.yaml` with sensible default:
+
+**Changes:**
+
+1. **`core/constants.py`**: Added default constant
+   - `LOAD_SHARING_HIGH_RETURN_DELTA_C_DEFAULT = 15`
+   - Documented as "more conservative than cycling protection (10°C)"
+
+2. **`managers/load_sharing_manager.py`**: Added instance variable
+   - `self.high_return_delta_c = 15` (default)
+   - Loaded from `boiler.yaml` config: `ls_config.get('high_return_delta_c', C.LOAD_SHARING_HIGH_RETURN_DELTA_C_DEFAULT)`
+
+3. **`managers/load_sharing_manager.py`**: Replaced hardcoded value in `_evaluate_entry_conditions()`
+   - Old: `if return_temp >= (setpoint - 15.0):`
+   - New: `threshold = setpoint - self.high_return_delta_c` then `if return_temp >= threshold:`
+   - Improved logging to show calculated threshold value
+
+4. **`config/boiler.yaml`**: Added configuration setting
+   - Added `high_return_delta_c: 15` under `load_sharing` section
+   - Comprehensive comments explaining behavior and example
+
+**Configuration:**
+```yaml
+load_sharing:
+  high_return_delta_c: 15  # Cycling risk: return temp within this many °C of setpoint
+                           # Default 15°C (more conservative than cycling protection's 10°C)
+                           # Example: if setpoint is 70°C, triggers at return >= 55°C
+```
+
+**Benefits:**
+- User-tunable threshold for different system characteristics
+- Clear documentation of default value and rationale
+- Improved logging shows calculated threshold (not just raw temps)
+- Removes misleading comment about matching cycling protection
+
+**Testing Note:**
+In recent test with bathroom (422W capacity):
+- Return: 56.1°C, Setpoint: 70°C, Delta: 13.9°C
+- Triggered correctly: 56.1°C >= 55°C threshold (70 - 15)
+- Would NOT have triggered cycling protection: 56.1°C < 60°C (70 - 10)
+
+---
+
 ## 2025-11-27: Load Sharing - Human-Readable Decision Explanations
 
 **Status:** COMPLETE ✅

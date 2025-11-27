@@ -51,6 +51,7 @@ class LoadSharingManager:
         self.target_capacity_w = 4000       # Target capacity to reach
         self.min_activation_duration_s = 300  # 5 minutes minimum
         self.tier3_timeout_s = 900          # 15 minutes max for Tier 3
+        self.high_return_delta_c = 15       # Return temp delta for cycling risk detection
         
         # Master enable switch (HA helper)
         self.master_enable_entity = C.HELPER_LOAD_SHARING_ENABLE
@@ -67,6 +68,7 @@ class LoadSharingManager:
         self.target_capacity_w = ls_config.get('target_capacity_w', 4000)
         self.min_activation_duration_s = ls_config.get('min_activation_duration_s', 300)
         self.tier3_timeout_s = ls_config.get('tier3_timeout_s', 900)
+        self.high_return_delta_c = ls_config.get('high_return_delta_c', C.LOAD_SHARING_HIGH_RETURN_DELTA_C_DEFAULT)
         
         # Check master enable switch (single source of truth)
         master_enabled = self._is_master_enabled()
@@ -634,11 +636,12 @@ class LoadSharingManager:
                 return_temp = float(return_temp)
                 setpoint = float(setpoint)
                 
-                # High risk if return temp is within 15°C of setpoint (same as cycling protection threshold)
-                if return_temp >= (setpoint - 15.0):
+                # High risk if return temp is within configured delta of setpoint
+                threshold = setpoint - self.high_return_delta_c
+                if return_temp >= threshold:
                     self.ad.log(
                         f"Load sharing entry: Low capacity ({total_capacity:.0f}W < {self.min_calling_capacity_w}W) + "
-                        f"high return temp ({return_temp:.1f}C, setpoint {setpoint:.1f}C)",
+                        f"high return temp ({return_temp:.1f}C >= {threshold:.1f}C threshold, setpoint {setpoint:.1f}C)",
                         level="INFO"
                     )
                     return True
