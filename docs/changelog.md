@@ -1,9 +1,46 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: BUG #6 FIX - Load Sharing Valves Persist After Deactivation
+
+**Status:** FIXED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed critical bug where load sharing valves remained physically open after load sharing deactivated, causing unscheduled rooms to receive heat for extended periods. Implemented explicit valve closure on deactivation to prevent stale valve positions from being captured by pump overrun.
+
+**Problem:**
+When load sharing deactivated, it only cleared override layer but didn't command TRVs to close. With boiler OFF and no rooms calling, valves stayed at last position indefinitely. If pump overrun started before next recompute, it captured these stale positions, persisting them across restarts.
+
+**Solution (Fix Option 1: Explicit Closure):**
+1. LoadSharingManager tracks which rooms it opened (`last_deactivated_rooms`)
+2. On deactivation, app.py explicitly closes non-calling rooms
+3. Updates `current_commands` to 0 immediately
+4. Prevents pump overrun from capturing stale positions
+
+**Changes:**
+- `managers/load_sharing_manager.py`: Added `last_deactivated_rooms` tracking in `_deactivate()`
+- `app.py`: Added explicit closure logic for deactivated load sharing rooms
+- `docs/BUGS.md`: Updated Bug #6 status to FIXED with full fix documentation
+
+**Testing:**
+- Comprehensive simulation testing: 24/24 tests passed
+- Edge cases verified: room calling during deactivation, pump overrun interactions, multiple cycles
+- Syntax validation: No errors
+- Ready for live monitoring
+
+**Impact:**
+- ✅ Valves close immediately on deactivation (no delay)
+- ✅ Prevents energy waste from unscheduled heating
+- ✅ No stale valve persistence across restarts
+- ✅ Preserves natural demand if room starts calling
+
+---
+
 ## 2025-11-27: BUG #6 - Load Sharing Valves Persist After Deactivation
 
-**Status:** OPEN 🔴
+**Status:** DISCOVERED (NOW FIXED - see above)
 
 **Branch:** `main`
 

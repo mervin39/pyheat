@@ -46,6 +46,9 @@ class LoadSharingManager:
         # State machine context
         self.context = LoadSharingContext()
         
+        # Track rooms that need explicit closure on deactivation (Bug #6 fix)
+        self.last_deactivated_rooms = []
+        
         # Configuration (loaded from boiler.yaml)
         self.min_calling_capacity_w = 3500  # Activation threshold
         self.target_capacity_w = 4000       # Target capacity to reach
@@ -441,9 +444,15 @@ class LoadSharingManager:
     def _deactivate(self, reason: str) -> None:
         """Deactivate load sharing and reset context.
         
+        Tracks which rooms were opened by load sharing for explicit closure.
+        This prevents Bug #6 (valve persistence after deactivation).
+        
         Args:
             reason: Human-readable reason for deactivation
         """
+        # Track rooms that need explicit closure (Bug #6 fix)
+        self.last_deactivated_rooms = list(self.context.active_rooms.keys())
+        
         self.ad.log(
             f"LoadSharingManager: Deactivating - {reason}",
             level="INFO"

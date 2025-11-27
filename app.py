@@ -800,6 +800,27 @@ class PyHeat(hass.Hass):
         if load_sharing_commands:
             self.valve_coordinator.set_load_sharing_overrides(load_sharing_commands)
         else:
+            # Bug #6 Fix: Explicitly close valves from deactivated load sharing rooms
+            # This prevents valve persistence when pump overrun captures stale positions
+            rooms_to_close = getattr(self.load_sharing, 'last_deactivated_rooms', [])
+            if rooms_to_close:
+                closed_rooms = []
+                for room_id in rooms_to_close:
+                    # Only close if room is not naturally calling for heat
+                    if room_id in room_data and not room_data[room_id]['calling']:
+                        # Force immediate closure by updating current_commands
+                        self.valve_coordinator.current_commands[room_id] = 0
+                        closed_rooms.append(room_id)
+                
+                if closed_rooms:
+                    self.log(
+                        f"Load sharing deactivation: Explicitly closed valves for {closed_rooms}",
+                        level="INFO"
+                    )
+                
+                # Clear for next time
+                self.load_sharing.last_deactivated_rooms = []
+            
             self.valve_coordinator.clear_load_sharing_overrides()
         
         # Apply all valve commands through valve coordinator
