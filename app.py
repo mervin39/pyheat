@@ -67,6 +67,7 @@ class PyHeat(hass.Hass):
         self.load_sharing = LoadSharingManager(self, self.config, self.scheduler, self.load_calculator, self.sensors)
         self.trvs = TRVController(self, self.config, self.alerts)
         self.valve_coordinator = ValveCoordinator(self, self.trvs)
+        self.valve_coordinator.initialize_from_ha()  # Initialize pump overrun state from HA
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
         self.cycling = CyclingProtection(self, self.config, self.alerts)

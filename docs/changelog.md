@@ -1,6 +1,81 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: REFACTOR - Move Pump Overrun Persistence to Valve Coordinator
+
+**Status:** COMPLETE ✅
+
+**Branch:** `refactor/pump-overrun-to-valve-coordinator`
+
+**Summary:**
+Refactored pump overrun valve persistence from boiler controller to valve coordinator for cleaner architecture and accurate system state tracking. This fixes the issue where load sharing valves were closing prematurely during pump overrun, and establishes valve coordinator as the single source of truth for all valve state.
+
+**Motivation:**
+- **Load sharing safety**: Load sharing valves (artificially opened) were closing during pump overrun because boiler controller only tracked natural valve positions
+- **Architectural clarity**: Valve coordinator should own all valve state management, including persistence
+- **Accurate state tracking**: System now tracks actual commanded positions, not just natural demand
+- **Better diagnostics**: Logs and interlock calculations now reflect physical reality
+
+**Changes:**
+
+1. **`controllers/valve_coordinator.py`**: Pump overrun management moved here
+   - New attributes: `pump_overrun_active`, `pump_overrun_snapshot`, `current_commands`
+   - New methods: `enable_pump_overrun_persistence()`, `disable_pump_overrun_persistence()`, `get_persisted_valves()`, `get_total_valve_opening()`
+   - `initialize_from_ha()`: Restores pump overrun state on AppDaemon restart
+   - `apply_valve_command()`: Updated priority order - pump overrun now Priority 2 (after legacy persistence, before load sharing)
+   - Persistence entity management: Reads/writes valve positions (index 0) to `input_text.pyheat_room_persistence`
+   - Handles new demand during pump overrun: If room wants more than snapshot, allows it and updates snapshot
+
+2. **`controllers/boiler_controller.py`**: Simplified, pump overrun logic removed
+   - Removed: `boiler_last_valve_positions` attribute
+   - Removed: `_save_pump_overrun_valves()` method (~40 lines)
+   - Removed: `_clear_pump_overrun_valves()` method (~30 lines)
+   - Replaced valve tracking with calls to `valve_coordinator.enable_pump_overrun_persistence()` / `disable_pump_overrun_persistence()`
+   - All pump overrun transitions now delegate to valve coordinator
+   - Simplified from managing valve positions to just controlling timing (WHEN to persist)
+
+3. **`app.py`**: Added valve coordinator initialization
+   - Calls `valve_coordinator.initialize_from_ha()` after creation
+
+**Benefits:**
+- ✅ **Load sharing + pump overrun works correctly**: Load sharing valves stay open during cooling period
+- ✅ **Accurate interlock calculations**: Uses actual commanded positions, not natural demand
+- ✅ **Better logging**: Logs show what's physically happening
+- ✅ **Cleaner architecture**: Valve coordinator owns all valve state
+- ✅ **Restart resilience**: Valve coordinator restores pump overrun state from HA entity
+- ✅ **Extensible**: Future override features automatically work with pump overrun
+- ✅ **Boiler controller simplified**: ~80 lines removed, focus on boiler FSM only
+
+**Technical Details:**
+
+**Priority Order in apply_valve_command():**
+1. Legacy persistence overrides (compatibility - deprecated)
+2. **Pump overrun persistence** (NEW - safety during cooling)
+3. Load sharing overrides (intelligent load balancing)
+4. Correction overrides (unexpected positions)
+5. Normal commands (default)
+
+**Pump Overrun Flow:**
+1. Boiler enters PENDING_OFF → calls `valve_coordinator.enable_pump_overrun_persistence()`
+2. Valve coordinator snapshots `current_commands` (actual commanded positions including load sharing)
+3. During PENDING_OFF and PUMP_OVERRUN, valve coordinator holds snapshot positions
+4. If new demand appears and wants higher valve %, snapshot is updated (allows heating to resume)
+5. When PUMP_OVERRUN ends → boiler calls `valve_coordinator.disable_pump_overrun_persistence()`
+6. Valve coordinator clears snapshot and persistence entity
+
+**AppDaemon Restart Resilience:**
+- On init, valve coordinator reads `input_text.pyheat_room_persistence`
+- If any valve positions > 0 (index 0), restores pump overrun snapshot
+- Seamlessly continues pump overrun after restart
+
+**Files Modified:**
+- `controllers/valve_coordinator.py`: Added pump overrun management (~170 lines added)
+- `controllers/boiler_controller.py`: Removed pump overrun logic (~80 lines removed, ~15 lines changed)
+- `app.py`: Added initialization call (1 line)
+- `docs/changelog.md`: This entry
+
+---
+
 ## 2025-11-27: Implement Maximize-Existing Strategy for Tier 3 Load Sharing
 
 **Status:** COMPLETE ✅ TESTED ✅

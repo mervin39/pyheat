@@ -53,9 +53,6 @@ class BoilerController:
         self.boiler_last_on = None
         self.boiler_last_off = None
         
-        # Valve positions tracking for pump overrun and safety
-        self.boiler_last_valve_positions = {}  # {room_id: valve_percent}
-        
     def update_state(self, any_calling: bool, active_rooms: List[str], 
                     room_data: Dict, now: datetime) -> Tuple[str, str, Dict[str, int], bool]:
         """Update boiler state machine based on demand and conditions.
@@ -250,25 +247,31 @@ class BoilerController:
                     )
         
         elif self.boiler_state == C.STATE_ON:
-            # Save ALL valve positions (not just calling rooms) for pump overrun safety
-            if has_demand and all_valve_positions:
-                self.boiler_last_valve_positions = all_valve_positions.copy()
-                self.ad.log(f"Boiler: saved valve positions: {self.boiler_last_valve_positions}", level="DEBUG")
+            # Valve coordinator tracks actual commanded positions for pump overrun
+            # No need to save them here
             
             if not has_demand:
                 # Demand stopped, enter off-delay period
-                self.ad.log(f"Boiler: STATE_ON -> PENDING_OFF, preserved valve positions: {self.boiler_last_valve_positions}", level="DEBUG")
                 self._transition_to(C.STATE_PENDING_OFF, now, "demand ceased, entering off-delay")
                 self._start_timer(C.HELPER_BOILER_OFF_DELAY_TIMER, self._get_off_delay())
+                
+                # Enable pump overrun persistence in valve coordinator
+                # This snapshots current commanded positions for pump overrun period
+                self.valve_coordinator.enable_pump_overrun_persistence()
+                
                 reason = f"Pending OFF: off-delay started"
-                # CRITICAL: Valves must stay open immediately upon entering PENDING_OFF
+                # Valves will be held by valve coordinator during PENDING_OFF and PUMP_OVERRUN
                 valves_must_stay_open = True
-                persisted_valves = self.boiler_last_valve_positions.copy()
+                persisted_valves = self.valve_coordinator.get_persisted_valves()
             elif not interlock_ok:
                 # Interlock failed while running - turn off immediately
                 self.ad.log("Boiler: interlock failed while ON, turning off immediately", level="WARNING")
                 self._transition_to(C.STATE_PUMP_OVERRUN, now, "interlock failed")
                 self._set_boiler_off()
+                
+                # Enable pump overrun persistence
+                self.valve_coordinator.enable_pump_overrun_persistence()
+                
                 self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
                 self._start_timer(C.HELPER_BOILER_MIN_OFF_TIMER, self._get_min_off_time())
                 self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self._get_pump_overrun())
@@ -296,8 +299,8 @@ class BoilerController:
         elif self.boiler_state == C.STATE_PENDING_OFF:
             # CRITICAL: Valves must stay open during pending_off because boiler is still ON
             valves_must_stay_open = True
-            persisted_valves = self.boiler_last_valve_positions.copy()
-            self.ad.log(f"Boiler: STATE_PENDING_OFF using saved positions: {persisted_valves}", level="DEBUG")
+            persisted_valves = self.valve_coordinator.get_persisted_valves()
+            self.ad.log(f"Boiler: STATE_PENDING_OFF - valve coordinator holding positions: {persisted_valves}", level="DEBUG")
             
             if has_demand and interlock_ok:
                 # Demand returned during off-delay, return to ON
@@ -322,7 +325,9 @@ class BoilerController:
                     self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
                     self._start_timer(C.HELPER_BOILER_MIN_OFF_TIMER, self._get_min_off_time())
                     self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self._get_pump_overrun())
-                    self._save_pump_overrun_valves()
+                    
+                    # Pump overrun persistence already enabled by valve coordinator
+                    # (when we entered PENDING_OFF)
                     reason = "Pump overrun: boiler commanded off"
                     valves_must_stay_open = True
                 else:
@@ -333,7 +338,7 @@ class BoilerController:
         
         elif self.boiler_state == C.STATE_PUMP_OVERRUN:
             valves_must_stay_open = True
-            persisted_valves = self.boiler_last_valve_positions.copy()
+            persisted_valves = self.valve_coordinator.get_persisted_valves()
             
             if has_demand and interlock_ok and trv_feedback_ok:
                 # New demand during pump overrun - check if min_off_time has elapsed
@@ -353,13 +358,19 @@ class BoilerController:
                     self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self._get_min_on_time())
                     reason = f"Returned to ON: demand during pump overrun"
                     valves_must_stay_open = False
+                    
+                    # Disable pump overrun persistence (returning to normal heating)
+                    self.valve_coordinator.disable_pump_overrun_persistence()
             elif not self._is_timer_active(C.HELPER_PUMP_OVERRUN_TIMER):
                 # Pump overrun timer completed
                 self._transition_to(C.STATE_OFF, now, "pump overrun complete")
-                self._clear_pump_overrun_valves()
+                
+                # Disable pump overrun persistence in valve coordinator
+                self.valve_coordinator.disable_pump_overrun_persistence()
+                
                 reason = "Pump overrun complete, now OFF"
                 valves_must_stay_open = False
-                persisted_valves = {}  # Clear persistence so valves can close
+                persisted_valves = {}  # Clear local persistence flag
             else:
                 reason = f"Pump overrun: timer active (valves must stay open)"
         
@@ -705,65 +716,6 @@ class BoilerController:
             True if min_off_time timer is not active (constraint satisfied)
         """
         return not self._is_timer_active(C.HELPER_BOILER_MIN_OFF_TIMER)
-    
-    # ========================================================================
-    # Helper Methods - Pump Overrun Valve Persistence
-    # ========================================================================
-    
-    def _save_pump_overrun_valves(self) -> None:
-        """Persist valve positions to unified room persistence entity.
-        
-        Updates valve_percent (index 0) while preserving last_calling (index 1).
-        Format: {"pete": [valve_percent, last_calling], ...}
-        """
-        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            self.ad.log(f"Boiler: room persistence entity {C.HELPER_ROOM_PERSISTENCE} does not exist", level="DEBUG")
-            return
-            
-        try:
-            # Load existing data to preserve calling state
-            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
-            data = json.loads(data_str) if data_str and data_str not in ['unknown', 'unavailable', ''] else {}
-            
-            # Update valve positions (index 0), preserve calling state (index 1)
-            for room_id, valve_percent in self.boiler_last_valve_positions.items():
-                if room_id not in data:
-                    data[room_id] = [0, 0]
-                data[room_id][0] = int(valve_percent)
-                # Keep index 1 (calling state) unchanged
-            
-            self.ad.call_service("input_text/set_value",
-                            entity_id=C.HELPER_ROOM_PERSISTENCE,
-                            value=json.dumps(data, separators=(',', ':')))
-            self.ad.log(f"Boiler: saved pump overrun valves: {self.boiler_last_valve_positions}", level="DEBUG")
-        except Exception as e:
-            self.ad.log(f"Boiler: failed to save pump overrun valves: {e}", level="WARNING")
-    
-    def _clear_pump_overrun_valves(self) -> None:
-        """Clear persisted valve positions in room persistence entity.
-        
-        Sets valve_percent (index 0) to 0, preserves last_calling (index 1).
-        """
-        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            return
-            
-        try:
-            # Load existing data to preserve calling state
-            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
-            data = json.loads(data_str) if data_str and data_str not in ['unknown', 'unavailable', ''] else {}
-            
-            # Clear valve positions (index 0), preserve calling state (index 1)
-            for room_id in data.keys():
-                if isinstance(data[room_id], list) and len(data[room_id]) >= 2:
-                    data[room_id][0] = 0
-                    # Keep index 1 (calling state) unchanged
-            
-            self.ad.call_service("input_text/set_value",
-                            entity_id=C.HELPER_ROOM_PERSISTENCE,
-                            value=json.dumps(data, separators=(',', ':')))
-            self.ad.log("Boiler: cleared pump overrun valves", level="DEBUG")
-        except Exception as e:
-            self.ad.log(f"Boiler: failed to clear pump overrun valves: {e}", level="DEBUG")
     
     # ========================================================================
     # Helper Methods - State Transitions & Config Access
