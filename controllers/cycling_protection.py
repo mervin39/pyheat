@@ -90,12 +90,23 @@ class CyclingProtection:
         Triple-check strategy uses both binary sensor and flow rate for redundancy.
         """
         if new == 'off' and old == 'on':
+            # GUARD: Don't re-evaluate cooldown if already in cooldown
+            # This prevents double-triggering when flame briefly turns on during cooldown
+            # (e.g., due to pump overrun) and then turns off again
+            if self.state == self.STATE_COOLDOWN:
+                self.ad.log(
+                    f"Flame OFF detected during cooldown - ignoring "
+                    f"(already in cooldown state)",
+                    level="DEBUG"
+                )
+                return
+            
             # Capture BOTH DHW sensors at flame OFF time (before delay)
             dhw_binary_at_flame_off = self.ad.get_state(C.OPENTHERM_DHW)
             dhw_flow_at_flame_off = self.ad.get_state(C.OPENTHERM_DHW_FLOW_RATE)
             
             self.ad.log(
-                f"🔥 Flame OFF detected | DHW binary: {dhw_binary_at_flame_off}, "
+                f"Flame OFF detected | DHW binary: {dhw_binary_at_flame_off}, "
                 f"flow: {dhw_flow_at_flame_off} - scheduling cooldown evaluation",
                 level="DEBUG"
             )

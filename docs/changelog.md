@@ -1,6 +1,70 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Cycling Protection - Fixed Double-Trigger Bug During Cooldown
+
+**Status:** COMPLETE ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed critical bug in cycling protection where flame OFF events during cooldown would trigger new cooldown evaluations, causing cooldown counter to increment incorrectly and saving 30°C as the "original setpoint" instead of the actual heating setpoint (70°C). This resulted in excessive cycling warnings and broken setpoint restoration after cooldown.
+
+**Problem:**
+When the boiler flame briefly turned ON during cooldown (e.g., due to pump overrun activity), then turned OFF again, the `on_flame_off()` callback would schedule a new cooldown evaluation. This evaluation would:
+1. Compare return temp against the current cooldown setpoint (30°C) instead of the original heating setpoint (70°C)
+2. Incorrectly determine cooldown was needed (since return temp was always higher than 30°C)
+3. Increment cooldown counter while already in cooldown
+4. Save 30°C as the `cycling_saved_setpoint` instead of preserving the original 70°C
+5. Generate misleading excessive cycling warnings like "Return 65.8°C, Setpoint 30.0°C"
+
+**Root Cause:**
+The `on_flame_off()` callback at line 92 of `cycling_protection.py` didn't check if the system was already in cooldown state before scheduling `_evaluate_cooldown_need()`. This allowed re-entrant cooldown triggers during an active cooldown period.
+
+**Evidence from Logs (2025-11-26 17:01-17:05):**
+- 17:01:13: Cooldown #3 triggered correctly (return 63°C, setpoint 70°C)
+- 17:01:20: Setpoint dropped to 30°C (correct cooldown behavior)
+- 17:01:22-17:01:25: Flame turned ON briefly during cooldown
+- 17:01:28: Flame turned OFF again
+- 17:01:31: **Bug**: New cooldown evaluation triggered, incremented counter to #4, saved setpoint as 30°C
+- 17:05:23: **Bug**: Another flame cycle during cooldown, counter incremented to #5
+
+**Solution:**
+Added guard clause in `on_flame_off()` to skip cooldown evaluation if already in cooldown state:
+
+```python
+if self.state == self.STATE_COOLDOWN:
+    self.ad.log(
+        f"Flame OFF detected during cooldown - ignoring "
+        f"(already in cooldown state)",
+        level="DEBUG"
+    )
+    return
+```
+
+**Changes:**
+
+1. **`controllers/cycling_protection.py`**: Added cooldown state guard (lines 100-107)
+   - Check `self.state == self.STATE_COOLDOWN` before scheduling evaluation
+   - Return early with debug log message
+   - Prevents re-entrant cooldown triggers during active cooldown
+
+**Impact:**
+- Fixes incorrect cooldown counter increments during cooldown
+- Prevents saving 30°C as the "original setpoint"
+- Eliminates misleading excessive cycling warnings
+- Ensures proper setpoint restoration (70°C) after cooldown completes
+- Improves system reliability during pump overrun transitions
+
+**Testing:**
+Monitor for flame cycles during cooldown periods. Verify:
+- Cooldown counter doesn't increment during active cooldown
+- `cycling_saved_setpoint` remains at original value (70°C)
+- Excessive cycling warnings show correct setpoint values
+- Setpoint properly restored after cooldown
+
+---
+
 ## 2025-11-27: Timer Event System - Hybrid Event Listeners + Polling Safety Net
 
 **Status:** COMPLETE ✅
