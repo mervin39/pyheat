@@ -14,6 +14,7 @@ Responsibilities:
 
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
+from collections import deque
 import json
 import constants as C
 
@@ -53,6 +54,11 @@ class CyclingProtection:
         # List of tuples: (timestamp, return_temp, setpoint)
         self.cooldown_history: List[Tuple[datetime, float, float]] = []
         
+        # DHW history tracking for improved detection
+        # Circular buffers storing (timestamp, state) tuples for last 5 seconds
+        self.dhw_history_binary = deque(maxlen=100)
+        self.dhw_history_flow = deque(maxlen=100)
+        
         # Recovery monitoring handle
         self.recovery_handle = None
         
@@ -78,6 +84,34 @@ class CyclingProtection:
             self.ad.log(f"Failed to restore cycling protection state: {e}", level="WARNING")
             # Default to NORMAL on parse error
             self._reset_to_normal()
+    
+    def on_dhw_state_change(self, entity, attribute, old, new, kwargs):
+        """Track DHW sensor state changes for history-based detection.
+        
+        Called whenever DHW binary sensor or flow rate sensor changes.
+        Maintains circular buffer of recent states for backward-looking checks.
+        
+        Args:
+            entity: Entity ID that changed (binary sensor or flow rate)
+            attribute: Attribute that changed (usually None for state changes)
+            old: Previous state value
+            new: New state value
+            kwargs: Additional callback parameters
+        """
+        timestamp = datetime.now()
+        
+        # Append to appropriate history buffer
+        if entity == C.OPENTHERM_DHW:
+            self.dhw_history_binary.append((timestamp, new))
+        elif entity == C.OPENTHERM_DHW_FLOW_RATE:
+            self.dhw_history_flow.append((timestamp, new))
+        
+        # Debug logging for significant changes
+        if new == 'on' or (old in ['off', '0', '0.0'] and new not in ['off', '0', '0.0']):
+            self.ad.log(
+                f"DHW state change: {entity.split('.')[-1]}={new} (tracking in history buffer)",
+                level="DEBUG"
+            )
             
     def on_flame_off(self, entity, attribute, old, new, kwargs):
         """Flame went OFF - capture DHW state and schedule delayed check.
@@ -222,6 +256,37 @@ class CyclingProtection:
                 level="WARNING"
             )
             self._set_setpoint(desired_setpoint)
+    
+    def _dhw_was_recently_active(self, lookback_seconds: int = 5) -> bool:
+        """Check if DHW was active in recent history (backward-looking check).
+        
+        This catches the race condition where tap closes just before flame OFF.
+        By the time flame OFF event fires, DHW sensors may already show 'off',
+        but the history buffer will still contain the 'on' states.
+        
+        Args:
+            lookback_seconds: How far back to check history (default: 5s)
+            
+        Returns:
+            True if DHW was active within lookback window, False otherwise
+        """
+        cutoff = datetime.now() - timedelta(seconds=lookback_seconds)
+        
+        # Check binary sensor history
+        binary_active = any(
+            state == 'on' and timestamp >= cutoff
+            for timestamp, state in self.dhw_history_binary
+        )
+        
+        # Check flow sensor history
+        flow_active = any(
+            state not in ['off', '0', '0.0', None, 'unknown', 'unavailable'] 
+            and timestamp >= cutoff
+            for timestamp, state in self.dhw_history_flow
+            if state  # Skip None/empty values
+        )
+        
+        return binary_active or flow_active
             
     def _evaluate_cooldown_need(self, kwargs):
         """Delayed check after flame OFF - sensors have had time to update.
@@ -254,15 +319,17 @@ class CyclingProtection:
                 # If flow state invalid, rely on binary only
                 return False
         
-        # TRIPLE-CHECK: DHW at flame OFF OR DHW now
+        # QUAD-CHECK: DHW at flame OFF OR DHW now OR DHW in recent history
         dhw_was_active = is_dhw_active(dhw_binary_at_flame_off, dhw_flow_at_flame_off)
         dhw_is_active = is_dhw_active(dhw_binary_now, dhw_flow_now)
+        dhw_recently_active = self._dhw_was_recently_active(lookback_seconds=5)
         
-        if dhw_was_active or dhw_is_active:
+        if dhw_was_active or dhw_is_active or dhw_recently_active:
             self.ad.log(
                 f"Flame OFF: DHW event detected | "
                 f"At flame OFF: binary={dhw_binary_at_flame_off}, flow={dhw_flow_at_flame_off} | "
                 f"After 2s: binary={dhw_binary_now}, flow={dhw_flow_now} | "
+                f"Recent history: {dhw_recently_active} | "
                 f"Ignoring (not a CH shutdown)",
                 level="DEBUG"
             )
@@ -277,7 +344,7 @@ class CyclingProtection:
             )
             return
         
-        # Both sensors at both times confirm no DHW - this is a genuine CH shutdownhutdown
+        # All checks confirm no DHW - this is a genuine CH shutdown
         # Check if return temp is dangerously high
         return_temp = self._get_return_temp()
         setpoint = self._get_current_setpoint()

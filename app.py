@@ -294,6 +294,17 @@ class PyHeat(hass.Hass):
             self.listen_state(self.cycling.on_flame_off, C.OPENTHERM_FLAME)
             self.log("Registered flame sensor for cycling protection")
         
+        # DHW sensors for cycling protection history tracking
+        dhw_sensor_count = 0
+        if self.entity_exists(C.OPENTHERM_DHW):
+            self.listen_state(self.cycling.on_dhw_state_change, C.OPENTHERM_DHW)
+            dhw_sensor_count += 1
+        if self.entity_exists(C.OPENTHERM_DHW_FLOW_RATE):
+            self.listen_state(self.cycling.on_dhw_state_change, C.OPENTHERM_DHW_FLOW_RATE)
+            dhw_sensor_count += 1
+        if dhw_sensor_count > 0:
+            self.log(f"Registered {dhw_sensor_count} DHW sensors for cycling protection history tracking")
+        
         # Setpoint helper for user control of OpenTherm flow temperature
         if self.entity_exists(C.HELPER_OPENTHERM_SETPOINT):
             self.listen_state(self.cycling.on_setpoint_changed, C.HELPER_OPENTHERM_SETPOINT)

@@ -1,6 +1,105 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Cycling Protection - DHW History Tracking for Race Condition Detection
+
+**Status:** COMPLETE ✅
+
+**Branch:** `main`
+
+**Summary:**
+Enhanced DHW detection in cycling protection by adding in-memory history tracking to catch race conditions where hot water tap closes just before flame OFF. System now maintains circular buffers of recent DHW sensor states and checks backward in time when evaluating cooldown triggers. This prevents misidentifying DHW events as CH shutdowns when sensors transition off before flame OFF event fires.
+
+**Problem:**
+DHW detection had a timing vulnerability: when a tap closes, DHW sensors turn off almost immediately (~instant), but boiler flame takes ~1 second to turn off. By the time the flame OFF callback fires and checks DHW sensors, they already show "off", making it look like a CH shutdown. This caused false cooldown triggers during legitimate DHW usage.
+
+**Evidence from 2025-11-26 Logs:**
+- 17:05:09-17:05:19: DHW active (tap on)
+- 17:05:19: Tap closed, DHW sensors turn off
+- 17:05:20: Flame OFF fires → sensors already "off" → misidentified as CH shutdown
+- Result: False cooldown trigger during cooldown state (contributed to bug fixed earlier)
+
+**Root Cause:**
+The existing triple-check strategy only looked at:
+1. DHW state AT flame OFF time → already off (too late)
+2. DHW state AFTER 2s delay → still off
+
+Missing: backward-looking check for recent DHW activity before flame OFF.
+
+**Solution:**
+Implemented in-memory DHW state history tracking:
+- Circular buffers (deques) store last 100 state changes per sensor (~5 seconds of history)
+- State listeners capture DHW changes in real-time (zero lag)
+- On flame OFF, check if DHW was active in previous 5 seconds
+- Upgraded from triple-check to quad-check strategy
+
+**Changes:**
+
+1. **`controllers/cycling_protection.py`**: Added DHW history tracking infrastructure
+   - Import `deque` from collections
+   - Added `self.dhw_history_binary` and `self.dhw_history_flow` deques (maxlen=100)
+   - Stores (timestamp, state) tuples for last ~5 seconds per sensor
+
+2. **`controllers/cycling_protection.py`**: Added state change callback
+   - `on_dhw_state_change(entity, attribute, old, new, kwargs)`
+   - Captures DHW sensor changes in real-time
+   - Appends to appropriate history buffer
+   - Debug logging for significant state changes
+
+3. **`controllers/cycling_protection.py`**: Added history check method
+   - `_dhw_was_recently_active(lookback_seconds=5)`
+   - Checks both buffers for any 'on' states within lookback window
+   - Returns True if DHW was recently active
+   - Handles edge cases (None, unavailable, unknown states)
+
+4. **`controllers/cycling_protection.py`**: Enhanced evaluation logic
+   - Upgraded from "triple-check" to "quad-check"
+   - Added `dhw_recently_active = self._dhw_was_recently_active()` call
+   - Condition: `if dhw_was_active or dhw_is_active or dhw_recently_active`
+   - Updated log messages to include history check result
+
+5. **`app.py`**: Registered DHW state listeners
+   - Listen to `C.OPENTHERM_DHW` state changes
+   - Listen to `C.OPENTHERM_DHW_FLOW_RATE` state changes
+   - Log: "Registered 2 DHW sensors for cycling protection history tracking"
+
+**Quad-Check DHW Detection Strategy:**
+1. **At flame OFF time**: Check both DHW sensors (captured immediately)
+2. **After 2s delay**: Check both DHW sensors again (existing logic)
+3. **History lookback**: Check if DHW active in previous 5 seconds ← NEW
+4. **Conservative fallback**: If any sensor state is 'unknown', skip evaluation
+
+**Performance Impact:**
+- Memory: +8 KB (100 entries × 2 sensors × 40 bytes) - negligible
+- CPU: +2-5 callbacks/sec during DHW usage (trivial append operations)
+- Latency: Improved (avoids potential database queries)
+- Reliability: Significantly improved (eliminates database lag vs get_history())
+
+**Trade-offs:**
+- **Drawback**: Buffer empty for first 5s after AppDaemon restart
+- **Mitigation**: Falls back to existing double-check (acceptable)
+- **Impact**: LOW - affects only brief period after restart
+
+**Backward Compatibility:**
+- ✓ Existing double-check logic unchanged (graceful fallback)
+- ✓ No changes to state machine or cooldown logic
+- ✓ No configuration changes required
+- ✓ Pure additive enhancement
+- ✓ If history buffers empty, uses existing logic
+
+**Testing Verification:**
+- ✓ No syntax errors in modified files
+- ✓ AppDaemon loaded modules successfully
+- ✓ DHW sensors registered: "Registered 2 DHW sensors for cycling protection history tracking"
+- ✓ No errors in logs after deployment
+
+**Related Issues:**
+- Complements earlier fix for double-trigger bug during cooldown
+- Addresses DHW detection gap discovered in 2025-11-26 log analysis
+- Improves reliability of cooldown triggering decisions
+
+---
+
 ## 2025-11-27: Cycling Protection - Fixed Double-Trigger Bug During Cooldown
 
 **Status:** COMPLETE ✅
