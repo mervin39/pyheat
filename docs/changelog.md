@@ -1,6 +1,40 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Implement Maximize-Existing Strategy for Tier 3 Load Sharing
+
+**Status:** COMPLETE ✅
+
+**Branch:** `feature/load-sharing-phase4`
+
+**Summary:**
+Modified Tier 3 load sharing to implement the "maximize existing rooms before adding new" strategy from the original proposal. This minimizes the number of rooms heated by progressively escalating valve percentages (50% → 60% → 70% → 80% → 90% → 100%) before adding the next priority room.
+
+**Changes:**
+1. **`_select_tier3_rooms()`**: Now returns a single highest-priority room at 50% valve instead of multiple rooms
+2. **`_escalate_tier3_rooms(room_states)`**: 
+   - New signature takes `room_states` parameter and returns `bool`
+   - Escalates current rooms by 10% increments until 100%
+   - Only adds next priority room when existing rooms are fully open
+   - Returns `False` when all rooms maxed and no more additions possible
+3. **Continuous Escalation Loop**: All 4 call sites updated to loop escalation until target capacity reached or all options exhausted
+
+**Expected Behavior:**
+For bathroom override (415W << 3000W threshold):
+- **Old**: Add lounge (60%) + games (60%) + office (60%) = 3 rooms
+- **New**: Add lounge (50%), escalate to 100%, add games (50%), escalate to 60% = 2 rooms
+
+**Rationale:**
+- Minimizes number of rooms disturbed (better occupant experience)
+- Maximizes heat extraction from fewer radiators (better efficiency)
+- Matches original design proposal specifications
+- Uses flow efficiency factor of 1.0 (linear valve scaling) for safety
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: Modified `_select_tier3_rooms()`, `_escalate_tier3_rooms()`, and 4 escalation call sites
+
+---
+
 ## 2025-11-27: CRITICAL FIX - Load Sharing Trigger Context Not Initialized (BUG #5) 🚨
 
 **Status:** FIXED ✅

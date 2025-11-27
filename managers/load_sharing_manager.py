@@ -222,16 +222,24 @@ class LoadSharingManager:
                                                     level="INFO"
                                                 )
                                             else:
-                                                # Escalate Tier 3 to 60%
+                                                # Escalate Tier 3 rooms progressively (50% → 60% → 70% → ... → 100%)
+                                                # Or add next priority room if all maxed out
                                                 self.ad.log(
                                                     f"Load sharing: Tier 3 insufficient ({total_capacity:.0f}W < {self.target_capacity_w}W) - escalating",
                                                     level="INFO"
                                                 )
-                                                self._escalate_tier3_rooms()
                                                 
-                                                # Final capacity check
-                                                total_capacity = self._calculate_total_system_capacity(room_states)
+                                                # Keep escalating until we reach target or exhaust all options
+                                                while total_capacity < self.target_capacity_w:
+                                                    escalated = self._escalate_tier3_rooms(room_states)
+                                                    if not escalated:
+                                                        # No more escalation possible
+                                                        break
+                                                    
+                                                    # Recalculate capacity after escalation
+                                                    total_capacity = self._calculate_total_system_capacity(room_states)
                                                 
+                                                # Final status
                                                 if total_capacity >= self.target_capacity_w:
                                                     self.ad.log(
                                                         f"Load sharing: Tier 3 escalated sufficient ({total_capacity:.0f}W >= {self.target_capacity_w}W)",
@@ -383,21 +391,29 @@ class LoadSharingManager:
                                     level="INFO"
                                 )
                             else:
-                                # Escalate Tier 3
+                                # Escalate Tier 3 progressively (maximize existing before adding new)
                                 self.ad.log(
                                     f"Load sharing: Tier 3 insufficient ({total_capacity:.0f}W < {self.target_capacity_w}W) - escalating",
                                     level="INFO"
                                 )
-                                self._escalate_tier3_rooms()
                                 
-                                # Final capacity check
-                                total_capacity = self._calculate_total_system_capacity(room_states)
+                                # Keep escalating until we reach target or exhaust all options
+                                while total_capacity < self.target_capacity_w:
+                                    escalated = self._escalate_tier3_rooms(room_states)
+                                    if not escalated:
+                                        break
+                                    total_capacity = self._calculate_total_system_capacity(room_states)
+                                
                                 self.ad.log(
                                     f"Load sharing: Tier 3 escalated - final capacity {total_capacity:.0f}W",
                                     level="INFO"
-                                )
-                            
-                            # Return valve commands for activated rooms
+                                )   
+                                    self.ad.log(
+                                        f"Load sharing: Tier 3 escalated - final capacity {total_capacity:.0f}W",
+                                        level="INFO"
+                                    )                                                f"Load sharing: Tier 3 escalated - final capacity {total_capacity:.0f}W",
+                                                level="INFO"
+                                            )                            # Return valve commands for activated rooms
                             return {room_id: room.valve_pct for room_id, room in self.context.active_rooms.items()}
                         else:
                             self.ad.log(
@@ -700,6 +716,11 @@ class LoadSharingManager:
         
         Phase 3: Priority list fallback - deterministic selection when schedules don't help.
         
+        STRATEGY: Maximize existing rooms before adding new ones.
+        - Add ONE room at a time in priority order
+        - Room will be escalated (50% → 60% → 70% → 80% → 90% → 100%) before next room is added
+        - This minimizes the number of rooms heated (energy efficiency)
+        
         Selection criteria:
         - Room in "auto" mode (respects user intent)
         - Not currently calling for heat
@@ -707,15 +728,13 @@ class LoadSharingManager:
         - Has fallback_priority configured (rooms without this are excluded)
         - NO temperature check - ultimate fallback accepts any auto mode room
         
-        Progressive addition: Add rooms in priority order until capacity target is met.
-        
         Sorted by: fallback_priority ASC (lower number = higher priority)
         
         Args:
             room_states: Room state dict from room_controller
             
         Returns:
-            List of (room_id, valve_pct, reason) tuples
+            List of (room_id, valve_pct, reason) tuples (returns ONE room, will be escalated later)
         """
         candidates = []
         active_room_ids = set(self.context.active_rooms.keys())
@@ -754,32 +773,24 @@ class LoadSharingManager:
         # Sort by priority (ascending - lower number = higher priority)
         candidates.sort(key=lambda x: x[1])
         
-        # Add rooms progressively until target capacity is met
+        # Return ONLY the highest priority room (will be escalated before adding more)
         # Initial valve opening: 50% for Tier 3 (compromise between flow and energy)
-        selections = []
-        all_capacities = self.load_calculator.get_all_estimated_capacities()
-        
-        for room_id, priority, reason in candidates:
-            # Calculate what capacity would be if we add this room
-            # Get current total capacity
-            current_capacity = self._calculate_total_system_capacity(room_states)
-            
-            # Calculate capacity this room would add
+        if candidates:
+            room_id, priority, reason = candidates[0]
+            all_capacities = self.load_calculator.get_all_estimated_capacities()
             room_capacity = all_capacities.get(room_id)
+            
             if room_capacity is None:
                 self.ad.log(
                     f"Load sharing Tier 3: Skipping {room_id} - no capacity estimate",
                     level="DEBUG"
                 )
-                continue
+                return []
             
-            # Adjust for valve opening (50% valve reduces effective capacity)
             valve_pct = C.LOAD_SHARING_TIER3_INITIAL_PCT
             effective_room_capacity = room_capacity * (valve_pct / 100.0)
+            current_capacity = self._calculate_total_system_capacity(room_states)
             new_total_capacity = current_capacity + effective_room_capacity
-            
-            # Add this room to selections
-            selections.append((room_id, valve_pct, reason))
             
             self.ad.log(
                 f"Load sharing Tier 3 selection: {room_id} - priority={priority}, "
@@ -788,16 +799,9 @@ class LoadSharingManager:
                 level="DEBUG"
             )
             
-            # Stop if we've reached target capacity
-            if new_total_capacity >= self.target_capacity_w:
-                self.ad.log(
-                    f"Load sharing Tier 3: Target capacity reached ({new_total_capacity:.0f}W >= {self.target_capacity_w}W), "
-                    f"stopping at {len(selections)} room(s)",
-                    level="INFO"
-                )
-                break
+            return [(room_id, valve_pct, reason)]
         
-        return selections
+        return []
     
     def _initialize_trigger_context(self, room_states: Dict, now: datetime) -> None:
         """Initialize the trigger context for load sharing activation.
@@ -1094,20 +1098,81 @@ class LoadSharingManager:
             level="WARNING"
         )
     
-    def _escalate_tier3_rooms(self) -> None:
-        """Escalate Tier 3 rooms from 50% to 60% valve opening.
+    def _escalate_tier3_rooms(self, room_states: Dict) -> bool:
+        """Escalate Tier 3 rooms progressively or add next room if maxed out.
+        
+        MAXIMIZE EXISTING STRATEGY:
+        - Escalate current rooms: 50% → 60% → 70% → 80% → 90% → 100%
+        - Only add next priority room when all existing rooms are at 100%
         
         Called when all tiers are active but still insufficient capacity.
         Updates context state and room valve percentages.
+        
+        Args:
+            room_states: Room state dict (needed for adding next room)
+            
+        Returns:
+            True if rooms were escalated or new room added, False if all maxed out
         """
-        for room_id, activation in self.context.active_rooms.items():
-            if activation.tier == 3:
-                activation.valve_pct = C.LOAD_SHARING_TIER3_ESCALATED_PCT
+        tier3_rooms = list(self.context.tier3_rooms.values())
         
-        self.context.state = LoadSharingState.TIER3_ESCALATED
+        if not tier3_rooms:
+            return False
         
-        self.ad.log(
-            f"Load sharing: Escalating {len(self.context.tier3_rooms)} Tier 3 rooms to "
-            f"{C.LOAD_SHARING_TIER3_ESCALATED_PCT}%",
-            level="INFO"
-        )
+        # Check if all existing Tier 3 rooms are at 100%
+        all_maxed = all(room.valve_pct >= 100 for room in tier3_rooms)
+        
+        if all_maxed:
+            # All existing rooms maxed out - try to add next priority room
+            self.ad.log(
+                f"Load sharing Tier 3: All {len(tier3_rooms)} room(s) at 100%, attempting to add next priority room",
+                level="INFO"
+            )
+            
+            # Select next priority room
+            next_room = self._select_tier3_rooms(room_states)
+            if next_room:
+                room_id, valve_pct, reason = next_room[0]
+                now = datetime.now()
+                activation = RoomActivation(
+                    room_id=room_id,
+                    tier=3,
+                    valve_pct=valve_pct,
+                    activated_at=now,
+                    reason=reason
+                )
+                self.context.active_rooms[room_id] = activation
+                
+                self.ad.log(
+                    f"Load sharing Tier 3: Added next room '{room_id}' at {valve_pct}% (priority room after maxing existing)",
+                    level="WARNING"
+                )
+                return True
+            else:
+                # No more rooms available
+                self.ad.log(
+                    "Load sharing Tier 3: All Tier 3 rooms maxed out and no more rooms available",
+                    level="INFO"
+                )
+                return False
+        else:
+            # Escalate existing rooms by 10%
+            escalated_count = 0
+            for room in tier3_rooms:
+                if room.valve_pct < 100:
+                    old_pct = room.valve_pct
+                    room.valve_pct = min(100, room.valve_pct + 10)
+                    escalated_count += 1
+                    self.ad.log(
+                        f"Load sharing Tier 3: Escalating '{room.room_id}' from {old_pct}% to {room.valve_pct}%",
+                        level="INFO"
+                    )
+            
+            if escalated_count > 0:
+                self.ad.log(
+                    f"Load sharing Tier 3: Escalated {escalated_count} room(s) by 10%",
+                    level="INFO"
+                )
+                return True
+            
+            return False
