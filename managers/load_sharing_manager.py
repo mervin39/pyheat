@@ -407,13 +407,9 @@ class LoadSharingManager:
                                 self.ad.log(
                                     f"Load sharing: Tier 3 escalated - final capacity {total_capacity:.0f}W",
                                     level="INFO"
-                                )   
-                                    self.ad.log(
-                                        f"Load sharing: Tier 3 escalated - final capacity {total_capacity:.0f}W",
-                                        level="INFO"
-                                    )                                                f"Load sharing: Tier 3 escalated - final capacity {total_capacity:.0f}W",
-                                                level="INFO"
-                                            )                            # Return valve commands for activated rooms
+                                )
+                            
+                            # Return valve commands for activated rooms
                             return {room_id: room.valve_pct for room_id, room in self.context.active_rooms.items()}
                         else:
                             self.ad.log(
