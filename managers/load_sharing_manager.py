@@ -364,9 +364,10 @@ class LoadSharingManager:
             return False
         
         # Calculate total calling capacity
+        all_capacities = self.load_calculator.get_all_estimated_capacities()
         total_capacity = 0.0
         for room_id in calling_rooms:
-            capacity = self.load_calculator.get_estimated_capacity(room_id)
+            capacity = all_capacities.get(room_id)
             if capacity is not None:
                 total_capacity += capacity
         
@@ -643,6 +644,7 @@ class LoadSharingManager:
         # Add rooms progressively until target capacity is met
         # Initial valve opening: 50% for Tier 3 (compromise between flow and energy)
         selections = []
+        all_capacities = self.load_calculator.get_all_estimated_capacities()
         
         for room_id, priority, reason in candidates:
             # Calculate what capacity would be if we add this room
@@ -650,7 +652,7 @@ class LoadSharingManager:
             current_capacity = self._calculate_total_system_capacity(room_states)
             
             # Calculate capacity this room would add
-            room_capacity = self.load_calculator.get_estimated_capacity(room_id)
+            room_capacity = all_capacities.get(room_id)
             if room_capacity is None:
                 self.ad.log(
                     f"Load sharing Tier 3: Skipping {room_id} - no capacity estimate",
@@ -697,9 +699,10 @@ class LoadSharingManager:
         self.context.trigger_calling_rooms = set(calling_rooms)
         
         # Calculate trigger capacity
+        all_capacities = self.load_calculator.get_all_estimated_capacities()
         trigger_capacity = 0.0
         for room_id in calling_rooms:
-            capacity = self.load_calculator.get_estimated_capacity(room_id)
+            capacity = all_capacities.get(room_id)
             if capacity is not None:
                 trigger_capacity += capacity
         
@@ -817,9 +820,10 @@ class LoadSharingManager:
         new_calling = current_calling - self.context.trigger_calling_rooms
         if new_calling:
             # Calculate new total capacity
+            all_capacities = self.load_calculator.get_all_estimated_capacities()
             new_total_capacity = 0.0
             for room_id in current_calling:
-                capacity = self.load_calculator.get_estimated_capacity(room_id)
+                capacity = all_capacities.get(room_id)
                 if capacity is not None:
                     new_total_capacity += capacity
             
@@ -876,17 +880,18 @@ class LoadSharingManager:
             Total system capacity in watts
         """
         total = 0.0
+        all_capacities = self.load_calculator.get_all_estimated_capacities()
         
         # Add calling rooms
         for room_id, state in room_states.items():
             if state.get('calling', False):
-                capacity = self.load_calculator.get_estimated_capacity(room_id)
+                capacity = all_capacities.get(room_id)
                 if capacity is not None:
                     total += capacity
         
         # Add load sharing rooms (with valve adjustment)
         for room_id, activation in self.context.active_rooms.items():
-            capacity = self.load_calculator.get_estimated_capacity(room_id)
+            capacity = all_capacities.get(room_id)
             if capacity is not None:
                 # Apply valve adjustment - rough estimate
                 # valve_pct / 100 gives flow factor (e.g., 70% = 0.7)
