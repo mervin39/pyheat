@@ -1,6 +1,104 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Load Sharing - Human-Readable Decision Explanations
+
+**Status:** COMPLETE ✅
+
+**Branch:** `main`
+
+**Summary:**
+Added human-readable explanations to load sharing status to help users understand why load sharing activated and why specific rooms were selected. Provides both concise one-liner summaries and detailed structured breakdowns via the existing `sensor.pyheat_status` entity.
+
+**Problem:**
+Load sharing status was machine-readable but didn't explain the decision-making logic. Users needed to understand:
+- Why load sharing activated (capacity threshold + cycling risk)
+- Why specific rooms were selected (schedule-aware vs extended vs fallback)
+- What the system is trying to achieve (target capacity)
+- How long rooms have been active
+
+**Solution:**
+Enhanced `LoadSharingManager.get_status()` with two new fields:
+1. `decision_explanation`: Concise one-liner (80-120 chars) for quick understanding
+2. `decision_details`: Structured breakdown with full context for debugging
+
+**Changes:**
+
+1. **`managers/load_sharing_manager.py`**: Added `_build_decision_explanation()` method
+   - Returns single-line summary of current state
+   - Active example: "Active: 1 room(s) calling (bathroom) with 2100W < 3500W threshold. Added 2 schedule-aware room(s) to reach 4000W target."
+   - Inactive: "Load sharing inactive (sufficient capacity or no cycling risk)"
+   - Disabled: "Load sharing disabled (master switch off)"
+
+2. **`managers/load_sharing_manager.py`**: Added `_build_decision_details()` method
+   - Returns structured Dict with three sections:
+     - `activation_reason`: Why it triggered (capacity, threshold, duration, etc.)
+     - `room_selections`: Per-room details (tier, tier_name, selection_reason, valve_pct, duration)
+     - `capacity_status`: Target capacity and tier breakdown counts
+   - Provides ISO timestamps and human-readable tier names
+
+3. **`managers/load_sharing_manager.py`**: Updated `get_status()` method
+   - Added `decision_explanation` field (string)
+   - Added `decision_details` field (structured Dict)
+   - Both fields available in `sensor.pyheat_status` attributes under `load_sharing`
+
+4. **`docs/HA_API_SCHEMA.md`**: Updated load_sharing schema documentation
+   - Added `decision_explanation` field with example
+   - Added `decision_details` field with full structure example
+   - Added query examples for accessing both fields
+   - Updated state enum to show all possible values (tier1_active, tier1_escalated, etc.)
+
+**Benefits:**
+- Single source of truth: explanation lives alongside decision logic
+- Easy to query via HA API: `jq '.attributes.load_sharing.decision_explanation'`
+- Ready for UI integration in pyheat-web
+- Maintainable: explanation code right next to selection logic
+
+**Example Output:**
+
+Concise explanation:
+```
+"Active: 1 room(s) calling (bathroom) with 2100W < 3500W threshold. Added 2 schedule-aware room(s) to reach 4000W target."
+```
+
+Detailed breakdown:
+```json
+{
+  "status": "active",
+  "state": "tier1_active",
+  "activation_reason": {
+    "type": "low_capacity_with_cycling_risk",
+    "trigger_rooms": ["bathroom"],
+    "trigger_capacity_w": 2100,
+    "capacity_threshold_w": 3500,
+    "activated_at": "2025-11-27T10:30:15",
+    "duration_s": 180
+  },
+  "room_selections": [
+    {
+      "room_id": "bedroom",
+      "tier": 1,
+      "tier_name": "Schedule-aware pre-warming",
+      "selection_reason": "schedule_45m",
+      "valve_pct": 70,
+      "activated_at": "2025-11-27T10:30:15",
+      "duration_s": 180
+    }
+  ],
+  "capacity_status": {
+    "target_capacity_w": 4000,
+    "active_room_count": 2,
+    "tier_breakdown": {
+      "tier1_count": 2,
+      "tier2_count": 0,
+      "tier3_count": 0
+    }
+  }
+}
+```
+
+---
+
 ## 2025-11-27: Cycling Protection - DHW History Tracking for Race Condition Detection
 
 **Status:** COMPLETE ✅

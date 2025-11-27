@@ -460,7 +460,120 @@ class LoadSharingManager:
             ],
             'trigger_capacity': self.context.trigger_capacity,
             'trigger_rooms': list(self.context.trigger_calling_rooms),
-            'master_enabled': self._is_master_enabled()
+            'master_enabled': self._is_master_enabled(),
+            'decision_explanation': self._build_decision_explanation(),
+            'decision_details': self._build_decision_details()
+        }
+    
+    def _build_decision_explanation(self) -> str:
+        """Build concise human-readable explanation of load sharing decision.
+        
+        Returns single-line summary suitable for general display (80-120 chars).
+        
+        Returns:
+            Human-readable explanation string
+        """
+        if self.context.state == LoadSharingState.DISABLED:
+            return "Load sharing disabled (master switch off)"
+        
+        if not self.context.is_active():
+            return "Load sharing inactive (sufficient capacity or no cycling risk)"
+        
+        # Active state - explain the activation
+        trigger_rooms = ", ".join(sorted(self.context.trigger_calling_rooms))
+        num_trigger = len(self.context.trigger_calling_rooms)
+        
+        # Build tier summary
+        tier_counts = {}
+        for room in self.context.active_rooms.values():
+            tier_counts[room.tier] = tier_counts.get(room.tier, 0) + 1
+        
+        tier_summary = []
+        for tier in sorted(tier_counts.keys()):
+            count = tier_counts[tier]
+            tier_name = {1: "schedule-aware", 2: "extended", 3: "fallback"}[tier]
+            tier_summary.append(f"{count} {tier_name}")
+        
+        tier_str = ", ".join(tier_summary)
+        
+        return (
+            f"Active: {num_trigger} room(s) calling ({trigger_rooms}) "
+            f"with {self.context.trigger_capacity:.0f}W < {self.min_calling_capacity_w}W threshold. "
+            f"Added {tier_str} room(s) to reach {self.target_capacity_w}W target."
+        )
+    
+    def _build_decision_details(self) -> Dict:
+        """Build detailed structured breakdown of load sharing decision.
+        
+        Provides comprehensive data for debugging and detailed display.
+        
+        Returns:
+            Dict with activation_reason, room_selections, capacity_status
+        """
+        if self.context.state == LoadSharingState.DISABLED:
+            return {
+                'status': 'disabled',
+                'reason': 'Master switch (input_boolean.pyheat_load_sharing_enable) is off'
+            }
+        
+        if not self.context.is_active():
+            return {
+                'status': 'inactive',
+                'reason': 'Load sharing not needed (sufficient capacity or no cycling risk)'
+            }
+        
+        # Active state - provide detailed breakdown
+        now = datetime.now()
+        
+        # Activation reason details
+        activation_reason = {
+            'type': 'low_capacity_with_cycling_risk',
+            'trigger_rooms': sorted(self.context.trigger_calling_rooms),
+            'trigger_capacity_w': round(self.context.trigger_capacity, 0),
+            'capacity_threshold_w': self.min_calling_capacity_w,
+            'activated_at': self.context.trigger_timestamp.isoformat() if self.context.trigger_timestamp else None,
+            'duration_s': round(self.context.activation_duration(now), 0) if self.context.trigger_timestamp else 0
+        }
+        
+        # Room selection details
+        room_selections = []
+        for room in sorted(self.context.active_rooms.values(), key=lambda r: (r.tier, r.room_id)):
+            tier_names = {
+                1: 'Schedule-aware pre-warming',
+                2: 'Extended lookahead',
+                3: 'Fallback priority list'
+            }
+            
+            duration_s = (now - room.activated_at).total_seconds()
+            
+            room_selections.append({
+                'room_id': room.room_id,
+                'tier': room.tier,
+                'tier_name': tier_names.get(room.tier, f'Tier {room.tier}'),
+                'selection_reason': room.reason,
+                'valve_pct': room.valve_pct,
+                'activated_at': room.activated_at.isoformat(),
+                'duration_s': round(duration_s, 0)
+            })
+        
+        # Capacity status
+        # Note: Total capacity calculation would require room_states, so we provide counts
+        capacity_status = {
+            'target_capacity_w': self.target_capacity_w,
+            'active_room_count': len(self.context.active_rooms),
+            'tier_breakdown': {
+                'tier1_count': len(self.context.tier1_rooms),
+                'tier2_count': len(self.context.tier2_rooms),
+                'tier3_count': len(self.context.tier3_rooms)
+            }
+        }
+        
+        return {
+            'status': 'active',
+            'state': self.context.state.value,
+            'activation_reason': activation_reason,
+            'room_selections': room_selections,
+            'capacity_status': capacity_status
         }
     
     # ========================================================================

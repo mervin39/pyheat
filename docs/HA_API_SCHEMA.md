@@ -72,10 +72,44 @@ Each room object contains:
   },
   "total_estimated_dump_capacity": 7667.0,
   "load_sharing": {
-    "state": "inactive|active",
-    "active_rooms": [],                // Rooms activated by load sharing
+    "state": "inactive|tier1_active|tier1_escalated|tier2_active|tier2_escalated|tier3_active|tier3_escalated",
+    "active_rooms": [],                // Rooms activated by load sharing (detailed array)
     "trigger_rooms": [],               // Rooms that triggered load sharing
-    "master_enabled": "true|false"     // String, not boolean!
+    "trigger_capacity": 2100,          // Capacity of trigger rooms (watts)
+    "master_enabled": "true|false",    // String, not boolean!
+    "decision_explanation": "Active: 1 room(s) calling (bathroom) with 2100W < 3500W threshold. Added 2 schedule-aware room(s) to reach 4000W target.",
+    "decision_details": {              // Detailed structured breakdown
+      "status": "active",
+      "state": "tier1_active",
+      "activation_reason": {
+        "type": "low_capacity_with_cycling_risk",
+        "trigger_rooms": ["bathroom"],
+        "trigger_capacity_w": 2100,
+        "capacity_threshold_w": 3500,
+        "activated_at": "2025-11-27T10:30:15",
+        "duration_s": 180
+      },
+      "room_selections": [
+        {
+          "room_id": "bedroom",
+          "tier": 1,
+          "tier_name": "Schedule-aware pre-warming",
+          "selection_reason": "schedule_45m",
+          "valve_pct": 70,
+          "activated_at": "2025-11-27T10:30:15",
+          "duration_s": 180
+        }
+      ],
+      "capacity_status": {
+        "target_capacity_w": 4000,
+        "active_room_count": 2,
+        "tier_breakdown": {
+          "tier1_count": 2,
+          "tier2_count": 0,
+          "tier3_count": 0
+        }
+      }
+    }
   }
 }
 ```
@@ -85,6 +119,8 @@ Each room object contains:
 - ✅ `boiler_state` (not `state` - that's at entity level)
 - ✅ `boiler_reason` (not `reason`)
 - ✅ `cycling_protection.state` (not `cycling_protection_active` - check for != "READY")
+- ✅ `load_sharing.decision_explanation` (human-readable one-liner)
+- ✅ `load_sharing.decision_details` (structured breakdown)
 
 ### Common Query Examples
 
@@ -104,6 +140,14 @@ curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_BASE_URL/api/states/sensor.pyh
 # Check load sharing status
 curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_BASE_URL/api/states/sensor.pyheat_status" \
   | jq '.attributes.load_sharing'
+
+# Get human-readable load sharing explanation
+curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_BASE_URL/api/states/sensor.pyheat_status" \
+  | jq -r '.attributes.load_sharing.decision_explanation'
+
+# Get detailed load sharing breakdown
+curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_BASE_URL/api/states/sensor.pyheat_status" \
+  | jq '.attributes.load_sharing.decision_details'
 
 # Get total system capacity
 curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_BASE_URL/api/states/sensor.pyheat_status" \
