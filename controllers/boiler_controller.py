@@ -306,6 +306,10 @@ class BoilerController:
                 # Demand returned during off-delay, return to ON
                 self._transition_to(C.STATE_ON, now, "demand returned")
                 self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
+                
+                # Disable pump overrun persistence (returning to normal heating)
+                self.valve_coordinator.disable_pump_overrun_persistence()
+                
                 reason = f"Returned to ON: demand resumed ({len(active_rooms)} room(s))"
             elif not self._is_timer_active(C.HELPER_BOILER_OFF_DELAY_TIMER):
                 # Off-delay timer completed - check if we can transition to pump overrun
@@ -439,14 +443,18 @@ class BoilerController:
                 from alert_manager import AlertManager
                 self.alert_manager.clear_error(AlertManager.ALERT_SAFETY_ROOM_ACTIVE)
         
-        # Update valve coordinator with persistence overrides (if coordinator is available)
+        # Update valve coordinator with legacy persistence overrides (if coordinator is available)
+        # NOTE: Only for safety room and interlock-based persistence.
+        # PENDING_OFF and PUMP_OVERRUN are handled by valve coordinator's pump overrun system.
         if self.valve_coordinator:
-            if persisted_valves and valves_must_stay_open:
-                # Set persistence overrides in coordinator
+            # Only use legacy persistence for safety room (STATE_OFF with safety valve forced)
+            if self.boiler_state == C.STATE_OFF and persisted_valves and valves_must_stay_open:
+                # Safety room forced open - use legacy persistence
                 persistence_reason = f"{self.boiler_state}: {reason}"
                 self.valve_coordinator.set_persistence_overrides(persisted_valves, persistence_reason)
-            elif not valves_must_stay_open:
-                # Clear persistence when no longer needed
+            elif self.boiler_state != C.STATE_PENDING_OFF and self.boiler_state != C.STATE_PUMP_OVERRUN:
+                # Clear legacy persistence when not in pump overrun states
+                # (pump overrun states are handled by valve coordinator's own system)
                 self.valve_coordinator.clear_persistence_overrides()
         
         return self.boiler_state, reason, persisted_valves, valves_must_stay_open

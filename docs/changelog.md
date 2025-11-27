@@ -1,6 +1,64 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Complete Pump Overrun Refactor - Remove Legacy Persistence
+
+**Status:** COMPLETE ✅
+
+**Branch:** `refactor/pump-overrun-to-valve-coordinator`
+
+**Summary:**
+Completed the pump overrun refactor by removing legacy persistence calls for PENDING_OFF and PUMP_OVERRUN states. The valve coordinator now fully manages pump overrun valve persistence using its own Priority 2 system, with legacy persistence only used for safety room emergency overrides.
+
+**Issue:**
+After initial refactor, both systems were running simultaneously:
+- New valve coordinator pump overrun was snapshotting and persisting correctly
+- But legacy persistence (Priority 1) was being applied first, so new pump overrun (Priority 2) never executed
+- This meant the refactor was functionally incomplete
+
+**Changes:**
+
+1. **`controllers/boiler_controller.py`**: Removed legacy persistence for pump overrun states
+   - PENDING_OFF → ON transition now calls `disable_pump_overrun_persistence()`
+   - Legacy `set_persistence_overrides()` only called for safety room (STATE_OFF with forced valve)
+   - PENDING_OFF and PUMP_OVERRUN no longer use legacy persistence mechanism
+   - Valve coordinator's pump overrun system (Priority 2) now handles these states
+
+**Before (Hybrid):**
+```
+PENDING_OFF/PUMP_OVERRUN:
+  Priority 1: Legacy persistence (boiler calls set_persistence_overrides) ✓ USED
+  Priority 2: Valve coordinator pump overrun (snapshot active) ✗ NEVER REACHED
+```
+
+**After (Clean):**
+```
+PENDING_OFF/PUMP_OVERRUN:
+  Priority 1: Legacy persistence (NOT called for these states)
+  Priority 2: Valve coordinator pump overrun (snapshot active) ✓ USED
+  
+STATE_OFF (safety room):
+  Priority 1: Legacy persistence (safety room forced) ✓ USED
+  Priority 2: Valve coordinator pump overrun (not active)
+```
+
+**Benefits:**
+- ✅ **Single system**: Valve coordinator pump overrun fully handles PENDING_OFF/PUMP_OVERRUN
+- ✅ **Actual commanded positions**: Snapshots include load sharing and all overrides
+- ✅ **Legacy preserved**: Safety room emergency override still works
+- ✅ **Cleaner code**: No dual persistence for same states
+- ✅ **Better logging**: Will show pump overrun messages instead of legacy persistence
+
+**Testing:**
+- ✅ AppDaemon restarted successfully, no errors
+- Ready for pump overrun testing with and without load sharing
+
+**Files Modified:**
+- `controllers/boiler_controller.py`: Updated persistence logic (~10 lines changed)
+- `docs/changelog.md`: This entry
+
+---
+
 ## 2025-11-27: REFACTOR - Move Pump Overrun Persistence to Valve Coordinator
 
 **Status:** COMPLETE ✅
