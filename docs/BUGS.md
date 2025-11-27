@@ -4,6 +4,167 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #7: Cycling Protection Triggers on Intentional Boiler Shutdown
+
+**Status:** Identified  
+**Date Discovered:** 2025-11-27  
+**Severity:** Medium - causes unnecessary cooldown cycles and setpoint drops  
+
+### Observed Behavior
+
+When pyheat intentionally turns the boiler off because no rooms are calling for heat, the cycling protection system incorrectly evaluates this as a potential overheat situation and triggers a cooldown if the return temperature is above the threshold.
+
+**Specific incident on 2025-11-27 at 22:12:50:**
+- Pete's room reached target temperature (19.13°C) and stopped calling for heat
+- No rooms calling for heat (num_rooms_calling = 0)
+- Boiler state machine correctly transitioned: `ON` → `PENDING_OFF` (22:12:05)
+- After 30-second off-delay, boiler commanded off at 22:12:50
+- Flame turned OFF as expected (intentional shutdown)
+- **2 seconds later (22:12:52):** Cycling protection evaluated the flame-off event
+- Return temp: 61°C, Threshold: 60°C (setpoint 70°C - 10°C delta)
+- **Cooldown incorrectly triggered** even though this was an intentional shutdown, not a boiler overheat
+
+### Root Cause Analysis
+
+The cycling protection system monitors the `binary_sensor.opentherm_flame` entity and evaluates every flame-off event to detect boiler overheating (when the boiler automatically shuts itself down due to high return temperature).
+
+**Current checks in `on_flame_off()` and `_evaluate_cooldown_need()`:**
+1. ✅ **Already in cooldown?** → Skip (prevents double-triggering)
+2. ✅ **DHW (hot water) active?** → Skip (4 separate checks for DHW detection)
+3. ✅ **Return temp high?** → Trigger cooldown if `return_temp >= (setpoint - 10°C)`
+
+**Missing check:**
+❌ **Was this an intentional shutdown by pyheat?** → Not checked at all
+
+The cycling protection cannot distinguish between:
+- **Automatic boiler shutdown**: Boiler safety system turned off the flame due to overheat (cooldown needed)
+- **Intentional pyheat shutdown**: State machine commanded boiler off because no rooms calling (cooldown NOT needed)
+
+**Why this matters:**
+
+The cooldown system is designed to detect short-cycling caused by insufficient radiator capacity - when the boiler keeps automatically shutting itself off due to high return temperature because there's not enough heat dissipation. This is a genuine problem that needs intervention (dropping setpoint to 30°C to allow system to cool).
+
+However, when pyheat intentionally turns the boiler off because heating is no longer needed, the return temperature being "high" is **expected and normal** - the system was just actively heating! This does not indicate a cycling problem.
+
+### Evidence
+
+**From heating_logs/2025-11-27.csv:**
+```csv
+time,trigger,num_rooms_calling,boiler_state,ot_flame,cycling_state,ot_setpoint_temp,ot_heating_temp,ot_return_temp
+22:12:04,opentherm_modulation,1,on,on,NORMAL,70.0,70,63
+22:12:05,opentherm_heating_return_temp,0,on,on,NORMAL,70.0,70,63
+22:12:27,sensor_office_changed,0,pending_off,on,NORMAL,70.0,69,62
+22:12:50,opentherm_heating_temp,0,pending_off,off,NORMAL,70.0,65,61
+22:12:53,opentherm_heating_temp,0,pending_off,off,COOLDOWN,70.0,64,61
+22:13:01,opentherm_heating_setpoint_temp,0,pump_overrun,off,COOLDOWN,30.0,62,60
+```
+
+**Timeline:**
+1. 22:12:05 - Pete's room stopped calling (temp reached 19.13°C vs target 19.0°C)
+2. 22:12:05-22:12:27 - Boiler remained ON (30-second off-delay timer)
+3. 22:12:27 - Boiler entered `pending_off` state (off-delay expired)
+4. 22:12:50 - Flame turned OFF (intentional - commanded by pyheat)
+5. 22:12:52 (approx) - Cycling protection evaluated: return_temp=61°C >= threshold=60°C
+6. 22:12:53 - **COOLDOWN triggered** (setpoint will drop to 30°C)
+
+### Related Code Locations
+
+**controllers/cycling_protection.py:**
+- Line 115-156: `on_flame_off()` - captures DHW state, schedules evaluation after 2s delay
+- Line 127-134: Guard for already-in-cooldown (prevents double-trigger)
+- Line 290-377: `_evaluate_cooldown_need()` - evaluates if cooldown needed
+- Line 321-336: DHW checks (4 separate checks to filter out hot water events)
+- Line 354-365: Return temperature check and cooldown trigger decision
+
+**What's missing:** No check of boiler state machine state to determine if shutdown was intentional
+
+### Fix Strategy
+
+**Option 1: Check boiler state machine state (Recommended)**
+
+Pass boiler controller reference to CyclingProtection and check state before evaluation:
+
+```python
+# In cycling_protection.py __init__:
+def __init__(self, ad, config, alert_manager=None, boiler_controller=None):
+    self.boiler_controller = boiler_controller
+
+# In on_flame_off():
+if new == 'off' and old == 'on':
+    # Check if this is an intentional shutdown
+    if self.boiler_controller:
+        boiler_state = self.boiler_controller.boiler_state
+        if boiler_state in [C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN]:
+            self.ad.log(
+                f"Flame OFF: Intentional shutdown by state machine "
+                f"(state={boiler_state}) - skipping cooldown evaluation",
+                level="DEBUG"
+            )
+            return
+    
+    # Continue with existing DHW and return temp checks...
+```
+
+**Option 2: Track last commanded state**
+
+Add tracking of when pyheat last commanded the boiler off, compare flame-off timing:
+- If flame turns off within ~5 seconds of pyheat commanding off → intentional
+- If flame turns off with no recent command → automatic overheat
+
+**Option 3: Use climate entity state transitions**
+
+Monitor `climate.opentherm_thermostat` state changes instead of flame sensor:
+- Only evaluate cooldown when state changes `heat→off` without pyheat commanding it
+- Requires climate entity state to accurately reflect boiler state
+
+**Recommendation:** Option 1 - direct state machine check is simplest and most reliable
+
+### Impact Assessment
+
+**Severity:** Medium
+- Causes unnecessary cooldown cycles during normal operation
+- Drops setpoint to 30°C when not needed
+- System recovers automatically (cooldown exits when return temp falls below threshold)
+- Does not prevent heating or cause safety issues
+- Wastes energy by extending time until next heating cycle
+
+**Frequency:** Occurs whenever:
+- Boiler is heating with return temp within 10°C of setpoint (common)
+- Last room stops calling for heat (normal end of heating cycle)
+- System intentionally shuts down
+
+**Typical scenario:**
+- Single room calling with high target → high setpoint (e.g., 70°C)
+- Room reaches target and stops calling
+- Return temp still high (e.g., 61°C) from active heating
+- Intentional shutdown incorrectly triggers cooldown
+
+### Testing Notes
+
+To verify the fix:
+1. Start heating with one room calling
+2. Wait for room to reach target temperature and stop calling
+3. Observe boiler shutdown sequence: `ON → PENDING_OFF → (flame off) → PUMP_OVERRUN`
+4. Check AppDaemon logs for cycling protection evaluation
+5. Verify cooldown does NOT trigger if return temp is high but shutdown was intentional
+6. Verify cooldown DOES trigger if flame turns off while boiler state is still `ON` (actual overheat)
+
+To simulate actual overheat scenario for testing:
+- Would require boiler to shut itself off due to high return temp while state machine thinks it's still ON
+- Difficult to reproduce in testing without risking equipment
+- May need to rely on log analysis if this rare event occurs in production
+
+### Context
+
+Discovered during analysis of heating logs from 2025-11-27 evening. Initially appeared that cooldown was correctly protecting against high return temp, but further investigation revealed:
+- Shutdown was intentional (no rooms calling for heat)
+- Return temp being high is normal after active heating
+- Cycling protection is designed for automatic boiler shutdowns, not intentional ones
+
+The cycling protection system was implemented to detect and prevent short-cycling caused by insufficient radiator capacity. It was not designed to handle the case where pyheat intentionally turns the boiler off with a naturally-high return temperature after normal heating operation.
+
+---
+
 ## BUG #6: Load Sharing Valves Persist After Deactivation
 
 **Status:** FIXED ✅  
