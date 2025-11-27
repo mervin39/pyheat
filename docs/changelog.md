@@ -1,6 +1,59 @@
 
 # PyHeat Changelog
 
+## 2025-11-26: CRITICAL FIX - Load Sharing Tier Cascade Logic (BUG #4) 🚨
+
+**Status:** FIXED ✅
+
+**Branch:** `feature/load-sharing-phase4`
+
+**Summary:**
+Fixed critical design flaw where load sharing would give up immediately if Tier 1 (schedule-aware pre-warming) found no rooms, never trying Tier 2 (extended lookahead) or Tier 3 (fallback priority). This prevented load sharing from working in the most common scenario: no schedules within 60 minutes.
+
+**Root Cause:**
+In `managers/load_sharing_manager.py`, lines 290-294, when `tier1_selections` was empty, the code logged "no Tier 1 rooms available" and returned immediately. The cascade logic to try Tier 2 and Tier 3 was only implemented INSIDE the `if tier1_selections:` block (lines 143-290), meaning it only ran if Tier 1 found rooms but they were insufficient.
+
+**Design Flaw:**
+```python
+if tier1_selections:
+    # Activate Tier 1, check capacity, cascade to Tier 2/3 if insufficient
+    # (lines 143-290)
+else:
+    self.ad.log("no Tier 1 rooms available", level="DEBUG")
+    return {}  # GIVE UP - never try Tier 2 or Tier 3!
+```
+
+**Expected Behavior:**
+Load sharing should cascade through tiers:
+1. Try Tier 1 (schedules in next 60 min)
+2. If empty/insufficient → try Tier 2 (schedules in next 120 min)
+3. If empty/insufficient → try Tier 3 (fallback priority list)
+
+**Actual Behavior Before Fix:**
+- Tier 1 finds rooms → cascade works correctly (insufficient → try Tier 2 → try Tier 3)
+- Tier 1 empty → **give up immediately, never try Tier 2 or Tier 3**
+
+**Symptoms:**
+- Entry conditions detected correctly: "Low capacity (433W < 3000W) + cycling protection active"
+- Log message: "Load sharing entry conditions met, but no Tier 1 rooms available"
+- No Tier 2 or Tier 3 evaluation attempted
+- Load sharing never activated despite fallback priorities configured
+- Most common scenario (no schedules soon) completely broken
+
+**Fix:**
+Refactored lines 290-294 to implement proper cascade logic when Tier 1 is empty:
+- If Tier 1 empty → try Tier 2
+- If Tier 2 empty/insufficient → try Tier 3
+- Same escalation logic (40% → 60-80%) for all paths
+- Only give up after exhausting all three tiers
+
+**Impact:**
+- Load sharing now works when no schedules are imminent (most common case)
+- Tier 3 fallback priority now actually used as intended
+- System can prevent boiler short-cycling even during off-schedule periods
+
+---
+
 ## 2025-11-26: CRITICAL FIX - Restore Missing Valve Persistence Integration (BUG #3) 🚨
 
 **Status:** FIXED ✅
