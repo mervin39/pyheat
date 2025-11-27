@@ -252,6 +252,139 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 5. **Stateful**: Previous states (calling, band) maintained for hysteresis calculations
 6. **Non-Blocking**: TRV commands use async feedback confirmation to avoid blocking control loop
 
+---
+
+## Timer Handling
+
+### Overview
+
+PyHeat uses Home Assistant timer entities for various time-based operations, including room temperature overrides and boiler FSM state management. The system employs a **hybrid event + polling approach** that combines immediate event-driven responses with a safety-net polling mechanism for maximum reliability.
+
+**Timer Types:**
+- **Room Override Timers** (6 timers, one per room): `timer.pyheat_{room}_override`
+- **Boiler Min On Timer**: `timer.pyheat_boiler_min_on_timer` (FSM state enforcement)
+- **Boiler Min Off Timer**: `timer.pyheat_boiler_min_off_timer` (FSM state enforcement)
+- **Boiler Off Delay Timer**: `timer.pyheat_boiler_off_delay_timer` (graceful shutdown delay)
+- **Pump Overrun Timer**: `timer.pyheat_boiler_pump_overrun_timer` (post-heating circulation)
+
+### Event-Driven Approach (Primary Mechanism)
+
+PyHeat registers event listeners for all timer entities during initialization (`app.py` lines 302-338):
+
+```python
+# Room override timers
+for room_id in room_ids:
+    timer_entity = f"timer.pyheat_{room_id}_override"
+    self.listen_event(self.timer_finished, "timer.finished", entity_id=timer_entity)
+    self.listen_event(self.timer_cancelled, "timer.cancelled", entity_id=timer_entity)
+
+# Boiler FSM timers
+for timer_name in ["min_on", "min_off", "off_delay", "pump_overrun"]:
+    timer_entity = f"timer.pyheat_boiler_{timer_name}_timer"
+    self.listen_event(self.timer_finished, "timer.finished", entity_id=timer_entity)
+    self.listen_event(self.timer_cancelled, "timer.cancelled", entity_id=timer_entity)
+```
+
+**Event Handlers:**
+
+When Home Assistant fires a `timer.finished` or `timer.cancelled` event, PyHeat immediately responds:
+
+```python
+def timer_finished(self, event_name, data, kwargs):
+    """Handle timer.finished events from Home Assistant"""
+    entity_id = data.get("entity_id", "unknown")
+    self.ad.log(f"Timer finished event received: {entity_id}", level="DEBUG")
+    self.trigger_recompute(reason=f"timer_finished:{entity_id}")
+
+def timer_cancelled(self, event_name, data, kwargs):
+    """Handle timer.cancelled events from Home Assistant"""
+    entity_id = data.get("entity_id", "unknown")
+    self.ad.log(f"Timer cancelled event received: {entity_id}", level="DEBUG")
+    self.trigger_recompute(reason=f"timer_cancelled:{entity_id}")
+```
+
+Both events trigger an immediate recompute cycle with a reason string that identifies the specific timer for debugging.
+
+**Benefits:**
+- **Immediate response**: No polling delay (0s latency vs up to 60s with polling alone)
+- **Efficient**: Only runs recompute when timers actually change state
+- **Traceable**: Reason strings show exact timer that triggered recompute in logs
+
+### State Polling (Safety Net)
+
+PyHeat maintains existing state listeners for backward compatibility and as a safety net:
+
+```python
+# room_timer_changed state listener (backup mechanism)
+self.listen_state(self.room_timer_changed, override_timer)
+```
+
+The `room_timer_changed()` handler also triggers a recompute when timer entity state changes.
+
+**Why Keep Polling?**
+- **AppDaemon restart safety**: When AppDaemon restarts with expired timers, events are not re-fired but state reflects the expired state
+- **Missed events**: Network issues or HA restart could theoretically cause missed events
+- **No downside**: `recompute_all()` is idempotent - redundant triggers are harmless
+
+**Restart Behavior:**
+When AppDaemon restarts while a timer is expired:
+1. Event listeners register at startup (no retroactive events fired)
+2. Periodic recompute (60s timer) polls all entity states
+3. Expired timer detected via state check within 3-13 seconds (first periodic + stagger)
+4. Recompute processes expired timer (override cleared or FSM state transition)
+
+**Maximum delay on restart:** 3-13 seconds (acceptable for temperature control)
+
+### Implementation Details
+
+**Initialization Sequence (app.py initialize() method):**
+1. Load room and boiler configurations
+2. Register event listeners for `timer.finished` and `timer.cancelled` on all 10 timer entities
+3. Register state listeners for room override timers (backward compatibility)
+4. Log summary: "Registered timer events for N room override timers" + "Registered timer events for N boiler FSM timers"
+
+**Event Listener Registration:**
+- Uses AppDaemon's `listen_event()` with entity_id filter
+- Separate listeners for finished and cancelled events (different semantics)
+- Filters ensure only relevant timer events trigger handlers
+
+**Reason Strings:**
+All timer events include the entity_id in the recompute reason:
+- `timer_finished:timer.pyheat_pete_override`
+- `timer_cancelled:timer.pyheat_boiler_min_off_timer`
+
+This enables precise debugging via `sensor.pyheat_status` last_recompute_reason attribute.
+
+**Idempotency:**
+Multiple mechanisms (events + state polling) can trigger recomputes for the same timer state change. This is safe because:
+- `recompute_all()` reads current state and makes decisions based on that state
+- No cumulative effects - each recompute is a fresh evaluation
+- Duplicate recomputes waste CPU cycles but produce identical results
+
+### Trade-offs Analysis
+
+**Option 1: Polling Only** (Previous Implementation)
+- ✅ Simple, no event registration needed
+- ✅ Catches expired timers after restart
+- ❌ 0-60s delay (poor UX for override cancellation)
+- ❌ Wastes CPU on regular polling
+
+**Option 2: Events Only**
+- ✅ Immediate response (0s latency)
+- ✅ Efficient (only runs on actual changes)
+- ❌ Restart gap: expired timers not detected until first periodic recompute
+- ❌ Vulnerable to missed events
+
+**Option 3: Hybrid (Current Implementation)** ✅
+- ✅ Immediate response via events (0s latency)
+- ✅ Safety net via periodic polling (3-13s restart delay)
+- ✅ No downside due to idempotency
+- ⚠️ Slightly more complex (two mechanisms)
+
+**Conclusion:** Option 3 provides best user experience (immediate response) with maximum reliability (safety net). The complexity cost is minimal (two event registrations per timer + preserved state listeners).
+
+---
+
 ### Core Components
 
 - **app.py** - Main AppDaemon application and orchestration

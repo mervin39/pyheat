@@ -1,6 +1,82 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: Timer Event System - Hybrid Event Listeners + Polling Safety Net
+
+**Status:** COMPLETE ✅
+
+**Branch:** `main`
+
+**Summary:**
+Implemented hybrid timer event system that combines event-driven responses (immediate) with polling safety net (restart resilience). PyHeat now listens for Home Assistant `timer.finished` and `timer.cancelled` events on all 10 timer entities (6 room overrides + 4 boiler FSM timers), triggering immediate recompute cycles when timers change state.
+
+**Problem:**
+Previous implementation relied solely on periodic polling (60s timer) to detect timer state changes, resulting in 0-60s delays when room override timers expired or boiler FSM timers completed. This caused poor user experience when canceling overrides or waiting for boiler state transitions.
+
+**Solution:**
+Implemented Option 3 (Smart Hybrid) approach:
+- **Primary mechanism**: Event listeners for `timer.finished` and `timer.cancelled` events (0s latency)
+- **Safety net**: Existing state polling preserved (catches expired timers after AppDaemon restart)
+- **Idempotency**: Multiple triggers safe due to `recompute_all()` idempotency
+
+**Changes:**
+
+1. **`app.py`**: Added timer event listener registration (lines 302-338)
+   - Register `timer.finished` and `timer.cancelled` events for 6 room override timers
+   - Register `timer.finished` and `timer.cancelled` events for 4 boiler FSM timers
+   - Log summary: "Registered timer events for N room override timers"
+   - Log summary: "Registered timer events for N boiler FSM timers"
+
+2. **`app.py`**: Added timer event handlers (lines 604-637)
+   - `timer_finished(event_name, data, kwargs)`: Handles timer.finished events
+   - `timer_cancelled(event_name, data, kwargs)`: Handles timer.cancelled events
+   - Both methods extract entity_id and trigger recompute with reason string
+   - Reason format: `timer_finished:timer.pyheat_{room}_override`
+
+3. **`app.py`**: Preserved existing state listeners (line 245)
+   - `room_timer_changed()` state listener maintained for backward compatibility
+   - Acts as safety net during AppDaemon restart (expired timers detected within 3-13s)
+
+4. **`docs/ARCHITECTURE.md`**: Added comprehensive Timer Handling section
+   - Documented hybrid event + polling approach with rationale
+   - Listed all 10 timer types (room overrides + boiler FSM)
+   - Event listener registration process and initialization sequence
+   - Event handler implementation with reason strings
+   - Restart behavior analysis (3-13s max delay via periodic polling)
+   - Trade-offs comparison (polling vs events vs hybrid)
+   - Idempotency explanation (why multiple triggers are safe)
+
+**Timer Types Covered:**
+- Room override timers (6): `timer.pyheat_{room}_override`
+- Boiler min on timer: `timer.pyheat_boiler_min_on_timer`
+- Boiler min off timer: `timer.pyheat_boiler_min_off_timer`
+- Boiler off delay timer: `timer.pyheat_boiler_off_delay_timer`
+- Pump overrun timer: `timer.pyheat_boiler_pump_overrun_timer`
+
+**Benefits:**
+- ✅ Immediate response (0s latency vs 0-60s with polling alone)
+- ✅ Better UX for override cancellation and FSM transitions
+- ✅ Restart resilience (polling catches expired timers within 3-13s)
+- ✅ Efficient (only runs recompute on actual timer state changes)
+- ✅ Traceable (reason strings identify specific timer in logs)
+- ✅ No downside (idempotency makes redundant triggers harmless)
+
+**Testing:**
+- AppDaemon restarted successfully with no errors
+- Verified log output: "Registered timer events for 6 room override timers"
+- Verified log output: "Registered timer events for 4 boiler FSM timers"
+- All event listeners registered correctly (20 total: 10 timers × 2 events each)
+
+**Verification:**
+```bash
+$ docker restart appdaemon
+$ tail -50 /opt/appdata/appdaemon/conf/logs/appdaemon.log | grep "timer"
+INFO pyheat: Registered timer events for 6 room override timers
+INFO pyheat: Registered timer events for 4 boiler FSM timers
+```
+
+---
+
 ## 2025-11-27: Documentation Update - Load Sharing and Pump Overrun Refactor
 
 **Status:** COMPLETE ✅

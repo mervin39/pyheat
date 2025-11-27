@@ -299,6 +299,41 @@ class PyHeat(hass.Hass):
             self.listen_state(self.cycling.on_setpoint_changed, C.HELPER_OPENTHERM_SETPOINT)
             self.log("Registered OpenTherm setpoint control")
         
+        # ====================================================================
+        # Timer event listeners (immediate response to timer completion)
+        # ====================================================================
+        # Note: State polling continues as safety net for missed events
+        
+        # Room override timers (per-room)
+        override_timer_count = 0
+        for room_id in self.config.rooms.keys():
+            timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
+            if self.entity_exists(timer_entity):
+                self.listen_event(self.timer_finished, "timer.finished", entity_id=timer_entity)
+                self.listen_event(self.timer_cancelled, "timer.cancelled", entity_id=timer_entity)
+                override_timer_count += 1
+        
+        if override_timer_count > 0:
+            self.log(f"Registered timer events for {override_timer_count} room override timers")
+        
+        # Boiler FSM timers (system-wide)
+        boiler_timers = [
+            C.HELPER_BOILER_MIN_ON_TIMER,
+            C.HELPER_BOILER_MIN_OFF_TIMER,
+            C.HELPER_BOILER_OFF_DELAY_TIMER,
+            C.HELPER_PUMP_OVERRUN_TIMER
+        ]
+        
+        boiler_timer_count = 0
+        for timer_entity in boiler_timers:
+            if self.entity_exists(timer_entity):
+                self.listen_event(self.timer_finished, "timer.finished", entity_id=timer_entity)
+                self.listen_event(self.timer_cancelled, "timer.cancelled", entity_id=timer_entity)
+                boiler_timer_count += 1
+        
+        if boiler_timer_count > 0:
+            self.log(f"Registered timer events for {boiler_timer_count} boiler FSM timers")
+        
         self.log(f"Registered callbacks for {len(self.config.rooms)} rooms")
 
     # ========================================================================
@@ -565,6 +600,40 @@ class PyHeat(hass.Hass):
                 import traceback
                 self.log(f"TRACEBACK: {traceback.format_exc()}", level="ERROR")
 
+    # ========================================================================
+    # Timer Event Handlers
+    # ========================================================================
+
+    def timer_finished(self, event_name, data, kwargs):
+        """Timer finished event - triggers immediate recompute.
+        
+        This provides immediate response to timer expiration. State polling
+        in recompute_all() acts as safety net for missed events (e.g., during
+        AppDaemon restart).
+        
+        Args:
+            event_name: "timer.finished"
+            data: Event data containing entity_id
+            kwargs: Additional keyword arguments
+        """
+        entity_id = data.get('entity_id', 'unknown')
+        self.log(f"Timer finished event: {entity_id}", level="DEBUG")
+        self.trigger_recompute(f"timer_finished_{entity_id}")
+
+    def timer_cancelled(self, event_name, data, kwargs):
+        """Timer cancelled event - triggers immediate recompute.
+        
+        Timer cancellation (manual or programmatic) means the timer is no
+        longer active, which may affect FSM state transitions.
+        
+        Args:
+            event_name: "timer.cancelled"
+            data: Event data containing entity_id
+            kwargs: Additional keyword arguments
+        """
+        entity_id = data.get('entity_id', 'unknown')
+        self.log(f"Timer cancelled event: {entity_id}", level="DEBUG")
+        self.trigger_recompute(f"timer_cancelled_{entity_id}")
 
     # ========================================================================
     # TRV Setpoint Management
