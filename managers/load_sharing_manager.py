@@ -64,11 +64,20 @@ class LoadSharingManager:
         """
         # Load load_sharing config from boiler.yaml (thresholds and parameters only)
         ls_config = self.config.boiler_config.get('load_sharing', {})
+        
+        # Required configuration - no defaults
+        if 'high_return_delta_c' not in ls_config:
+            raise ValueError(
+                "Missing required config: load_sharing.high_return_delta_c must be defined in boiler.yaml. "
+                "This sets the return temperature delta threshold for cycling risk detection. "
+                "Example: 15 means load sharing activates when return temp is within 15°C of setpoint."
+            )
+        
         self.min_calling_capacity_w = ls_config.get('min_calling_capacity_w', 3500)
         self.target_capacity_w = ls_config.get('target_capacity_w', 4000)
         self.min_activation_duration_s = ls_config.get('min_activation_duration_s', 300)
         self.tier3_timeout_s = ls_config.get('tier3_timeout_s', 900)
-        self.high_return_delta_c = ls_config.get('high_return_delta_c', C.LOAD_SHARING_HIGH_RETURN_DELTA_C_DEFAULT)
+        self.high_return_delta_c = ls_config['high_return_delta_c']
         
         # Check master enable switch (single source of truth)
         master_enabled = self._is_master_enabled()

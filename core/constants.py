@@ -330,10 +330,6 @@ LOAD_SHARING_TIER3_ESCALATED_PCT = 60 # Escalated if insufficient
 # Load sharing schedule lookahead defaults (minutes)
 LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT = 60  # Default lookahead window
 
-# Load sharing cycling risk detection (degrees Celsius)
-# When return_temp >= (setpoint - delta), load sharing activates
-LOAD_SHARING_HIGH_RETURN_DELTA_C_DEFAULT = 15  # More conservative than cycling protection (10°C)
-
 # ============================================================================
 # Logging
 # ============================================================================
