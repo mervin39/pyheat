@@ -1110,7 +1110,7 @@ class LoadSharingManager:
         Returns:
             True if rooms were escalated or new room added, False if all maxed out
         """
-        tier3_rooms = list(self.context.tier3_rooms.values())
+        tier3_rooms = self.context.tier3_rooms  # Property returns list of Tier 3 activations
         
         if not tier3_rooms:
             return False

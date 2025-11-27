@@ -3,7 +3,7 @@
 
 ## 2025-11-27: Implement Maximize-Existing Strategy for Tier 3 Load Sharing
 
-**Status:** COMPLETE ✅
+**Status:** COMPLETE ✅ TESTED ✅
 
 **Branch:** `feature/load-sharing-phase4`
 
@@ -18,11 +18,24 @@ Modified Tier 3 load sharing to implement the "maximize existing rooms before ad
    - Only adds next priority room when existing rooms are fully open
    - Returns `False` when all rooms maxed and no more additions possible
 3. **Continuous Escalation Loop**: All 4 call sites updated to loop escalation until target capacity reached or all options exhausted
+4. **Bug Fix**: Fixed `.values()` call on `tier3_rooms` property (which returns a list, not dict)
+
+**Test Results (Bathroom Override - 415W):**
+```
+09:49:04: Load sharing entry: Low capacity (419W < 3000W)
+09:49:04: Added 1 Tier 3 room [lounge=50%] (capacity: 1480W < 4000W)
+09:49:04: Escalating 'lounge' 50% → 60% → 70% → 80% → 90% → 100%
+09:49:04: All 1 room(s) at 100%, adding next priority room
+09:49:04: Added 'games' at 50%
+09:49:04: Escalating 'games' 50% → 60%
+09:49:04: Final capacity 4044W >= 4000W ✅
+Result: lounge=100%, games=60% (2 rooms, office not needed)
+```
 
 **Expected Behavior:**
 For bathroom override (415W << 3000W threshold):
 - **Old**: Add lounge (60%) + games (60%) + office (60%) = 3 rooms
-- **New**: Add lounge (50%), escalate to 100%, add games (50%), escalate to 60% = 2 rooms
+- **New**: Add lounge (50%), escalate to 100%, add games (50%), escalate to 60% = 2 rooms ✅
 
 **Rationale:**
 - Minimizes number of rooms disturbed (better occupant experience)
