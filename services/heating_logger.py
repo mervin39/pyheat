@@ -31,7 +31,7 @@ class HeatingLogger:
         """
         self.ad = ad
         self.config = config
-        self.log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "heating_logs")
+        self.log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "heating_logs")
         self.current_date = None
         self.csv_file = None
         self.csv_writer = None

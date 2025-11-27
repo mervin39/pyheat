@@ -26,16 +26,13 @@ Thumbs.db
 # GitHub config (if it exists)
 .github/
 
-# Ignore actual runtime YAML configs (keep examples tracked)
-# NOTE: the negative patterns below re-include the examples directory
+# Ignore actual runtime YAML configs
 config/*.yaml
-!config/examples/
-!config/examples/*.yaml
 
-# Ignore debug/log files produced by the debug monitor
+# Ignore debug/log files and analysis outputs
 debug_monitor.log
 test*.log
-debug/
-heating_logs/*.csv
-heating_logs/*.jsonl
-heating_logs/*.csv.*
+docs/debug/
+docs/heating_logs/*.csv
+docs/heating_logs/*.jsonl
+docs/heating_logs/*.csv.*
