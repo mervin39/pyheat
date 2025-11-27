@@ -1,6 +1,91 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: CRITICAL FIX - Load Sharing Trigger Context Not Initialized (BUG #5) 🚨
+
+**Status:** FIXED ✅
+
+**Branch:** `feature/load-sharing-phase4`
+
+**Summary:**
+Fixed critical bug where `trigger_calling_rooms` was not initialized when Tier 1 was empty, causing load sharing to deactivate immediately with "Original calling rooms stopped (trigger=[])". This made load sharing unusable in the most common scenario: no schedules within the lookahead window.
+
+**Root Cause:**
+Only `_activate_tier1()` initialized the trigger context (calling rooms and capacity). When Tier 1 was empty and the code jumped directly to Tier 2 or Tier 3, the trigger context remained uninitialized (`trigger_calling_rooms = set()`). On the next recompute, the exit condition check found no intersection between the empty trigger set and current calling rooms, triggering immediate deactivation.
+
+**Symptoms:**
+```
+09:16:03: Load sharing entry conditions met
+09:16:03: Load sharing: Added 3 Tier 3 rooms [lounge=60%, games=60%, office=60%]
+09:16:04: Load sharing exit: Original calling rooms stopped (trigger=[])
+09:16:04: LoadSharingManager: Deactivating - exit conditions met
+```
+
+Load sharing activated correctly but deactivated 1 second later because `trigger_calling_rooms` was empty.
+
+**Investigation:**
+Testing load sharing with bathroom override (415W capacity << 3000W threshold):
+1. Override triggered successfully
+2. Entry conditions met (low capacity + cycling protection)
+3. Tier 1 empty (no schedules within 60 min)
+4. Tier 2 empty (no schedules within 120 min)  
+5. Tier 3 activated 3 rooms correctly at 60%
+6. **BUG**: Next recompute (triggered by service completion) checked exit conditions
+7. Exit Trigger A evaluated: `trigger_calling_rooms & current_calling`
+8. Since `trigger_calling_rooms = set()`, result was empty → deactivation
+9. Load sharing valves cleared, system returned to normal
+
+**Code Flow Analysis:**
+```python
+# Line 292-295 (when Tier 1 empty)
+else:
+    # Tier 1 empty - try Tier 2
+    self.ad.log("Load sharing: No Tier 1 rooms available - trying Tier 2", level="INFO")
+    tier2_selections = self._select_tier2_rooms(room_states, now)
+    # BUG: No _initialize_trigger_context() called!
+    
+    if tier2_selections:
+        self._activate_tier2(tier2_selections, now)  # Doesn't set trigger context
+```
+
+Only `_activate_tier1()` calls `_initialize_trigger_context()`. Functions `_activate_tier2()` and `_activate_tier3()` assume it was already called.
+
+**Fix:**
+1. Extracted trigger context initialization into separate method: `_initialize_trigger_context(room_states, now)`
+2. Modified `_activate_tier1()` to call the helper method
+3. **Critical change**: Added `_initialize_trigger_context()` call at line 295 (when Tier 1 is empty, before trying Tier 2/3)
+
+```python
+# Fixed code (line 293-296)
+else:
+    # Tier 1 empty - initialize trigger context and try Tier 2
+    self.ad.log("Load sharing: No Tier 1 rooms available - trying Tier 2", level="INFO")
+    self._initialize_trigger_context(room_states, now)  # FIX: Initialize before activation
+    tier2_selections = self._select_tier2_rooms(room_states, now)
+```
+
+**Why This Wasn't Caught in Phase Testing:**
+- Phase 1-3 testing focused on scenarios with active schedules (Tier 1 successful)
+- Tier 2/3 fallback paths were tested for *insufficiency* (Tier 1 exists but capacity too low)
+- Never tested the *empty* case (no schedules at all → skip directly to Tier 2/3)
+- Bug only manifests when Tier 1 returns zero rooms, which is the most common real-world case
+
+**Impact:**
+- Load sharing now persists correctly when activated via Tier 2 or Tier 3
+- System can prevent short-cycling during off-schedule periods (weekends, evenings, etc.)
+- Fix applies to both empty Tier 1→Tier 2 and empty Tier 2→Tier 3 paths
+
+**Testing:**
+Verified with bathroom override (415W):
+1. Entry conditions met ✓
+2. Tier 1 empty, Tier 2 empty ✓
+3. Tier 3 activates lounge/games/office at 60% ✓
+4. **trigger_calling_rooms** now correctly set to `{'bathroom'}` ✓
+5. System persists until calling pattern changes ✓
+6. Exit conditions work correctly (not premature) ✓
+
+---
+
 ## 2025-11-26: CRITICAL FIX - Load Sharing Tier Cascade Logic (BUG #4) 🚨
 
 **Status:** FIXED ✅

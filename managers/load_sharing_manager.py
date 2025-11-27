@@ -290,8 +290,9 @@ class LoadSharingManager:
                     # Return valve commands for activated rooms
                     return {room_id: room.valve_pct for room_id, room in self.context.active_rooms.items()}
                 else:
-                    # Tier 1 empty - try Tier 2
+                    # Tier 1 empty - initialize trigger context and try Tier 2
                     self.ad.log("Load sharing: No Tier 1 rooms available - trying Tier 2", level="INFO")
+                    self._initialize_trigger_context(room_states, now)
                     tier2_selections = self._select_tier2_rooms(room_states, now)
                     
                     if tier2_selections:
@@ -798,15 +799,16 @@ class LoadSharingManager:
         
         return selections
     
-    def _activate_tier1(self, room_states: Dict, tier1_selections: List[Tuple[str, int, str]], now: datetime) -> None:
-        """Activate load sharing with Tier 1 rooms.
+    def _initialize_trigger_context(self, room_states: Dict, now: datetime) -> None:
+        """Initialize the trigger context for load sharing activation.
+        
+        This must be called before any tier activation (_activate_tier1/2/3).
+        Records which rooms triggered load sharing and their capacity.
         
         Args:
             room_states: Room state dict
-            tier1_selections: List of (room_id, valve_pct, reason) tuples
             now: Current datetime
         """
-        # Record trigger conditions
         calling_rooms = [rid for rid, state in room_states.items() if state.get('calling', False)]
         self.context.trigger_calling_rooms = set(calling_rooms)
         
@@ -820,6 +822,17 @@ class LoadSharingManager:
         
         self.context.trigger_capacity = trigger_capacity
         self.context.trigger_timestamp = now
+    
+    def _activate_tier1(self, room_states: Dict, tier1_selections: List[Tuple[str, int, str]], now: datetime) -> None:
+        """Activate load sharing with Tier 1 rooms.
+        
+        Args:
+            room_states: Room state dict
+            tier1_selections: List of (room_id, valve_pct, reason) tuples
+            now: Current datetime
+        """
+        # Initialize trigger context (calling rooms and capacity)
+        self._initialize_trigger_context(room_states, now)
         
         # Activate selected rooms
         for room_id, valve_pct, reason in tier1_selections:
