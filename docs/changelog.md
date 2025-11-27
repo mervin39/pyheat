@@ -1,6 +1,38 @@
 
 # PyHeat Changelog
 
+## 2025-11-27: BUG #6 - Load Sharing Valves Persist After Deactivation
+
+**Status:** OPEN 🔴
+
+**Branch:** `main`
+
+**Summary:**
+Discovered critical bug where load sharing valves remain physically open after load sharing deactivates, causing unscheduled rooms to receive heat for extended periods (66 minutes observed). The valves persist across heating cycles and even across system restarts via pump overrun state restoration.
+
+**Discovery:**
+While investigating why multiple rooms had valves open when only one room (Pete) was calling for heat, found that load sharing had activated earlier at 13:01:16 (triggered by low delta_t of 8°C), opened lounge and games valves, then deactivated when bathroom stopped calling - but the valves never closed.
+
+**Timeline of incident:**
+1. 13:01:16 - Load sharing activates, opens lounge=100%, games=60%
+2. 13:02:32 - All heating demand stops, boiler goes OFF
+3. 13:02:32 to 14:08:32 - **66 minutes** where lounge and games valves remain open despite no demand
+4. 14:02:01 - AppDaemon restart restores stale pump overrun state containing these valve positions
+5. 14:08:32 - Valves finally close after new pump overrun period ends
+
+**Root cause:**
+Load sharing clears its override layer when deactivating but doesn't explicitly command TRVs to close. With boiler OFF and no rooms calling, no valve commands are generated, so TRVs stay at their last position indefinitely.
+
+**Impact:**
+- Energy waste heating unscheduled rooms
+- Comfort issues from unintended heating
+- Stale valve positions persist across restarts via pump overrun state
+- Valve positions don't match calling state, causing confusion
+
+**See:** `docs/BUGS.md` BUG #6 for full analysis with log data and possible fix approaches.
+
+---
+
 ## 2025-11-27: Load Sharing - Configurable Return Temperature Delta Threshold
 
 **Status:** COMPLETE ✅

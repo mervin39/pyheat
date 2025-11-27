@@ -4,6 +4,144 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #6: Load Sharing Valves Persist After Deactivation
+
+**Status:** OPEN 🔴  
+**Date Discovered:** 2025-11-27  
+**Severity:** High - causes unnecessary heating of unscheduled rooms, wasted energy, and comfort issues
+
+### Observed Behavior
+
+When load sharing activates and opens additional valves to increase system capacity, those valves remain physically open even after load sharing deactivates. The valves persist indefinitely until:
+1. Those rooms naturally call for heat (which may never happen if they're satisfied), or
+2. A system restart occurs, or
+3. Manual intervention
+
+This causes unscheduled rooms to receive heat when they shouldn't, wasting energy and potentially overheating rooms.
+
+**Specific incident on 2025-11-27:**
+
+**Timeline:**
+1. **12:20:32** - Games room calls for heat, boiler turns on, games_valve = 100%
+2. **12:23:02** - Games stops calling, pump overrun starts (games_valve held at 100%)
+3. **12:23:02** - Pump overrun ends, games_valve closes to 0% ✅
+4. **13:00:01** - Bathroom calls for heat, boiler turns on, bathroom_valve = 100%
+5. **13:01:16** - **Load sharing activates**: System opens lounge_valve=100%, games_valve=60% (neither room calling for heat)
+   - Trigger: Low delta_t (heating_temp=73°C, return_temp=65°C → delta_t=8°C < 10°C threshold)
+   - Total valve percentage jumps from 100% to 260%
+6. **13:02:32** - Bathroom stops calling, boiler goes OFF
+7. **13:02:32 to 14:08:32** - **BUG**: lounge_valve=100% and games_valve=60% remain open for **66 minutes** even though:
+   - No rooms are calling for heat
+   - Load sharing is inactive (pump_overrun_active=False)
+   - Boiler is OFF
+8. **14:02:01** - AppDaemon restarts, restores pump overrun state from HA entity: `{'games': 60, 'lounge': 100, 'bathroom': 100}`
+   - This old state (from the 13:01:16 load sharing activation) was never cleared from the persistence entity
+9. **14:05:55** - Pete's room calls for heat, then stops → pump overrun starts, capturing current valve positions including the stale load-sharing valves
+10. **14:08:32** - Pump overrun ends, valves finally close
+
+**Duration of bug:** 66 minutes (13:02:32 to 14:08:32) where lounge and games received unwanted heating.
+
+### Evidence
+
+**From heating_logs/2025-11-27.csv - Load sharing activation at 13:01:16:**
+```
+timestamp,boiler_state,pump_overrun_active,lounge_calling,lounge_valve_cmd,lounge_valve_fb,games_calling,games_valve_cmd,games_valve_fb,bathroom_calling,bathroom_valve_cmd,total_valve_pct,ot_heating_temp,ot_return_temp
+2025-11-27 13:01:13,on,False,False,0,0,False,0,0,True,100,100,72,65
+2025-11-27 13:01:15,on,False,False,0,0,False,0,0,True,100,100,72,65
+2025-11-27 13:01:16,on,False,False,100,100,False,60,60,True,100,260,73,65
+2025-11-27 13:01:20,on,False,False,100,100,False,60,60,True,100,260,72,65
+```
+Note: At 13:01:16, delta_t = 73-65 = 8°C (below 10°C threshold), triggering load sharing to open lounge and games valves.
+
+**From heating_logs/2025-11-27.csv - Valves persist after bathroom stops:**
+```
+timestamp,boiler_state,bathroom_calling,lounge_calling,lounge_valve_cmd,games_calling,games_valve_cmd
+2025-11-27 13:02:32,off,True,False,100,False,60
+2025-11-27 13:02:34,on,True,False,100,False,60
+2025-11-27 13:10:00,off,False,False,100,False,60
+2025-11-27 13:20:00,off,False,False,100,False,60
+2025-11-27 13:30:00,off,False,False,100,False,60
+2025-11-27 13:40:00,off,False,False,100,False,60
+2025-11-27 13:50:00,off,False,False,100,False,60
+2025-11-27 14:00:00,off,False,False,100,False,60
+2025-11-27 14:08:32,off,False,False,0,False,0
+```
+Valves stayed at lounge=100%, games=60% for entire period while boiler was OFF and no rooms calling.
+
+**From AppDaemon logs - 14:02 restart restoration:**
+```
+2025-11-27 14:02:02.073921 INFO pyheat: ValveCoordinator: Restored pump overrun state from entity: {'games': 60, 'lounge': 100, 'bathroom': 100}
+```
+The persistence entity contained stale values from the 13:01:16 load sharing activation.
+
+**From AppDaemon logs - 14:05 pump overrun capturing stale values:**
+```
+2025-11-27 14:05:25.485866 INFO pyheat: ValveCoordinator: Pump overrun enabled, persisting: {'pete': 100, 'games': 60, 'lounge': 100, 'abby': 0, 'office': 0, 'bathroom': 100}
+```
+Pump overrun captured the stale load-sharing valve positions (games=60, lounge=100), perpetuating them further.
+
+### Root Cause Analysis
+
+When load sharing exits the ACTIVE state and returns to INACTIVE/DISABLED, it clears the load sharing overrides from the valve coordinator via `clear_load_sharing_overrides()`. However, this only removes the *override layer* - it doesn't command the TRVs to close their physically-open valves.
+
+**Flow:**
+1. Load sharing activates → `set_load_sharing_overrides({'lounge': 100, 'games': 60})`
+2. Valve coordinator applies these overrides → TRVs physically open to 100% and 60%
+3. Load sharing deactivates → `clear_load_sharing_overrides()`
+4. Override layer cleared, but TRVs remain physically at 100% and 60%
+5. With boiler OFF and no rooms calling, no valve commands are generated
+6. Result: TRVs stay open indefinitely at their last commanded positions
+
+**Why this persists across restarts:**
+- The persistence entity (`input_text.pyheat_room_persistence`) stores valve positions for pump overrun resilience
+- When load sharing commands valves open, those positions are tracked in `current_commands`
+- If pump overrun activates while load-sharing valves are still open, it captures those positions
+- On restart, these stale positions are restored as "pump overrun state"
+- This creates a cycle where load-sharing valve positions can persist indefinitely
+
+### Possible Fix Approaches
+
+Several approaches could address this issue:
+
+**Option 1: Explicit valve closure on load sharing exit**
+- When load sharing transitions from ACTIVE → INACTIVE, explicitly command all previously-opened load-sharing rooms to valve=0%
+- Requires tracking which rooms were opened by load sharing
+- Ensures clean state after load sharing deactivates
+
+**Option 2: Clear valve coordinator overrides with explicit closure**
+- Modify `clear_load_sharing_overrides()` to accept a list of rooms that need explicit closure commands
+- Valve coordinator sends valve=0% commands to those rooms when clearing overrides
+
+**Option 3: Only persist valves from calling rooms**
+- When capturing pump overrun snapshot, only persist valves where the room is actually calling for heat
+- Prevents load-sharing valves (which aren't from calling rooms) from being persisted
+- Requires filtering `current_commands` by room calling state
+
+**Option 4: Periodic valve state reconciliation**
+- Add a periodic check (e.g., every 5 minutes) that closes valves for rooms that aren't calling and aren't in an override state
+- Catches stale valve positions regardless of source
+- More robust but adds complexity
+
+**Note:** The correct fix requires careful consideration of edge cases (e.g., room starts calling during load sharing, pump overrun during load sharing, etc.).
+
+### Impact
+
+- **Energy waste:** Heating unscheduled rooms for extended periods (66 minutes in this incident)
+- **Comfort issues:** Rooms may overheat when they shouldn't be receiving heat
+- **Confusion:** Valve positions don't match calling state, making debugging difficult
+- **Persistence amplification:** Stale values can persist across restarts via pump overrun state restoration
+
+### Testing Notes
+
+To reproduce:
+1. Have low system capacity (e.g., one room calling with large radiator)
+2. Wait for boiler to run long enough to establish low delta_t (return temp close to setpoint)
+3. Load sharing will activate and open additional valves
+4. Stop all heating demand (room reaches target)
+5. Observe that load-sharing valves remain open even though boiler is OFF
+
+---
+
 ## BUG #2: Safety Valve False Positive During PENDING_OFF Transition
 
 **Status:** FIXED ✅  
