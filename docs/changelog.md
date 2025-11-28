@@ -1,6 +1,32 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: API Handler Load Sharing Data Flow Fix
+
+**Status:** FIXED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed API handler to include load_sharing data in pyheat_get_status response. The data was being published to the HA entity but not extracted and forwarded to pyheat-web clients.
+
+**Problem:**
+Load sharing status was being published by status_publisher.py to sensor.pyheat_status attributes, but api_handler.py's api_get_status() function wasn't extracting and including it in the response. This caused pyheat-web to receive `load_sharing: null` despite the data existing in Home Assistant.
+
+**Solution:**
+Added `"load_sharing": status_attrs.get("load_sharing")` to the system dictionary in api_handler.py (line 441).
+
+**Files Modified:**
+- `services/api_handler.py`: Added load_sharing to system response dict
+
+**Verification:**
+```bash
+curl http://localhost:8000/api/status | jq '.system.load_sharing'
+# Returns: {"state": "inactive", "active_rooms": [], ...}
+```
+
+---
+
 ## 2025-11-28: Tier 3 Comfort Target Fix
 
 **Status:** IMPLEMENTED ✅

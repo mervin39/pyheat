@@ -438,6 +438,7 @@ class APIHandler:
                 "boiler_min_on_end_time": boiler_min_on_end_time,
                 "boiler_min_off_end_time": boiler_min_off_end_time,
                 "boiler_pump_overrun_end_time": boiler_pump_overrun_end_time,
+                "load_sharing": status_attrs.get("load_sharing"),
             }
             
             return {
