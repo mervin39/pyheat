@@ -1,6 +1,48 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: Load Sharing Status Text Enhancement
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Enhanced status_publisher.py to generate load-sharing-aware status text for room cards. Status text now shows "Pre-warming for HH:MM" for schedule-based load sharing (Tier 1/2) and "Fallback heating P{priority}" for fallback load sharing (Tier 3).
+
+**Problem:**
+Room cards didn't indicate WHY a room was heating when load sharing was active. Users couldn't distinguish between:
+- Natural heating (room called for heat on its own schedule)
+- Pre-warming for upcoming schedule (Tier 1/2)
+- Fallback heating to provide boiler load (Tier 3)
+
+**Solution:**
+Modified `_format_status_text()` to check load sharing status BEFORE override status:
+1. Checks `self.ad.load_sharing.state.active_rooms` for current room
+2. For Tier 1/2: Calls `scheduler.get_next_schedule_block(within_minutes=120)` to get next schedule time, formats as "Pre-warming for HH:MM"
+3. For Tier 3: Looks up fallback_priority from config and formats as "Fallback heating P{priority}"
+4. Falls back to original status text logic if not in load sharing
+
+**Technical Details:**
+- Load sharing check takes precedence over override check (load sharing is more relevant context)
+- Uses scheduler_ref from ApiHandler instance (passed in via status_attrs)
+- Respects time window (only shows "Pre-warming" if schedule is within 2 hours)
+- Handles missing scheduler gracefully (falls back to basic heating status)
+
+**Files Modified:**
+- `services/status_publisher.py`: Enhanced _format_status_text() with load sharing checks
+
+**Example Status Texts:**
+- Tier 1/2: "Pre-warming for 14:30"
+- Tier 3: "Fallback heating P3"
+- Natural: "Heating to 20.0C" (unchanged)
+
+**Related:**
+- Works with frontend visual indicators (pyheat-web room card enhancements)
+- Coordinated with 2025-11-28 pyheat-web changelog entry
+
+---
+
 ## 2025-11-28: API Handler Load Sharing Data Flow Fix
 
 **Status:** FIXED ✅
