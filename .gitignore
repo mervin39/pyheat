@@ -5,11 +5,7 @@ __pycache__/
 *.so
 .Python
 
-# AppDaemon logs (symlinked)
-logs
 
-# Temporary analysis files
-docs/RESPONSIBILITY_ANALYSIS.md
 
 # IDE
 .vscode/
@@ -23,15 +19,13 @@ docs/RESPONSIBILITY_ANALYSIS.md
 .DS_Store
 Thumbs.db
 
-# GitHub config (if it exists)
+# GitHub config 
 .github/
 
 # Ignore actual runtime YAML configs
 config/*.yaml
 
 # Ignore debug/log files and analysis outputs
-debug_monitor.log
-test*.log
 docs/debug/
 docs/heating_logs/*.csv
 docs/heating_logs/*.jsonl
