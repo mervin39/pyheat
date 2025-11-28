@@ -917,14 +917,10 @@ class LoadSharingManager:
                 )
                 return []
             
-            # Get current target for Tier 3 (fallback has no schedule target)
-            # Use current_target + 1C margin to allow emergency heating while preventing runaway
-            state = room_states.get(room_id, {})
-            current_target = state.get('target')
-            if current_target is None:
-                current_target = 16.0  # Safe default if no target available
-            
-            tier3_target = current_target + 1.0  # 1C margin for emergency heating tolerance
+            # Get comfort target for Tier 3 pre-warming
+            # Uses global comfort target (default 20C) to bypass low parking temperatures
+            ls_config = self.config.boiler_config.get('load_sharing', {})
+            tier3_target = ls_config.get('tier3_comfort_target_c', 20.0)
             
             valve_pct = C.LOAD_SHARING_TIER3_INITIAL_PCT
             effective_room_capacity = room_capacity * (valve_pct / 100.0)

@@ -1,6 +1,73 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: Tier 3 Comfort Target Fix
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed Tier 3 load sharing selection to use a configurable global comfort target (default 20°C) instead of parking temperature + 1°C margin. This prevents immediate exit when rooms are parked at low temperatures (10-12°C) but sitting at ambient temperature (15-17°C).
+
+**Problem:**
+Tier 3 rooms are selected by fallback priority when schedule-based tiers don't provide enough capacity. These rooms are typically "parked" at low default temperatures:
+- Games: 12°C default_target
+- Office: 12°C default_target
+- Bathroom: 10°C default_target
+- Lounge: 16°C default_target
+
+Previous logic: `tier3_target = current_target + 1.0` produced targets of 11-17°C.
+
+However, these rooms often sit at ambient temperature (15-17°C) due to heat transfer from adjacent rooms. With targets below ambient, rooms would exit load sharing immediately (already above target), making Tier 3 effectively useless.
+
+**Solution:**
+Use a global comfort target (20°C) that's above ambient temperature and provides genuine pre-warming:
+```python
+# config/boiler.yaml
+load_sharing:
+  tier3_comfort_target_c: 20.0  # Bypasses low parking temps
+
+# managers/load_sharing_manager.py
+ls_config = self.config.boiler_config.get('load_sharing', {})
+tier3_target = ls_config.get('tier3_comfort_target_c', 20.0)
+```
+
+**Changes:**
+- `config/boiler.yaml`:
+  - Added `tier3_comfort_target_c: 20.0` under load_sharing section
+- `managers/load_sharing_manager.py`:
+  - Lines 920-923: Replaced 8 lines of broken current_target + 1.0 logic with 3 lines of simple config lookup
+- `docs/BUGS.md`:
+  - Updated Bug #8 status from "KNOWN LIMITATION" to "FIXED ✅"
+  - Added comprehensive resolution section with root cause analysis
+
+**Impact:**
+- ✅ Tier 3 rooms now stay in load sharing long enough to provide capacity
+- ✅ Pre-warming actually occurs (16°C → 20°C instead of immediate exit)
+- ✅ Works with low parking temperatures (10-12°C scheduled defaults)
+- ✅ Simple configuration with sensible default
+- ✅ No complex logic or edge cases
+
+**Why This Approach:**
+- **Simple:** One global configuration value, no max() complexity
+- **Predictable:** Always pre-warms to 20°C regardless of parking temperature
+- **Above ambient:** 20°C is higher than typical ambient (15-17°C)
+- **Reasonable:** Provides genuine pre-warming without overheating
+- **Edge case proof:** Parking temps (10-12°C) don't affect behavior
+
+**Configuration:**
+- Default: 20.0°C (comfortable room temperature)
+- Customizable: Adjust based on personal preferences
+- Fallback: 20.0°C if config missing
+
+**Testing:**
+- Syntax validation: PASSED (no Python errors)
+- AppDaemon logs: No errors detected
+- Next Tier 3 activation will verify effectiveness
+
+---
+
 ## 2025-11-28: Load Sharing Overshoot Prevention (Exit Triggers E & F)
 
 **Status:** IMPLEMENTED ✅

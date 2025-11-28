@@ -222,8 +222,9 @@ rooms:
 # boiler.yaml - system thresholds
 boiler:
   load_sharing:
-    min_calling_capacity_w: 3500  # Activation threshold
-    target_capacity_w: 4000       # Target to reach
+    min_calling_capacity_w: 3500       # Activation threshold
+    target_capacity_w: 4000            # Target to reach
+    tier3_comfort_target_c: 20.0       # Tier 3 pre-warming target (default: 20°C)
 ```
 
 See [docs/load_sharing_proposal.md](docs/load_sharing_proposal.md) for complete design details.

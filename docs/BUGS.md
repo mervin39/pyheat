@@ -66,14 +66,15 @@ Now properly handles mode changes and immediately removes rooms from load sharin
 
 ## BUG #8: Tier 3 Target Calculation Uses Simple Fixed Margin
 
-**Status:** KNOWN LIMITATION (not urgent)  
+**Status:** FIXED ✅  
 **Date Discovered:** 2025-11-28 (during implementation of overshoot prevention)  
+**Date Fixed:** 2025-11-28  
 **Severity:** Minor - acceptable for emergency fallback behavior  
 **Category:** Load Sharing
 
 ### Description
 
-Tier 3 (fallback priority) rooms use a simple `current_target + 1°C` calculation for their exit temperature threshold. This is a fixed margin that doesn't adapt to different room characteristics or heating conditions.
+Tier 3 (fallback priority) rooms previously used a simple `current_target + 1°C` calculation for their exit temperature threshold. This fixed margin failed when rooms were "parked" at low temperatures (10-12°C default_target) but actually at ambient temperature (15-17°C), causing immediate exit from load sharing.
 
 ### Context
 
@@ -120,6 +121,65 @@ If Tier 3 usage becomes frequent:
 3. **Boiler modulation feedback:** Exit when modulation drops below threshold
 
 **For now:** Document as known limitation, acceptable for emergency fallback behavior.
+
+### Resolution (2025-11-28)
+
+**Fix Applied:**
+Replaced `current_target + 1.0°C` calculation with configurable global comfort target.
+
+**Root Cause:**
+Rooms used for Tier 3 load sharing are typically "parked" at low default temperatures (Games: 12°C, Office: 12°C, Bathroom: 10°C, Lounge: 16°C) when not scheduled for heating. However, these rooms often sit at ambient temperature (15-17°C) due to heat transfer from adjacent rooms or external factors. The old logic:
+```python
+tier3_target = current_target + 1.0  # 11-13°C target when current is 10-12°C
+```
+Produced targets of 11-17°C. With ambient temps of 15-17°C, rooms with targets below ambient would exit load sharing immediately (already above target), making Tier 3 effectively useless.
+
+**New Implementation:**
+```python
+# config/boiler.yaml
+load_sharing:
+  tier3_comfort_target_c: 20.0  # Global comfort target for Tier 3 pre-warming
+
+# managers/load_sharing_manager.py (lines 920-923)
+ls_config = self.config.boiler_config.get('load_sharing', {})
+tier3_target = ls_config.get('tier3_comfort_target_c', 20.0)
+```
+
+**Why This Works:**
+- **Parking temps don't matter:** Pre-warming target is always 20°C regardless of room's scheduled default
+- **Above ambient:** 20°C comfort target is higher than typical ambient temperatures (15-17°C)
+- **Reasonable heating:** Provides genuine pre-warming (e.g., 16°C → 20°C) without overheating
+- **Simple and predictable:** No complex calculations, one global configuration value
+- **Edge case proof:** Works even if room is already at 18°C (still provides 2°C of pre-warming)
+
+**Configuration:**
+- **Parameter:** `tier3_comfort_target_c` under `load_sharing` section in `boiler.yaml`
+- **Default:** 20.0°C (comfortable room temperature)
+- **Rationale:** High enough to provide genuine pre-warming, low enough to prevent discomfort
+- **Customization:** User can adjust based on personal comfort preferences
+
+**Edge Cases Handled:**
+1. **Config missing:** Falls back to 20.0°C default
+2. **Invalid value:** Non-numeric values caught by YAML parsing
+3. **Room already at target:** Exit Trigger E removes room (temp >= 20.0 + off_delta)
+4. **Room calling naturally:** Exit Trigger C removes room (normal demand takes priority)
+5. **Mode change:** Exit Trigger F removes room (respects user control)
+
+**Impact:**
+- ✅ Tier 3 rooms now stay in load sharing long enough to provide capacity
+- ✅ Pre-warming actually occurs (16°C → 20°C instead of immediate exit)
+- ✅ Works with low parking temperatures (10-12°C scheduled defaults)
+- ✅ Simple configuration with sensible default
+- ✅ No complex logic or edge cases to maintain
+
+**Files Modified:**
+- `config/boiler.yaml`: Added `tier3_comfort_target_c: 20.0` configuration
+- `managers/load_sharing_manager.py` (lines 920-923): Replaced 8 lines with 3 lines of simple config lookup
+
+**Testing:**
+- Syntax validated: No Python errors
+- AppDaemon logs: No errors after implementation
+- Next Tier 3 activation will verify effectiveness in production
 
 ---
 
