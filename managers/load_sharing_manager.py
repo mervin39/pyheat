@@ -739,11 +739,11 @@ class LoadSharingManager:
         # Sort by need (descending) - neediest rooms first
         candidates.sort(key=lambda x: x[1], reverse=True)
         
-        # Return as list of (room_id, valve_pct, reason)
+        # Return as list of (room_id, valve_pct, reason, target_temp)
         # Initial valve opening: 70% for Tier 1 (C.LOAD_SHARING_TIER1_INITIAL_PCT)
         selections = []
         for room_id, need, target, minutes, reason in candidates:
-            selections.append((room_id, C.LOAD_SHARING_TIER1_INITIAL_PCT, reason))
+            selections.append((room_id, C.LOAD_SHARING_TIER1_INITIAL_PCT, reason, target))
             self.ad.log(
                 f"Load sharing Tier 1 candidate: {room_id} - need={need:.1f}C, target={target:.1f}C, "
                 f"minutes_until={minutes:.0f}, valve={C.LOAD_SHARING_TIER1_INITIAL_PCT}%",
@@ -828,11 +828,11 @@ class LoadSharingManager:
         # Sort by need (descending) - neediest rooms first
         candidates.sort(key=lambda x: x[1], reverse=True)
         
-        # Return as list of (room_id, valve_pct, reason)
+        # Return as list of (room_id, valve_pct, reason, target_temp)
         # Initial valve opening: 40% for Tier 2 (gentle pre-warming for extended window)
         selections = []
         for room_id, need, target, minutes, reason in candidates:
-            selections.append((room_id, C.LOAD_SHARING_TIER2_INITIAL_PCT, reason))
+            selections.append((room_id, C.LOAD_SHARING_TIER2_INITIAL_PCT, reason, target))
             self.ad.log(
                 f"Load sharing Tier 2 candidate: {room_id} - need={need:.1f}C, target={target:.1f}C, "
                 f"minutes_until={minutes:.0f}, valve={C.LOAD_SHARING_TIER2_INITIAL_PCT}%",
@@ -917,6 +917,15 @@ class LoadSharingManager:
                 )
                 return []
             
+            # Get current target for Tier 3 (fallback has no schedule target)
+            # Use current_target + 1C margin to allow emergency heating while preventing runaway
+            state = room_states.get(room_id, {})
+            current_target = state.get('target')
+            if current_target is None:
+                current_target = 16.0  # Safe default if no target available
+            
+            tier3_target = current_target + 1.0  # 1C margin for emergency heating tolerance
+            
             valve_pct = C.LOAD_SHARING_TIER3_INITIAL_PCT
             effective_room_capacity = room_capacity * (valve_pct / 100.0)
             current_capacity = self._calculate_total_system_capacity(room_states)
@@ -924,12 +933,12 @@ class LoadSharingManager:
             
             self.ad.log(
                 f"Load sharing Tier 3 selection: {room_id} - priority={priority}, "
-                f"valve={valve_pct}%, adds {effective_room_capacity:.0f}W "
+                f"valve={valve_pct}%, target={tier3_target:.1f}C, adds {effective_room_capacity:.0f}W "
                 f"(total: {new_total_capacity:.0f}W)",
                 level="DEBUG"
             )
             
-            return [(room_id, valve_pct, reason)]
+            return [(room_id, valve_pct, reason, tier3_target)]
         
         return []
     
@@ -969,13 +978,14 @@ class LoadSharingManager:
         self._initialize_trigger_context(room_states, now)
         
         # Activate selected rooms
-        for room_id, valve_pct, reason in tier1_selections:
+        for room_id, valve_pct, reason, target_temp in tier1_selections:
             activation = RoomActivation(
                 room_id=room_id,
                 tier=1,
                 valve_pct=valve_pct,
                 activated_at=now,
-                reason=reason
+                reason=reason,
+                target_temp=target_temp
             )
             self.context.active_rooms[room_id] = activation
         
@@ -983,7 +993,9 @@ class LoadSharingManager:
         self.context.state = LoadSharingState.TIER1_ACTIVE
         
         # Log activation
-        room_list = ', '.join([f"{rid}={vpct}%" for rid, vpct, _ in tier1_selections])
+        calling_rooms = [rid for rid, state in room_states.items() if state.get('calling', False)]
+        trigger_capacity = self.context.trigger_capacity
+        room_list = ', '.join([f"{rid}={vpct}%" for rid, vpct, _, _ in tier1_selections])
         self.ad.log(
             f"Load sharing ACTIVATED (Tier 1): {len(tier1_selections)} room(s) [{room_list}] | "
             f"Trigger: {len(calling_rooms)} room(s) at {trigger_capacity:.0f}W",
@@ -998,13 +1010,14 @@ class LoadSharingManager:
             now: Current datetime
         """
         # Activate selected Tier 2 rooms
-        for room_id, valve_pct, reason in tier2_selections:
+        for room_id, valve_pct, reason, target_temp in tier2_selections:
             activation = RoomActivation(
                 room_id=room_id,
                 tier=2,
                 valve_pct=valve_pct,
                 activated_at=now,
-                reason=reason
+                reason=reason,
+                target_temp=target_temp
             )
             self.context.active_rooms[room_id] = activation
         
@@ -1012,7 +1025,7 @@ class LoadSharingManager:
         self.context.state = LoadSharingState.TIER2_ACTIVE
         
         # Log activation
-        room_list = ', '.join([f"{rid}={vpct}%" for rid, vpct, _ in tier2_selections])
+        room_list = ', '.join([f"{rid}={vpct}%" for rid, vpct, _, _ in tier2_selections])
         self.ad.log(
             f"Load sharing: Added {len(tier2_selections)} Tier 2 room(s) [{room_list}]",
             level="INFO"
@@ -1026,6 +1039,8 @@ class LoadSharingManager:
         B. Additional room(s) started calling (recalculate capacity)
         C. Load sharing room now naturally calling (remove from load sharing)
         D. Tier 3 rooms exceeded timeout (15 minutes max for fallback rooms)
+        E. Room reached/exceeded target temperature (NEW - prevents overshoot)
+        F. Room mode changed from auto (NEW - respects user mode changes)
         
         Minimum activation duration enforced (5 minutes default).
         
@@ -1061,6 +1076,61 @@ class LoadSharingManager:
         # If only Tier 3 rooms were active and all timed out, deactivate
         if not self.context.active_rooms:
             self.ad.log("Load sharing exit: All Tier 3 rooms timed out", level="INFO")
+            return True
+        
+        # Exit Trigger F: Room mode changed from auto (NEW)
+        # Remove rooms that are no longer in auto mode
+        mode_changed_rooms = []
+        for room_id, activation in list(self.context.active_rooms.items()):
+            state = room_states.get(room_id, {})
+            if state.get('mode') != 'auto':
+                self.ad.log(
+                    f"Load sharing: Room '{room_id}' mode changed from auto - removing",
+                    level="INFO"
+                )
+                mode_changed_rooms.append(room_id)
+        
+        # Remove rooms with mode changes
+        for room_id in mode_changed_rooms:
+            del self.context.active_rooms[room_id]
+        
+        # Check if any rooms remain after mode change removals
+        if not self.context.active_rooms:
+            self.ad.log("Load sharing exit: No load sharing rooms remain after mode changes", level="INFO")
+            return True
+        
+        # Exit Trigger E: Room reached/exceeded target temperature (NEW - prevents overshoot)
+        # Remove rooms that have reached their pre-warming target
+        temp_reached_rooms = []
+        for room_id, activation in list(self.context.active_rooms.items()):
+            state = room_states.get(room_id, {})
+            temp = state.get('temp')
+            
+            # Only check if we have valid temperature data
+            if temp is None:
+                continue
+            
+            # Get hysteresis off_delta to prevent oscillation (same as normal control)
+            room_cfg = self.config.rooms.get(room_id, {})
+            off_delta = room_cfg.get('hysteresis', {}).get('off_delta_c', 0.3)
+            
+            # Check if room reached/exceeded the target it was pre-warming for
+            # Use target + off_delta to match normal hysteresis behavior
+            if temp >= activation.target_temp + off_delta:
+                self.ad.log(
+                    f"Load sharing: Room '{room_id}' exceeded target "
+                    f"({temp:.1f}C >= {activation.target_temp + off_delta:.1f}C, target={activation.target_temp:.1f}C) - removing",
+                    level="INFO"
+                )
+                temp_reached_rooms.append(room_id)
+        
+        # Remove rooms that reached target
+        for room_id in temp_reached_rooms:
+            del self.context.active_rooms[room_id]
+        
+        # Check if any rooms remain after temperature-based removals
+        if not self.context.active_rooms:
+            self.ad.log("Load sharing exit: No load sharing rooms remain after temperature exits", level="INFO")
             return True
         
         # Get current calling rooms
@@ -1207,13 +1277,14 @@ class LoadSharingManager:
             now: Current datetime
         """
         # Activate selected Tier 3 rooms
-        for room_id, valve_pct, reason in tier3_selections:
+        for room_id, valve_pct, reason, target_temp in tier3_selections:
             activation = RoomActivation(
                 room_id=room_id,
                 tier=3,
                 valve_pct=valve_pct,
                 activated_at=now,
-                reason=reason
+                reason=reason,
+                target_temp=target_temp
             )
             self.context.active_rooms[room_id] = activation
         
@@ -1221,7 +1292,7 @@ class LoadSharingManager:
         self.context.state = LoadSharingState.TIER3_ACTIVE
         
         # Log activation with WARN level (indicates schedule gap)
-        room_list = ', '.join([f"{rid}={vpct}%" for rid, vpct, _ in tier3_selections])
+        room_list = ', '.join([f"{rid}={vpct}%" for rid, vpct, _, _ in tier3_selections])
         self.ad.log(
             f"Load sharing: Added {len(tier3_selections)} Tier 3 fallback room(s) [{room_list}] - "
             f"WARNING: Tier 3 activated (indicates schedule gap - consider improving schedules)",

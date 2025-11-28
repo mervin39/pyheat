@@ -44,12 +44,14 @@ class RoomActivation:
         valve_pct: Current valve opening percentage
         activated_at: Timestamp when room was added to load sharing
         reason: Human-readable reason (e.g., "schedule_60m", "fallback_p1")
+        target_temp: Target temperature we're pre-warming to (for exit condition)
     """
     room_id: str
     tier: int
     valve_pct: int
     activated_at: datetime
     reason: str
+    target_temp: float
 
 
 @dataclass

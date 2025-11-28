@@ -4,6 +4,125 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #9: Load Sharing Exit Trigger F Was Previously Missing
+
+**Status:** FIXED ✅ (as part of 2025-11-28 overshoot prevention work)  
+**Date Discovered:** 2025-11-28 (during analysis of load sharing exit conditions)  
+**Date Fixed:** 2025-11-28  
+**Severity:** Minor - edge case that rarely occurs but should be handled  
+**Category:** Load Sharing
+
+### Description
+
+Load sharing did not have an exit condition to handle when a user changes a room's mode from `auto` to `manual` or `off` while the room is being pre-warmed by load sharing. This could cause the valve to remain open at the load sharing percentage even though the user explicitly changed the room mode.
+
+### Root Cause
+
+The `_evaluate_exit_conditions()` method checked several exit triggers:
+- Exit Trigger A: Original calling rooms stopped
+- Exit Trigger B: Additional rooms started calling
+- Exit Trigger C: Load sharing room naturally calling
+- Exit Trigger D: Tier 3 timeout
+
+But it never checked if the room's mode changed from `auto` (which is required for load sharing selection).
+
+### Impact
+
+**Minor because:**
+- Load sharing only selects rooms in `auto` mode initially
+- Users rarely change room modes during active heating
+- Even without Exit Trigger F, other exit conditions would eventually remove the room:
+  - Exit Trigger A fires when original trigger rooms stop calling
+  - Exit Trigger D fires after 15 minutes for Tier 3 rooms
+
+**However, it violates user intent:**
+- User switches room to `manual` or `off` → expects immediate valve control change
+- Without Exit Trigger F, valve stays at load sharing percentage until other exit condition
+
+### Fix
+
+Added Exit Trigger F as part of 2025-11-28 overshoot prevention work (see changelog):
+
+```python
+# Exit Trigger F: Room mode changed from auto (NEW)
+mode_changed_rooms = []
+for room_id, activation in list(self.context.active_rooms.items()):
+    state = room_states.get(room_id, {})
+    if state.get('mode') != 'auto':
+        self.ad.log(
+            f"Load sharing: Room '{room_id}' mode changed from auto - removing",
+            level="INFO"
+        )
+        mode_changed_rooms.append(room_id)
+
+# Remove rooms with mode changes
+for room_id in mode_changed_rooms:
+    del self.context.active_rooms[room_id]
+```
+
+Now properly handles mode changes and immediately removes rooms from load sharing control.
+
+---
+
+## BUG #8: Tier 3 Target Calculation Uses Simple Fixed Margin
+
+**Status:** KNOWN LIMITATION (not urgent)  
+**Date Discovered:** 2025-11-28 (during implementation of overshoot prevention)  
+**Severity:** Minor - acceptable for emergency fallback behavior  
+**Category:** Load Sharing
+
+### Description
+
+Tier 3 (fallback priority) rooms use a simple `current_target + 1°C` calculation for their exit temperature threshold. This is a fixed margin that doesn't adapt to different room characteristics or heating conditions.
+
+### Context
+
+**Why Tier 3 is different:**
+- Tier 1/2 rooms are selected based on upcoming schedules → have explicit target temperature
+- Tier 3 rooms are selected by priority alone → have NO schedule-based target
+- Tier 3 is emergency fallback when schedules don't provide enough capacity
+
+**Current implementation:**
+```python
+# In _select_tier3_rooms()
+current_target = state.get('target')  # e.g., 16°C (default schedule)
+if current_target is None:
+    current_target = 16.0  # Safe default
+
+tier3_target = current_target + 1.0  # Emergency heating tolerance
+```
+
+**Exit condition:** Room exits load sharing when `temp >= tier3_target + off_delta` (e.g., 17.3°C with 0.3°C hysteresis)
+
+### Why This is Acceptable
+
+**Tier 3 rooms are emergency fallback:**
+- Only activated when Tier 1/2 don't provide enough capacity
+- Indicates schedule gaps that should be addressed
+- Accepting 1°C overheat is reasonable trade-off vs short-cycling
+
+**Alternative approaches would be complex:**
+1. **Adaptive margin based on room size:** Requires capacity estimates per room
+2. **No temperature exit:** Rely only on 15-minute timeout (can overheat more)
+3. **Current_target only:** Would exit too early for emergency heating purpose
+
+**Current behavior is reasonable:**
+- 1°C above current target is noticeable but not uncomfortable
+- Prevents runaway heating (without exit, could reach 20°C+ from 16°C)
+- Timeout (15 minutes) provides secondary safety limit
+- Logged as WARNING to encourage schedule improvements
+
+### Potential Improvements (Future Work)
+
+If Tier 3 usage becomes frequent:
+1. **Dynamic margin based on room capacity:** Larger rooms get larger margin
+2. **Historical learning:** Adjust margin based on past overshoot patterns
+3. **Boiler modulation feedback:** Exit when modulation drops below threshold
+
+**For now:** Document as known limitation, acceptable for emergency fallback behavior.
+
+---
+
 ## BUG #7: Cycling Protection Triggers on Intentional Boiler Shutdown
 
 **Status:** FIXED ✅  

@@ -1,6 +1,87 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: Load Sharing Overshoot Prevention (Exit Triggers E & F)
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed critical bug where load sharing rooms would overheat when pre-warming succeeded. System now tracks target temperatures and automatically removes rooms from load sharing when they reach their intended temperature or when room mode changes.
+
+**Problem:**
+Load sharing activates rooms for pre-warming based on upcoming schedule targets (e.g., pre-warm to 20°C before 07:00 schedule). However, exit conditions only checked:
+- Exit Trigger C: Room naturally calling (starts needing heat)
+- Exit Trigger D: Tier 3 timeout (15 minutes)
+
+**Missing exit condition:** Room reaches target temperature and stops needing heat (temp >= target + off_delta). Result: valve stayed open at 70%, room overheated to 21-22°C.
+
+**Root Cause:**
+`RoomActivation` dataclass didn't track the target temperature load sharing was aiming for. Exit condition evaluator couldn't check if pre-warming succeeded because it didn't know what target to compare against.
+
+**Solution:**
+1. Enhanced `RoomActivation` to track `target_temp` for exit condition checks
+2. Updated all tier selection methods to store target temperature:
+   - **Tier 1/2 (schedule-based)**: Use upcoming schedule target (e.g., 20°C)
+   - **Tier 3 (fallback)**: Use current_target + 1°C margin (emergency tolerance)
+3. Added **Exit Trigger E**: Temperature-based exit
+   - Check: `temp >= target_temp + off_delta` (matches normal hysteresis)
+   - Logs: "Room exceeded target - removing from load sharing"
+   - Prevents overshoot by closing valve when pre-warming succeeds
+4. Added **Exit Trigger F**: Mode change exit
+   - Check: `mode != 'auto'` (respects user switching to manual/off)
+   - Logs: "Room mode changed from auto - removing"
+   - Already missing before this fix, now properly implemented
+
+**Changes:**
+- `managers/load_sharing_state.py`:
+  - Line 60: Added `target_temp: float` field to `RoomActivation`
+- `managers/load_sharing_manager.py`:
+  - Lines 748-751: Tier 1 selection returns `(room_id, valve_pct, reason, target_temp)`
+  - Lines 844-847: Tier 2 selection returns `(room_id, valve_pct, reason, target_temp)`
+  - Lines 904-921: Tier 3 selection calculates `tier3_target = current_target + 1.0`
+  - Lines 973-984: `_activate_tier1()` passes `target_temp` to RoomActivation
+  - Lines 1012-1022: `_activate_tier2()` passes `target_temp` to RoomActivation
+  - Lines 1254-1264: `_activate_tier3()` passes `target_temp` to RoomActivation
+  - Lines 1052-1071: Added Exit Trigger F (mode change check)
+  - Lines 1073-1104: Added Exit Trigger E (temperature-based exit with off_delta hysteresis)
+- `docs/BUGS.md`: Documented two known limitations (Bug #8, Bug #9)
+
+**Exit Trigger Order (Priority):**
+1. Minimum duration check (5 minutes, prevents oscillation)
+2. **Exit Trigger D**: Tier 3 timeout (15 minutes max for fallback)
+3. **Exit Trigger F**: Room mode changed from auto (NEW)
+4. **Exit Trigger E**: Room reached target temperature (NEW - primary fix)
+5. Exit Trigger A: Original calling rooms stopped
+6. Exit Trigger B: Additional rooms started calling
+7. Exit Trigger C: Load sharing room naturally calling
+
+**Impact:**
+- ✅ Fixes overshoot bug: Valves close when pre-warming reaches target
+- ✅ Prevents 1-2°C overshoots in pre-warmed rooms
+- ✅ Improves energy efficiency (no wasted heating)
+- ✅ Respects user mode changes (manual/off during load sharing)
+- ✅ Works for all three tiers with appropriate target semantics
+
+**Edge Cases Handled:**
+- Sensor failure: Skips temperature check, relies on other triggers
+- Multiple rooms: Independent exit checks per room
+- Re-activation: Room can be re-selected if it cools down
+- Mode changes: Removed from load sharing when switching to manual/off
+- Tier 3 rooms: Current target + 1°C prevents runaway while allowing emergency margin
+
+**Testing:**
+- Syntax validation: PASSED (no Python errors)
+- AppDaemon logs: No errors detected
+- Will verify effectiveness during next load sharing activation
+
+**Known Limitations (see BUGS.md):**
+- Bug #8: Tier 3 target calculation uses simple current_target + 1°C (not adaptive)
+- Bug #9: Exit Trigger F was already missing before this fix (now implemented)
+
+---
+
 ## 2025-11-28: BUG #7 FIX - Cycling Protection Triggers on Intentional Boiler Shutdown
 
 **Status:** FIXED ✅
