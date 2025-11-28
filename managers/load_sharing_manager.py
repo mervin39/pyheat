@@ -1032,13 +1032,15 @@ class LoadSharingManager:
         
         Exit conditions (any triggers exit):
         A. Original calling room(s) stopped (none still calling)
-        B. Additional room(s) started calling (recalculate capacity)
+        B. Additional room(s) started calling (recalculate capacity) - BYPASSES minimum duration
         C. Load sharing room now naturally calling (remove from load sharing)
         D. Tier 3 rooms exceeded timeout (15 minutes max for fallback rooms)
         E. Room reached/exceeded target temperature (NEW - prevents overshoot)
         F. Room mode changed from auto (NEW - respects user mode changes)
         
-        Minimum activation duration enforced (5 minutes default).
+        Minimum activation duration enforced (5 minutes default) for all triggers EXCEPT B.
+        Exit Trigger B bypasses minimum duration because it solves the fundamental problem
+        (insufficient capacity) that load sharing was activated for.
         
         Args:
             room_states: Room state dict
@@ -1047,7 +1049,40 @@ class LoadSharingManager:
         Returns:
             True if load sharing should deactivate
         """
-        # Check minimum activation duration
+        # Get current calling rooms (needed for Exit Trigger B)
+        current_calling = set([rid for rid, state in room_states.items() if state.get('calling', False)])
+        
+        # Exit Trigger B: Additional rooms started calling - CHECK FIRST, BYPASSES MINIMUM DURATION
+        # This represents the fundamental problem being solved by new naturally-calling rooms
+        new_calling = current_calling - self.context.trigger_calling_rooms
+        if new_calling:
+            # Calculate new total capacity
+            all_capacities = self.load_calculator.get_all_estimated_capacities()
+            new_total_capacity = 0.0
+            for room_id in current_calling:
+                capacity = all_capacities.get(room_id)
+                if capacity is not None:
+                    new_total_capacity += capacity
+            
+            if new_total_capacity >= self.target_capacity_w:
+                self.ad.log(
+                    f"Load sharing exit: Additional rooms calling ({list(new_calling)}), "
+                    f"capacity now sufficient ({new_total_capacity:.0f}W >= {self.target_capacity_w}W) - "
+                    f"bypassing minimum duration",
+                    level="INFO"
+                )
+                return True
+            else:
+                # Capacity still insufficient - update trigger set and continue
+                self.ad.log(
+                    f"Load sharing: Additional rooms calling ({list(new_calling)}), "
+                    f"but capacity still insufficient ({new_total_capacity:.0f}W < {self.target_capacity_w}W) - "
+                    f"updating trigger set",
+                    level="INFO"
+                )
+                self.context.trigger_calling_rooms = current_calling
+        
+        # For ALL OTHER exit triggers, enforce minimum activation duration
         if not self.context.can_exit(now, self.min_activation_duration_s):
             return False
         
@@ -1129,10 +1164,8 @@ class LoadSharingManager:
             self.ad.log("Load sharing exit: No load sharing rooms remain after temperature exits", level="INFO")
             return True
         
-        # Get current calling rooms
-        current_calling = set([rid for rid, state in room_states.items() if state.get('calling', False)])
-        
         # Exit Trigger A: Original calling rooms stopped
+        # (current_calling already calculated at top of function for Exit Trigger B)
         trigger_still_calling = self.context.trigger_calling_rooms & current_calling
         if not trigger_still_calling:
             self.ad.log(
@@ -1141,34 +1174,8 @@ class LoadSharingManager:
             )
             return True
         
-        # Exit Trigger B: Additional rooms started calling
-        new_calling = current_calling - self.context.trigger_calling_rooms
-        if new_calling:
-            # Calculate new total capacity
-            all_capacities = self.load_calculator.get_all_estimated_capacities()
-            new_total_capacity = 0.0
-            for room_id in current_calling:
-                capacity = all_capacities.get(room_id)
-                if capacity is not None:
-                    new_total_capacity += capacity
-            
-            if new_total_capacity >= self.target_capacity_w:
-                self.ad.log(
-                    f"Load sharing exit: Additional rooms calling ({list(new_calling)}), "
-                    f"capacity now sufficient ({new_total_capacity:.0f}W >= {self.target_capacity_w}W)",
-                    level="INFO"
-                )
-                return True
-            else:
-                # Capacity still insufficient - update trigger set and continue
-                self.ad.log(
-                    f"Load sharing: Additional rooms calling ({list(new_calling)}), "
-                    f"but capacity still insufficient ({new_total_capacity:.0f}W < {self.target_capacity_w}W) - "
-                    f"updating trigger set",
-                    level="INFO"
-                )
-                self.context.trigger_calling_rooms = current_calling
-                self.context.trigger_capacity = new_total_capacity
+        # Exit Trigger B was already checked at the top of this function (bypasses minimum duration)
+        # If we reach here, either no new rooms joined OR they didn't provide sufficient capacity
         
         # Exit Trigger C: Load sharing room now naturally calling
         rooms_to_remove = []

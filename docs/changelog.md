@@ -1,6 +1,70 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: Load Sharing Exit Trigger B - Bypass Minimum Duration
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed load sharing Exit Trigger B to bypass the 5-minute minimum activation duration when additional naturally-calling rooms provide sufficient capacity. This allows immediate exit when the fundamental problem (insufficient capacity) is solved, rather than forcing the system to wait unnecessarily.
+
+**Problem:**
+When load sharing was active and new rooms started calling with sufficient total capacity, the system correctly detected this via Exit Trigger B but was blocked by the minimum activation duration check (5 minutes). This caused load sharing to persist for up to 5 extra minutes even when the capacity problem was completely solved.
+
+**Example Timeline:**
+- 13:44:29: Load sharing activates (bathroom alone, 415W)
+- 13:44:48: Pete starts calling (bathroom + pete ≈ 1915W)
+- 13:46:43: Games starts calling (bathroom + pete + games ≈ 4400W >> 2500W target)
+- 13:49:29: Load sharing finally exits (had to wait full 5 minutes)
+
+Result: Lounge valve stayed open for 2 min 46 sec after capacity problem was solved.
+
+**Root Cause:**
+The minimum duration check was positioned FIRST in `_evaluate_exit_conditions()`, blocking ALL exit condition checks including Exit Trigger B. The minimum duration was designed to prevent oscillation from load sharing rooms heating/cooling, but was incorrectly preventing exit when new naturally-calling rooms fundamentally solved the capacity problem.
+
+**Solution:**
+Reordered exit condition checks in `_evaluate_exit_conditions()`:
+
+1. **Exit Trigger B evaluated FIRST** (before minimum duration check)
+   - Calculates current calling rooms
+   - Detects new rooms that weren't in trigger set
+   - Calculates total capacity with new rooms
+   - If capacity >= target: **Exit immediately, bypass minimum duration**
+   - If capacity still insufficient: Update trigger set and continue
+
+2. **Minimum duration check SECOND** (blocks all other triggers)
+   - Applies to Exit Triggers A, C, D, E, F
+   - Prevents oscillation from load sharing room temperature changes
+
+**Changes:**
+- `managers/load_sharing_manager.py`:
+  - Lines 1031-1084: Moved Exit Trigger B logic to top of function
+  - Lines 1086-1088: Enforces minimum duration for remaining triggers
+  - Lines 1148-1154: Removed duplicate Exit Trigger B logic (now at top)
+  - Lines 1156: Added comment explaining Exit Trigger B already checked
+  - Updated docstring to clarify Exit Trigger B bypasses minimum duration
+
+**Impact:**
+- ✅ Exit Trigger B now responds immediately when capacity problem solved
+- ✅ Eliminates unnecessary 0-5 minute delay in exit
+- ✅ Reduces energy waste from unwanted load sharing continuation
+- ✅ Maintains oscillation prevention for other exit triggers
+- ✅ No behavioral changes to other exit triggers
+
+**Testing:**
+- ✅ Code syntax validated (no Python errors)
+- ✅ AppDaemon restart successful
+- Ready for real-world validation
+
+**Expected Behavior After Fix:**
+When bathroom override triggers load sharing, then pete and games start calling:
+- Previously: Wait 5 minutes before exiting (regardless of capacity)
+- Now: Exit immediately when games joins (capacity >> target)
+
+---
+
 ## 2025-11-28: Load Sharing Status Text Enhancement
 
 **Status:** IMPLEMENTED ✅

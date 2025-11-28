@@ -109,9 +109,9 @@ class StatusPublisher:
         
         # Check load sharing FIRST (takes priority over override)
         if hasattr(self.ad, 'load_sharing') and self.ad.load_sharing:
-            load_sharing_state = self.ad.load_sharing.state
-            if load_sharing_state and load_sharing_state.active_rooms:
-                for activation in load_sharing_state.active_rooms:
+            load_sharing_context = self.ad.load_sharing.context
+            if load_sharing_context and load_sharing_context.active_rooms:
+                for room_id_key, activation in load_sharing_context.active_rooms.items():
                     if activation.room_id == room_id:
                         # Room is in load sharing
                         if activation.tier in [1, 2]:
