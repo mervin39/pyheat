@@ -36,6 +36,25 @@ class TRVController:
         self._valve_feedback_cache = {}  # {room_id: {'value': int, 'timestamp': datetime}}
         self._cache_ttl_seconds = 5.0  # Cache feedback values for 5 seconds
         
+        # Startup grace period and feedback resilience
+        self.startup_time = datetime.now()
+        self.nudge_attempts = {}  # {room_id: count}
+        self.last_nudge_time = {}  # {room_id: timestamp}
+        self.feedback_unknown_since = {}  # {room_id: timestamp when first became unknown}
+        self.feedback_alert_triggered = set()  # {room_id} - track which rooms have alerts
+        
+    def is_in_startup_grace_period(self) -> bool:
+        """Check if we're still in startup grace period.
+        
+        During this period, TRV feedback checks are relaxed to handle
+        Z2M sensor lag after HA restarts.
+        
+        Returns:
+            True if within grace period, False otherwise
+        """
+        elapsed = (datetime.now() - self.startup_time).total_seconds()
+        return elapsed < C.TRV_STARTUP_GRACE_PERIOD_S
+    
     def get_valve_feedback(self, room_id: str) -> Optional[int]:
         """Get current TRV valve position feedback (0-100%).
         
@@ -66,7 +85,34 @@ class TRVController:
         fb_state = self.ad.get_state(fb_entity)
         
         if fb_state in [None, "unknown", "unavailable"]:
+            # Track when feedback first became unknown
+            if room_id not in self.feedback_unknown_since:
+                self.feedback_unknown_since[room_id] = now
+                self.ad.log(f"TRV {room_id}: Feedback sensor became unknown", level="WARNING")
+            
+            # Attempt nudge to unstick Z2M reporting (after startup grace period)
+            if not self.is_in_startup_grace_period():
+                self._attempt_feedback_nudge(room_id, now)
+            
+            # Check if we should trigger alert (after delay)
+            self._check_feedback_alert(room_id, now)
+            
             return None
+        
+        # Feedback is available - clear tracking
+        if room_id in self.feedback_unknown_since:
+            duration = (now - self.feedback_unknown_since[room_id]).total_seconds()
+            self.ad.log(
+                f"TRV {room_id}: Feedback sensor recovered after {duration:.0f}s",
+                level="INFO"
+            )
+            del self.feedback_unknown_since[room_id]
+            
+            # Clear alert if it was triggered
+            if room_id in self.feedback_alert_triggered and self.alert_manager:
+                from alert_manager import AlertManager
+                self.alert_manager.clear_error(f"{AlertManager.ALERT_TRV_UNAVAILABLE}_{room_id}")
+                self.feedback_alert_triggered.discard(room_id)
             
         try:
             feedback = int(float(fb_state))
@@ -93,11 +139,110 @@ class TRVController:
         """
         return self.trv_last_commanded.get(room_id)
     
+    def _attempt_feedback_nudge(self, room_id: str, now: datetime) -> None:
+        """Attempt to unstick Z2M feedback sensor by commanding small valve change.
+        
+        When Z2M feedback sensors report 'unknown' after HA restart, commanding
+        a small change can trigger Z2M to query the device and update the sensor.
+        
+        Args:
+            room_id: Room identifier
+            now: Current datetime
+        """
+        # Check if we've exceeded max attempts
+        attempts = self.nudge_attempts.get(room_id, 0)
+        if attempts >= C.TRV_NUDGE_MAX_ATTEMPTS:
+            return
+        
+        # Check rate limiting
+        last_nudge = self.last_nudge_time.get(room_id)
+        if last_nudge and (now - last_nudge).total_seconds() < C.TRV_NUDGE_MIN_INTERVAL_S:
+            return
+        
+        # Get last commanded value (default to 0 if unknown)
+        target_percent = self.trv_last_commanded.get(room_id, 0)
+        
+        # Calculate nudge value (±1%, respecting bounds)
+        if target_percent == 0:
+            nudge_value = C.TRV_NUDGE_DELTA_PERCENT
+        elif target_percent == 100:
+            nudge_value = 100 - C.TRV_NUDGE_DELTA_PERCENT
+        else:
+            nudge_value = target_percent + C.TRV_NUDGE_DELTA_PERCENT
+        
+        self.ad.log(
+            f"TRV {room_id}: Attempting feedback nudge #{attempts + 1} "
+            f"({target_percent}% -> {nudge_value}% -> {target_percent}%)",
+            level="INFO"
+        )
+        
+        # Send nudge command directly (bypass normal command flow)
+        room_config = self.config.rooms.get(room_id)
+        if room_config and not room_config.get('disabled'):
+            try:
+                trv = room_config['trv']
+                self.ad.call_service("number/set_value",
+                                entity_id=trv['cmd_valve'],
+                                value=nudge_value)
+                
+                # Wait briefly, then send actual target
+                self.ad.run_in(
+                    lambda kwargs: self.ad.call_service("number/set_value",
+                                                       entity_id=trv['cmd_valve'],
+                                                       value=target_percent),
+                    0.5
+                )
+                
+                # Track attempt
+                self.nudge_attempts[room_id] = attempts + 1
+                self.last_nudge_time[room_id] = now
+                
+            except Exception as e:
+                self.ad.log(f"TRV {room_id}: Nudge command failed: {e}", level="ERROR")
+    
+    def _check_feedback_alert(self, room_id: str, now: datetime) -> None:
+        """Check if feedback has been unknown long enough to trigger alert.
+        
+        Args:
+            room_id: Room identifier
+            now: Current datetime
+        """
+        if room_id in self.feedback_alert_triggered:
+            return  # Alert already triggered
+        
+        unknown_since = self.feedback_unknown_since.get(room_id)
+        if not unknown_since:
+            return  # Not currently unknown
+        
+        duration = (now - unknown_since).total_seconds()
+        
+        if duration >= C.TRV_FEEDBACK_ALERT_DELAY_S:
+            # Trigger critical alert
+            if self.alert_manager:
+                from alert_manager import AlertManager
+                self.alert_manager.report_error(
+                    f"{AlertManager.ALERT_TRV_UNAVAILABLE}_{room_id}",
+                    AlertManager.SEVERITY_CRITICAL,
+                    f"TRV feedback sensor unavailable for {duration/60:.0f} minutes.\n\n"
+                    f"Attempted {self.nudge_attempts.get(room_id, 0)} nudge commands to restore feedback.\n\n"
+                    f"Check Z2M connectivity and TRV batteries. Heating continues using last known valve position.",
+                    room_id=room_id,
+                    auto_clear=True
+                )
+                self.feedback_alert_triggered.add(room_id)
+                self.ad.log(
+                    f"TRV {room_id}: CRITICAL - Feedback unavailable for {duration/60:.0f} minutes",
+                    level="ERROR"
+                )
+    
     def is_valve_feedback_consistent(self, room_id: str, tolerance: float = 5.0) -> bool:
         """Check if TRV feedback matches last commanded value within tolerance.
         
         Used for TRV health validation during boiler cycling. Compares the current
         feedback against what was LAST COMMANDED, not what we're about to command next.
+        
+        During startup grace period, unknown feedback is treated as consistent to allow
+        heating to proceed during Z2M sensor lag after HA restart.
         
         Args:
             room_id: Room identifier
@@ -109,7 +254,23 @@ class TRVController:
         feedback = self.get_valve_feedback(room_id)
         commanded = self.get_valve_command(room_id)
         
-        if feedback is None or commanded is None:
+        if feedback is None:
+            # During startup grace period, assume consistency (allow heating)
+            if self.is_in_startup_grace_period():
+                return True
+            
+            # After grace period, if we have a recent command, assume it worked
+            # (degraded mode - operating without feedback confirmation)
+            if commanded is not None:
+                last_update = self.trv_last_update.get(room_id)
+                if last_update:
+                    age = (datetime.now() - last_update).total_seconds()
+                    if age < 300:  # Within last 5 minutes
+                        return True
+            
+            return False
+        
+        if commanded is None:
             return False
             
         return abs(feedback - commanded) <= tolerance

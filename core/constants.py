@@ -217,6 +217,15 @@ TRV_COMMAND_RETRY_INTERVAL_S = 2    # Wait time between command and feedback che
 TRV_COMMAND_MAX_RETRIES = 3         # Max retries per command
 TRV_COMMAND_FEEDBACK_TOLERANCE = 5  # Percent tolerance for feedback match
 
+# TRV Feedback Resilience (Handle HA/Z2M restart lag)
+# When Home Assistant or Zigbee2MQTT restarts, feedback sensors may report 'unknown'
+# for several minutes while the systems reconnect and poll devices.
+TRV_STARTUP_GRACE_PERIOD_S = 120    # 2 minutes - relaxed feedback checks after restart
+TRV_NUDGE_MIN_INTERVAL_S = 10       # Minimum time between nudge attempts
+TRV_NUDGE_MAX_ATTEMPTS = 3          # Maximum nudge attempts per room
+TRV_NUDGE_DELTA_PERCENT = 1         # Small valve change to unstick Z2M reporting
+TRV_FEEDBACK_ALERT_DELAY_S = 300    # 5 minutes - trigger alert if still unavailable
+
 # ============================================================================
 # Home Assistant Helper Entities (Expected to Exist)
 # ============================================================================

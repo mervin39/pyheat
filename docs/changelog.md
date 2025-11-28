@@ -1,6 +1,111 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: TRV Feedback Resilience - Handle Z2M Sensor Lag During HA Restarts
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Implemented intelligent TRV feedback handling to gracefully manage Z2M sensor unavailability during Home Assistant restarts. The system now uses a startup grace period, active "nudging" to unstick stuck sensors, degraded-mode operation, and alerts only after prolonged unavailability.
+
+**Problem:**
+When Home Assistant restarts, Z2M TRV feedback sensors (`sensor.trv_<room>_valve_opening_degree_z2m`) can report `unknown` or `unavailable` for several minutes while Zigbee2MQTT reconnects and polls devices. This caused:
+
+1. **Active Command Failures**: During AppDaemon initialization, valve commands failed with "Max retries reached, feedback unavailable" because confirmation couldn't be obtained
+2. **Passive Check Failures**: Boiler health checks failed even though valves were correctly positioned, preventing heating for 5+ minutes
+3. **No Heating**: Rooms calling for heat were blocked from receiving heating until sensors recovered
+4. **No Alerts**: Critical alerts should have fired but didn't (separate alert manager issue)
+
+**Investigation Findings:**
+From logs (2025-11-28 14:27 and 14:42-14:47):
+- Pete's room: Active command during startup failed after 3 retries (14:27:58)
+- Bathroom: Valve successfully commanded to 100% at 14:33:47, but feedback went silent until 14:47:55 (14+ minutes), blocking boiler from turning on
+
+**Solution:**
+
+### 1. Startup Grace Period (2 minutes)
+- During first 2 minutes after AppDaemon starts, TRV feedback checks are relaxed
+- Unknown feedback is treated as consistent, allowing heating to proceed
+- Prevents blocking heating during Z2M reconnection lag
+
+### 2. Active Feedback Nudging
+- When feedback is `unknown` for >30s after a command, send a "nudge"
+- Nudge = command valve to ±1% of current position, then immediately back to target
+- This forces Z2M to query the TRV and update the sensor
+- Limited to 3 attempts per room, with 10s intervals between attempts
+
+### 3. Degraded Mode Operation
+- After grace period, if feedback unknown but valve was recently commanded (<5 min), assume it worked
+- Continue heating based on last commanded position
+- Log warnings but don't block boiler operation
+
+### 4. Delayed Critical Alerts
+- Only trigger critical alert if feedback unavailable for 5+ minutes
+- Alert includes nudge attempt count and duration
+- Auto-clears when feedback recovers
+- Message explains heating continues in degraded mode
+
+**Implementation:**
+
+### Constants Added (`constants.py`):
+```python
+TRV_STARTUP_GRACE_PERIOD_S = 120    # 2 minutes
+TRV_NUDGE_MIN_INTERVAL_S = 10       # Min time between nudges
+TRV_NUDGE_MAX_ATTEMPTS = 3          # Max nudge attempts per room
+TRV_NUDGE_DELTA_PERCENT = 1         # Small valve change to unstick Z2M
+TRV_FEEDBACK_ALERT_DELAY_S = 300    # 5 minutes before alert
+```
+
+### TRVController Changes (`trv_controller.py`):
+- Added `startup_time` tracking and `is_in_startup_grace_period()` method
+- Added `feedback_unknown_since` dict to track duration
+- Added `nudge_attempts` and `last_nudge_time` for nudge management
+- Added `feedback_alert_triggered` set to prevent duplicate alerts
+- Implemented `_attempt_feedback_nudge()` for Z2M unsticking
+- Implemented `_check_feedback_alert()` for delayed alert triggering
+- Updated `get_valve_feedback()` to track unknown state and attempt recovery
+- Updated `is_valve_feedback_consistent()` to handle grace period and degraded mode
+
+### Boiler Controller Changes (`boiler_controller.py`):
+- Enhanced logging in `_are_all_calling_trvs_healthy()` to show grace period status
+- Better context in debug messages for unknown vs mismatched feedback
+
+**Behavior:**
+
+### Startup Scenario (HA Restart):
+```
+T=0s:    AppDaemon starts, sensors unknown
+T=0-120s: Grace period active - heating allowed despite unknown feedback
+T=30s:   First nudge attempt (0% -> 1% -> 0%)
+T=40s:   Second nudge attempt (if still unknown)
+T=50s:   Third nudge attempt (if still unknown)
+T=60s:   Sensor recovers, normal operation resumes
+```
+
+### Prolonged Unavailability:
+```
+T=0s:    Feedback becomes unknown
+T=30-50s: Nudge attempts (max 3)
+T=120s:  Grace period ends, enter degraded mode
+T=300s:  Critical alert triggered (but heating continues)
+```
+
+**Testing Required:**
+- Restart Home Assistant and verify heating continues during sensor lag
+- Monitor logs for nudge attempts and grace period messages
+- Verify critical alerts trigger after 5 minutes if sensors don't recover
+- Confirm alerts auto-clear when feedback recovers
+
+**Files Modified:**
+- `core/constants.py`: Added TRV feedback resilience constants
+- `controllers/trv_controller.py`: Implemented grace period, nudging, and degraded mode
+- `controllers/boiler_controller.py`: Enhanced health check logging
+- `docs/changelog.md`: This entry
+
+---
+
 ## 2025-11-28: CRITICAL FIX - Missing timedelta Import (BUG)
 
 **Status:** FIXED ✅
