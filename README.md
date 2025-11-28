@@ -218,6 +218,11 @@ rooms:
     load_sharing:
       schedule_lookahead_m: 60    # Check schedules within 60 min (default)
       fallback_priority: 1         # Lower = higher priority for fallback
+  
+  - id: bedroom
+    load_sharing:
+      schedule_lookahead_m: 30    # Conservative for bedrooms
+      # Omit fallback_priority to exclude from Tier 3 (privacy)
 
 # boiler.yaml - system thresholds
 boiler:
@@ -226,6 +231,11 @@ boiler:
     target_capacity_w: 4000            # Target to reach
     tier3_comfort_target_c: 20.0       # Tier 3 pre-warming target (default: 20°C)
 ```
+
+**Bedroom Configuration Strategy:**
+- **Include in Tier 1/2**: Set `schedule_lookahead_m` (typically 30 min for conservative pre-warming)
+- **Exclude from Tier 3**: Omit `fallback_priority` to prevent unexpected heating during off-schedule periods
+- This ensures bedrooms only pre-warm when scheduled, respecting privacy and comfort preferences
 
 See [docs/load_sharing_proposal.md](docs/load_sharing_proposal.md) for complete design details.
 
