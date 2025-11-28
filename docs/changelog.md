@@ -1,9 +1,53 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: CRITICAL FIX - Missing timedelta Import (BUG)
+
+**Status:** FIXED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed critical import bug where `timedelta` was used but not imported in `load_sharing_manager.py`, causing all recompute cycles to fail with `NameError`. This bug was introduced in the Tier 3 Timeout Cooldown feature earlier today (2025-11-28) and completely broke the heating system.
+
+**Problem:**
+Line 1132 in `load_sharing_manager.py` uses `timedelta` to calculate cooldown expiration time:
+```python
+cooldown_until = now + timedelta(seconds=self.tier3_cooldown_s)
+```
+
+But the import statement only imported `datetime`, not `timedelta`:
+```python
+from datetime import datetime  # Missing timedelta!
+```
+
+**Impact:**
+- **CRITICAL**: Every recompute cycle crashed with `NameError: name 'timedelta' is not defined`
+- Affected: periodic recompute (60s), sensor changes, timer events, service calls
+- System completely non-functional since Tier 3 Timeout Cooldown was added
+- Heating logic never executed after entry condition evaluation
+
+**Fix:**
+Updated import statement to include `timedelta`:
+```python
+from datetime import datetime, timedelta
+```
+
+**Root Cause:**
+Oversight during Tier 3 Timeout Cooldown implementation. The feature was tested syntactically but never activated in production (load sharing inactive), so the error wasn't caught until first evaluation cycle.
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: Added `timedelta` to imports (line 14)
+
+**Testing:**
+- AppDaemon restart will verify fix
+- System should resume normal operation immediately
+
+---
+
 ## 2025-11-28: Tier 3 Timeout Cooldown - Anti-Oscillation Fix
 
-**Status:** IMPLEMENTED ✅
+**Status:** IMPLEMENTED ✅ (BUG FIXED ABOVE)
 
 **Branch:** `main`
 
