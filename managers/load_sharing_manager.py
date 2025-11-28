@@ -54,6 +54,7 @@ class LoadSharingManager:
         self.target_capacity_w = 4000       # Target capacity to reach
         self.min_activation_duration_s = 300  # 5 minutes minimum
         self.tier3_timeout_s = 900          # 15 minutes max for Tier 3
+        self.tier3_cooldown_s = 1800        # 30 minutes before re-eligible
         self.high_return_delta_c = 15       # Return temp delta for cycling risk detection
         
         # Master enable switch (HA helper)
@@ -80,6 +81,7 @@ class LoadSharingManager:
         self.target_capacity_w = ls_config.get('target_capacity_w', 4000)
         self.min_activation_duration_s = ls_config.get('min_activation_duration_s', 300)
         self.tier3_timeout_s = ls_config.get('tier3_timeout_s', 900)
+        self.tier3_cooldown_s = ls_config.get('tier3_cooldown_s', 1800)
         self.high_return_delta_c = ls_config['high_return_delta_c']
         
         # Check master enable switch (single source of truth)
@@ -96,7 +98,9 @@ class LoadSharingManager:
             self.ad.log(
                 f"LoadSharingManager: Initialized (inactive) - "
                 f"capacity threshold={self.min_calling_capacity_w}W, "
-                f"target={self.target_capacity_w}W",
+                f"target={self.target_capacity_w}W, "
+                f"tier3_timeout={self.tier3_timeout_s}s, "
+                f"tier3_cooldown={self.tier3_cooldown_s}s",
                 level="INFO"
             )
     
@@ -856,6 +860,7 @@ class LoadSharingManager:
         - Not currently calling for heat
         - Not already in Tier 1 or Tier 2
         - Has fallback_priority configured (rooms without this are excluded)
+        - NOT in timeout cooldown (rooms that recently timed out are excluded)
         - NO temperature check - ultimate fallback accepts any auto mode room
         
         Sorted by: fallback_priority ASC (lower number = higher priority)
@@ -868,6 +873,21 @@ class LoadSharingManager:
         """
         candidates = []
         active_room_ids = set(self.context.active_rooms.keys())
+        now = datetime.now()
+        
+        # Clean up expired cooldown entries
+        expired_cooldowns = []
+        for room_id, timeout_time in list(self.context.tier3_timeout_history.items()):
+            cooldown_elapsed = (now - timeout_time).total_seconds()
+            if cooldown_elapsed >= self.tier3_cooldown_s:
+                expired_cooldowns.append(room_id)
+        
+        for room_id in expired_cooldowns:
+            del self.context.tier3_timeout_history[room_id]
+            self.ad.log(
+                f"Load sharing: Tier 3 cooldown expired for '{room_id}' - now eligible",
+                level="DEBUG"
+            )
         
         for room_id, state in room_states.items():
             # Skip if not in auto mode
@@ -881,6 +901,19 @@ class LoadSharingManager:
             # Skip if already in Tier 1 or Tier 2
             if room_id in active_room_ids:
                 continue
+            
+            # Check if room recently timed out (cooldown enforcement)
+            last_timeout = self.context.tier3_timeout_history.get(room_id)
+            if last_timeout is not None:
+                cooldown_elapsed = (now - last_timeout).total_seconds()
+                if cooldown_elapsed < self.tier3_cooldown_s:
+                    remaining_s = self.tier3_cooldown_s - cooldown_elapsed
+                    self.ad.log(
+                        f"Load sharing Tier 3: Skipping '{room_id}' - in cooldown "
+                        f"(remaining: {remaining_s:.0f}s / {self.tier3_cooldown_s}s)",
+                        level="DEBUG"
+                    )
+                    continue  # Skip - still in cooldown period
             
             # Get room config for fallback priority
             room_cfg = self.config.rooms.get(room_id, {})
@@ -1093,9 +1126,14 @@ class LoadSharingManager:
             if activation.tier == 3:
                 duration = (now - activation.activated_at).total_seconds()
                 if duration >= self.tier3_timeout_s:
+                    # Record timeout event for cooldown enforcement
+                    self.context.tier3_timeout_history[room_id] = now
+                    
+                    cooldown_until = now + timedelta(seconds=self.tier3_cooldown_s)
                     self.ad.log(
                         f"Load sharing: Tier 3 room '{room_id}' exceeded timeout "
-                        f"({duration:.0f}s >= {self.tier3_timeout_s}s) - removing",
+                        f"({duration:.0f}s >= {self.tier3_timeout_s}s) - removing "
+                        f"(cooldown until {cooldown_until.strftime('%H:%M')})",
                         level="INFO"
                     )
                     tier3_rooms_to_remove.append(room_id)

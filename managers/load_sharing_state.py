@@ -68,6 +68,7 @@ class LoadSharingContext:
         trigger_timestamp: When load sharing was activated
         active_rooms: Dictionary of currently active load sharing rooms
         last_evaluation: Timestamp of last evaluation (for debugging)
+        tier3_timeout_history: Dict of room_id -> timeout timestamp for cooldown enforcement
     """
     state: LoadSharingState = LoadSharingState.DISABLED
     trigger_calling_rooms: Set[str] = field(default_factory=set)
@@ -75,6 +76,7 @@ class LoadSharingContext:
     trigger_timestamp: Optional[datetime] = None
     active_rooms: Dict[str, RoomActivation] = field(default_factory=dict)
     last_evaluation: Optional[datetime] = None
+    tier3_timeout_history: Dict[str, datetime] = field(default_factory=dict)
     
     # Computed properties
     
@@ -146,9 +148,14 @@ class LoadSharingContext:
         return self.state not in [LoadSharingState.DISABLED, LoadSharingState.INACTIVE]
     
     def reset(self) -> None:
-        """Reset context to inactive state (clear all activations)."""
+        """Reset context to inactive state (clear all activations).
+        
+        NOTE: tier3_timeout_history is NOT cleared - persists across
+        activation cycles to prevent oscillation.
+        """
         self.state = LoadSharingState.INACTIVE
         self.trigger_calling_rooms.clear()
         self.trigger_capacity = 0.0
         self.trigger_timestamp = None
         self.active_rooms.clear()
+        # tier3_timeout_history intentionally NOT cleared

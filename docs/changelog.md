@@ -1,6 +1,137 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: Tier 3 Timeout Cooldown - Anti-Oscillation Fix
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Added cooldown tracking for Tier 3 fallback rooms to prevent oscillation after timeout. When a Tier 3 room times out (15 minutes), it now enters a 30-minute cooldown period during which it cannot be re-selected, forcing the system to try the next priority room or accept cycling as the lesser evil.
+
+**Problem:**
+Tier 3 timeout created an oscillation vulnerability:
+1. Room selected as Tier 3 fallback (heating to 20°C comfort target)
+2. After 15 minutes, room times out and is removed (Exit Trigger D)
+3. Load sharing deactivates, `context.reset()` clears ALL state
+4. Next evaluation cycle (60s later):
+   - Original calling room STILL has low capacity
+   - Entry conditions STILL met (cycling risk still present)
+   - **Same room re-selected immediately** (no memory of timeout)
+5. Infinite loop: select → timeout → select → timeout
+
+**Example Scenario:**
+```
+10:00 - Pete calling (2800W), lounge selected (Tier 3)
+10:15 - Lounge timeout, load sharing deactivates
+10:16 - Lounge re-selected (entry conditions still met)
+10:31 - Lounge timeout again
+10:32 - Lounge re-selected again
+... (continues indefinitely)
+```
+
+**Root Cause:**
+`context.reset()` cleared ALL state including timeout history. The system had no memory that a room had just timed out, so Tier 3 selection saw it as a fresh eligible candidate.
+
+**Solution:**
+Implemented cooldown tracking for timed-out Tier 3 rooms:
+
+**1. State Tracking (`load_sharing_state.py`)**
+- Added `tier3_timeout_history: Dict[str, datetime]` to `LoadSharingContext`
+- Records `{room_id: timeout_timestamp}` when timeout occurs
+- Persists across activation/deactivation cycles (NOT cleared by `reset()`)
+- Only cleared on cooldown expiry or AppDaemon restart
+
+**2. Timeout Recording (`load_sharing_manager.py`)**
+- When Exit Trigger D fires (Tier 3 timeout):
+  ```python
+  self.context.tier3_timeout_history[room_id] = now
+  ```
+- Logs cooldown end time for operator visibility
+
+**3. Selection Exclusion (`load_sharing_manager.py`)**
+- Tier 3 selection checks cooldown before evaluating candidates:
+  ```python
+  last_timeout = self.context.tier3_timeout_history.get(room_id)
+  if last_timeout:
+      cooldown_elapsed = (now - last_timeout).total_seconds()
+      if cooldown_elapsed < self.tier3_cooldown_s:
+          continue  # Skip - still in cooldown
+  ```
+
+**4. Automatic Cleanup**
+- Expired cooldown entries removed during evaluation
+- Prevents memory growth (max ~10 rooms)
+- Logs when rooms become eligible again
+
+**5. Configuration**
+Added `tier3_cooldown_s` parameter (default: 1800s = 30 minutes):
+```yaml
+load_sharing:
+  tier3_timeout_s: 900       # 15 min timeout
+  tier3_cooldown_s: 1800     # 30 min cooldown
+```
+
+**Behavior After Fix:**
+```
+10:00 - Load sharing activates, lounge selected (Tier 3)
+10:15 - Lounge timeout, enters cooldown (until 10:45)
+10:16 - Next evaluation: lounge SKIPPED (in cooldown)
+        → games selected (priority=2)
+10:31 - Games timeout, enters cooldown (until 11:01)
+10:32 - Next evaluation: lounge & games SKIPPED
+        → office selected (priority=3)
+10:45 - Lounge cooldown expires, eligible again
+```
+
+**Changes:**
+1. `managers/load_sharing_state.py`:
+   - Added `tier3_timeout_history` field to `LoadSharingContext`
+   - Updated `reset()` docstring to clarify timeout history NOT cleared
+
+2. `managers/load_sharing_manager.py`:
+   - Added `tier3_cooldown_s` configuration parameter (default: 1800s)
+   - Updated `_evaluate_exit_conditions()` to record timeouts
+   - Updated `_select_tier3_rooms()` to check cooldown and auto-cleanup
+   - Added cooldown end time to timeout log message
+
+3. `config/boiler.yaml`:
+   - Added `tier3_cooldown_s: 1800` configuration
+
+4. `core/constants.py`:
+   - Added `LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT = 1800`
+
+5. `core/config_loader.py`:
+   - Added default for `tier3_cooldown_s`
+   - Added validation: cooldown must be >= 0
+   - Added warning if cooldown < timeout
+
+6. `docs/ARCHITECTURE.md`:
+   - Updated Exit Trigger D documentation with cooldown details
+   - Added `tier3_cooldown_m` to configuration examples
+
+**Impact:**
+- ✅ Prevents Tier 3 oscillation (timeout → re-select loop)
+- ✅ Distributes load sharing burden across multiple fallback rooms
+- ✅ Configurable cooldown period for household-specific tuning
+- ✅ Accepts cycling when all Tier 3 rooms exhausted (correct fallback)
+- ✅ No impact on Tier 1/2 (schedule-based pre-warming unaffected)
+- ✅ All exit triggers work unchanged (cooldown only affects selection)
+
+**Testing:**
+- ✅ Code syntax validated (Python import successful)
+- ✅ AppDaemon restart successful
+- ✅ LoadSharingManager initialized with cooldown parameter
+- ✅ No errors in logs after restart
+
+**Configuration Notes:**
+- Default 30 min cooldown = 2× timeout (ensures reasonable spacing)
+- Cooldown = 0 disables feature (reverts to old behavior for testing)
+- Warning logged if cooldown < timeout (may cause quick re-selection)
+
+---
+
 ## 2025-11-28: Load Sharing Exit Trigger B - Bypass Minimum Duration
 
 **Status:** IMPLEMENTED ✅

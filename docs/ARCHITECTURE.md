@@ -1846,7 +1846,12 @@ Load sharing persists for the duration of the calling pattern that triggered it.
 #### Exit Trigger D: Tier 3 timeout expired
 - Tier 3 rooms have 15-minute maximum duration
 - Prevents long-term heating of fallback priority rooms
-- Rationale: Tier 3 accepts heating above parking temp, but needs time limit
+- **Cooldown enforcement:** Room enters 30-minute cooldown after timeout
+  - Recorded in `tier3_timeout_history` with timeout timestamp
+  - Excluded from Tier 3 selection during cooldown period
+  - Prevents oscillation (timeout → re-select → timeout loop)
+  - Forces system to try next priority room or accept cycling
+- Rationale: Tier 3 accepts heating above parking temp, but needs time limit and anti-oscillation
 
 #### Exit Trigger E: Room reached target temperature
 - Check: `temp >= target_temp + off_delta` (same hysteresis as normal control)
@@ -1921,7 +1926,8 @@ boiler:
     # Tier 3: Fallback priority
     tier_3_initial_pct: 50
     tier_3_escalated_pct: 60
-    tier_3_max_duration_m: 15
+    tier_3_max_duration_m: 15        # 15 minutes timeout
+    tier_3_cooldown_m: 30            # 30 minutes before re-eligible after timeout
 ```
 
 **Per-Room Configuration (rooms.yaml):**

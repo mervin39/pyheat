@@ -318,6 +318,7 @@ LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT = 4000       # Target capacity to reach
 # Load sharing timing constraints (seconds)
 LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT = 300  # 5 minutes minimum
 LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT = 900           # 15 minutes max for Tier 3
+LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT = 1800         # 30 minutes before re-eligible
 
 # Load sharing valve opening defaults (percent)
 LOAD_SHARING_TIER1_INITIAL_PCT = 70   # Schedule-aware rooms start here
