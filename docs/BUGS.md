@@ -6,8 +6,9 @@ This document tracks known bugs and their resolutions.
 
 ## BUG #7: Cycling Protection Triggers on Intentional Boiler Shutdown
 
-**Status:** Identified  
+**Status:** FIXED ✅  
 **Date Discovered:** 2025-11-27  
+**Date Fixed:** 2025-11-28  
 **Severity:** Medium - causes unnecessary cooldown cycles and setpoint drops  
 
 ### Observed Behavior
@@ -118,6 +119,45 @@ Monitor `climate.opentherm_thermostat` state changes instead of flame sensor:
 - Requires climate entity state to accurately reflect boiler state
 
 **Recommendation:** Option 1 - direct state machine check is simplest and most reliable
+
+### Resolution (2025-11-28)
+
+**Fix Applied:**
+Modified cycling protection to check boiler state machine state before evaluating cooldown need.
+
+**Implementation:**
+1. Added `boiler_controller` parameter to `CyclingProtection.__init__()` (cycling_protection.py line 34)
+2. Updated `app.py` line 73 to pass `self.boiler` reference when initializing CyclingProtection
+3. Added state check in `on_flame_off()` before scheduling cooldown evaluation (cycling_protection.py line 141-151)
+
+**New Logic:**
+```python
+# GUARD: Skip evaluation if this is an intentional shutdown by state machine
+if self.boiler_controller:
+    boiler_state = self.boiler_controller.boiler_state
+    if boiler_state in [C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN]:
+        self.ad.log(
+            f"Flame OFF: Intentional shutdown by state machine "
+            f"(state={boiler_state}) - skipping cooldown evaluation",
+            level="DEBUG"
+        )
+        return
+```
+
+**Why This Works:**
+- During `PENDING_OFF` and `PUMP_OVERRUN`, the flame turning off is expected (pyheat commanded it)
+- High return temp after active heating is normal and doesn't indicate cycling problems
+- Cooldown only triggers for unexpected shutdowns (flame off while state is `ON`)
+- Preserves original functionality for detecting genuine overheat scenarios
+
+**Files Modified:**
+- `controllers/cycling_protection.py` (lines 34, 141-151): Added boiler state check
+- `app.py` (line 73): Pass boiler controller reference to CyclingProtection
+
+**Testing:**
+- No errors in AppDaemon logs after changes
+- System continues to operate normally
+- Next occurrence of intentional shutdown will verify fix effectiveness
 
 ### Impact Assessment
 

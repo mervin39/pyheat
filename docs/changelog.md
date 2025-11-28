@@ -1,6 +1,52 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: BUG #7 FIX - Cycling Protection Triggers on Intentional Boiler Shutdown
+
+**Status:** FIXED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed bug where cycling protection incorrectly triggered cooldown when pyheat intentionally shut down the boiler due to no rooms calling for heat. The system now distinguishes between intentional shutdowns (state machine commanded) and automatic boiler safety shutdowns (overheat protection).
+
+**Problem:**
+When the last room stopped calling for heat and the boiler entered `PENDING_OFF` state, the cycling protection would evaluate the flame-off event and incorrectly trigger cooldown if return temperature was high (within 10°C of setpoint). This was normal after active heating, not a cycling problem.
+
+**Root Cause:**
+Cycling protection monitored all flame-off events but didn't check whether the shutdown was:
+- **Intentional**: Pyheat commanded boiler off because no rooms calling (state = `PENDING_OFF` or `PUMP_OVERRUN`)
+- **Automatic**: Boiler safety system shut off due to high return temp (state = `ON` but flame unexpectedly off)
+
+Only automatic shutdowns indicate insufficient radiator capacity requiring cooldown intervention.
+
+**Solution:**
+Added boiler state machine check before evaluating cooldown need:
+1. Pass `boiler_controller` reference to `CyclingProtection` on initialization
+2. In `on_flame_off()`, check if boiler state is `PENDING_OFF` or `PUMP_OVERRUN`
+3. Skip cooldown evaluation for intentional shutdowns
+4. Continue evaluating for unexpected shutdowns (genuine cycling problems)
+
+**Changes:**
+- `controllers/cycling_protection.py`:
+  - Line 34: Added `boiler_controller` parameter to `__init__()`
+  - Lines 141-151: Added state check to skip intentional shutdowns
+- `app.py`:
+  - Line 73: Pass `self.boiler` reference when initializing CyclingProtection
+- `docs/BUGS.md`: Updated Bug #7 status to FIXED with resolution details
+
+**Impact:**
+- Eliminates false positive cooldown triggers during normal heating cycle completion
+- Preserves genuine overheat detection when flame turns off unexpectedly
+- Reduces unnecessary setpoint drops and cooldown delays
+
+**Testing:**
+- No errors in AppDaemon logs after implementation
+- System continues operating normally
+- Next intentional shutdown will verify fix effectiveness
+
+---
+
 ## 2025-11-27: BUG #6 FIX - Load Sharing Valves Persist After Deactivation
 
 **Status:** FIXED ✅

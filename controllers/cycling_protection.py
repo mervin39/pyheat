@@ -33,17 +33,19 @@ class CyclingProtection:
     STATE_COOLDOWN = "COOLDOWN"
     STATE_TIMEOUT = "TIMEOUT"
     
-    def __init__(self, ad, config, alert_manager=None):
+    def __init__(self, ad, config, alert_manager=None, boiler_controller=None):
         """Initialize cycling protection.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
             alert_manager: Optional AlertManager instance for notifications
+            boiler_controller: Optional BoilerController instance for state checks
         """
         self.ad = ad
         self.config = config
         self.alert_manager = alert_manager
+        self.boiler_controller = boiler_controller
         
         # State machine state
         self.state = self.STATE_NORMAL
@@ -134,6 +136,19 @@ class CyclingProtection:
                     level="DEBUG"
                 )
                 return
+            
+            # GUARD: Skip evaluation if this is an intentional shutdown by state machine
+            # Cycling protection is designed to detect automatic boiler safety shutdowns
+            # (overheat), not intentional shutdowns when no rooms are calling for heat
+            if self.boiler_controller:
+                boiler_state = self.boiler_controller.boiler_state
+                if boiler_state in [C.STATE_PENDING_OFF, C.STATE_PUMP_OVERRUN]:
+                    self.ad.log(
+                        f"Flame OFF: Intentional shutdown by state machine "
+                        f"(state={boiler_state}) - skipping cooldown evaluation",
+                        level="DEBUG"
+                    )
+                    return
             
             # Capture BOTH DHW sensors at flame OFF time (before delay)
             dhw_binary_at_flame_off = self.ad.get_state(C.OPENTHERM_DHW)

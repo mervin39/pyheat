@@ -70,7 +70,7 @@ class PyHeat(hass.Hass):
         self.valve_coordinator.initialize_from_ha()  # Initialize pump overrun state from HA
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
-        self.cycling = CyclingProtection(self, self.config, self.alerts)
+        self.cycling = CyclingProtection(self, self.config, self.alerts, self.boiler)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.status.load_calculator_ref = self.load_calculator  # Allow status publisher to get capacity data
