@@ -510,6 +510,13 @@ curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_status \
 - `boiler_actual_state` - Actual boiler status: "on" or "off"
 - `last_recompute` - ISO 8601 timestamp of last system update
 - `boiler_*_end_time` - ISO 8601 timestamps for active boiler timers (null if inactive)
+- `load_sharing` - Load sharing status object (null if feature disabled):
+  - `state` - Current state: "disabled", "inactive", "tier1_active", "tier2_active", "tier3_active"
+  - `active_rooms` - Array of rooms currently in load sharing with tier, valve_pct, reason, and duration_s
+  - `trigger_capacity` - Capacity that triggered load sharing (kW)
+  - `trigger_rooms` - Array of room IDs that triggered load sharing
+  - `master_enabled` - Whether load sharing is enabled in configuration
+  - `decision_explanation` - Human-readable explanation of current load sharing decision
 
 ---
 
