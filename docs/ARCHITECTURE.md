@@ -1798,13 +1798,18 @@ class LoadSharingContext:
 - **No temperature check** - ultimate fallback accepts any room to prevent cycling
 - Excludes "off" and "manual" mode rooms
 
+**Target Temperature:** Global comfort target (default 20°C) from `tier3_comfort_target_c` config
+- Bypasses low parking temperatures (rooms parked at 10-12°C but often at ambient 15-17°C)
+- Provides genuine pre-warming above ambient temperature
+- Configurable in boiler.yaml under load_sharing section
+
 **Valve Opening:** 50% initial → 60% → 70% → 80% → 90% → 100% (progressive escalation)
 
 **Maximize-Existing Strategy:** Escalate current rooms to maximum before adding next priority room.
 
 **Timeout:** 15 minutes maximum for Tier 3 rooms (prevents long-term unwanted heating)
 
-**Rationale:** Deterministic behavior when schedules don't help. Accepts trade-off of heating above target to prevent boiler cycling wear.
+**Rationale:** Deterministic behavior when schedules don't help. Uses global comfort target instead of parking + margin to ensure rooms stay in load sharing long enough to provide capacity. Accepts trade-off of heating above parking temp to prevent boiler cycling wear.
 
 ### Entry Conditions
 
@@ -1837,6 +1842,27 @@ Load sharing persists for the duration of the calling pattern that triggered it.
 - **Remove from load sharing control**, let room controller manage it
 - If no load sharing rooms remain → **Deactivate**
 - Rationale: Room now needs heat anyway, not just helping
+
+#### Exit Trigger D: Tier 3 timeout expired
+- Tier 3 rooms have 15-minute maximum duration
+- Prevents long-term heating of fallback priority rooms
+- **Cooldown enforcement:** Room enters 30-minute cooldown after timeout
+  - Recorded in `tier3_timeout_history` with timeout timestamp
+  - Excluded from Tier 3 selection during cooldown period
+  - Prevents oscillation (timeout → re-select → timeout loop)
+  - Forces system to try next priority room or accept cycling
+- Rationale: Tier 3 accepts heating above parking temp, but needs time limit and anti-oscillation
+
+#### Exit Trigger E: Room reached target temperature
+- Check: `temp >= target_temp + off_delta` (same hysteresis as normal control)
+- Prevents overshoot by closing valve when pre-warming succeeds
+- Uses target_temp tracked in RoomActivation dataclass
+- Rationale: Exit when pre-warming goal achieved
+
+#### Exit Trigger F: Room mode changed from auto
+- Check: `mode != 'auto'` (user switched to manual/off)
+- Respects user control - immediately remove room from load sharing
+- Rationale: User intent overrides automation
 
 **Minimum Activation Duration:** 5 minutes (prevents rapid oscillation)
 
@@ -1900,7 +1926,8 @@ boiler:
     # Tier 3: Fallback priority
     tier_3_initial_pct: 50
     tier_3_escalated_pct: 60
-    tier_3_max_duration_m: 15
+    tier_3_max_duration_m: 15        # 15 minutes timeout
+    tier_3_cooldown_m: 30            # 30 minutes before re-eligible after timeout
 ```
 
 **Per-Room Configuration (rooms.yaml):**

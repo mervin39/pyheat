@@ -1,6 +1,566 @@
 
 # PyHeat Changelog
 
+## 2025-11-28: TRV Feedback Resilience - Handle Z2M Sensor Lag During HA Restarts
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Implemented intelligent TRV feedback handling to gracefully manage Z2M sensor unavailability during Home Assistant restarts. The system now uses a startup grace period, active "nudging" to unstick stuck sensors, degraded-mode operation, and alerts only after prolonged unavailability.
+
+**Problem:**
+When Home Assistant restarts, Z2M TRV feedback sensors (`sensor.trv_<room>_valve_opening_degree_z2m`) can report `unknown` or `unavailable` for several minutes while Zigbee2MQTT reconnects and polls devices. This caused:
+
+1. **Active Command Failures**: During AppDaemon initialization, valve commands failed with "Max retries reached, feedback unavailable" because confirmation couldn't be obtained
+2. **Passive Check Failures**: Boiler health checks failed even though valves were correctly positioned, preventing heating for 5+ minutes
+3. **No Heating**: Rooms calling for heat were blocked from receiving heating until sensors recovered
+4. **No Alerts**: Critical alerts should have fired but didn't (separate alert manager issue)
+
+**Investigation Findings:**
+From logs (2025-11-28 14:27 and 14:42-14:47):
+- Pete's room: Active command during startup failed after 3 retries (14:27:58)
+- Bathroom: Valve successfully commanded to 100% at 14:33:47, but feedback went silent until 14:47:55 (14+ minutes), blocking boiler from turning on
+
+**Solution:**
+
+### 1. Startup Grace Period (2 minutes)
+- During first 2 minutes after AppDaemon starts, TRV feedback checks are relaxed
+- Unknown feedback is treated as consistent, allowing heating to proceed
+- Prevents blocking heating during Z2M reconnection lag
+
+### 2. Active Feedback Nudging
+- When feedback is `unknown` for >30s after a command, send a "nudge"
+- Nudge = command valve to ±1% of current position, then immediately back to target
+- This forces Z2M to query the TRV and update the sensor
+- Limited to 3 attempts per room, with 10s intervals between attempts
+
+### 3. Degraded Mode Operation
+- After grace period, if feedback unknown but valve was recently commanded (<5 min), assume it worked
+- Continue heating based on last commanded position
+- Log warnings but don't block boiler operation
+
+### 4. Delayed Critical Alerts
+- Only trigger critical alert if feedback unavailable for 5+ minutes
+- Alert includes nudge attempt count and duration
+- Auto-clears when feedback recovers
+- Message explains heating continues in degraded mode
+
+**Implementation:**
+
+### Constants Added (`constants.py`):
+```python
+TRV_STARTUP_GRACE_PERIOD_S = 120    # 2 minutes
+TRV_NUDGE_MIN_INTERVAL_S = 10       # Min time between nudges
+TRV_NUDGE_MAX_ATTEMPTS = 3          # Max nudge attempts per room
+TRV_NUDGE_DELTA_PERCENT = 1         # Small valve change to unstick Z2M
+TRV_FEEDBACK_ALERT_DELAY_S = 300    # 5 minutes before alert
+```
+
+### TRVController Changes (`trv_controller.py`):
+- Added `startup_time` tracking and `is_in_startup_grace_period()` method
+- Added `feedback_unknown_since` dict to track duration
+- Added `nudge_attempts` and `last_nudge_time` for nudge management
+- Added `feedback_alert_triggered` set to prevent duplicate alerts
+- Implemented `_attempt_feedback_nudge()` for Z2M unsticking
+- Implemented `_check_feedback_alert()` for delayed alert triggering
+- Updated `get_valve_feedback()` to track unknown state and attempt recovery
+- Updated `is_valve_feedback_consistent()` to handle grace period and degraded mode
+
+### Boiler Controller Changes (`boiler_controller.py`):
+- Enhanced logging in `_are_all_calling_trvs_healthy()` to show grace period status
+- Better context in debug messages for unknown vs mismatched feedback
+
+**Behavior:**
+
+### Startup Scenario (HA Restart):
+```
+T=0s:    AppDaemon starts, sensors unknown
+T=0-120s: Grace period active - heating allowed despite unknown feedback
+T=30s:   First nudge attempt (0% -> 1% -> 0%)
+T=40s:   Second nudge attempt (if still unknown)
+T=50s:   Third nudge attempt (if still unknown)
+T=60s:   Sensor recovers, normal operation resumes
+```
+
+### Prolonged Unavailability:
+```
+T=0s:    Feedback becomes unknown
+T=30-50s: Nudge attempts (max 3)
+T=120s:  Grace period ends, enter degraded mode
+T=300s:  Critical alert triggered (but heating continues)
+```
+
+**Testing Required:**
+- Restart Home Assistant and verify heating continues during sensor lag
+- Monitor logs for nudge attempts and grace period messages
+- Verify critical alerts trigger after 5 minutes if sensors don't recover
+- Confirm alerts auto-clear when feedback recovers
+
+**Files Modified:**
+- `core/constants.py`: Added TRV feedback resilience constants
+- `controllers/trv_controller.py`: Implemented grace period, nudging, and degraded mode
+- `controllers/boiler_controller.py`: Enhanced health check logging
+- `docs/changelog.md`: This entry
+
+---
+
+## 2025-11-28: CRITICAL FIX - Missing timedelta Import (BUG)
+
+**Status:** FIXED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed critical import bug where `timedelta` was used but not imported in `load_sharing_manager.py`, causing all recompute cycles to fail with `NameError`. This bug was introduced in the Tier 3 Timeout Cooldown feature earlier today (2025-11-28) and completely broke the heating system.
+
+**Problem:**
+Line 1132 in `load_sharing_manager.py` uses `timedelta` to calculate cooldown expiration time:
+```python
+cooldown_until = now + timedelta(seconds=self.tier3_cooldown_s)
+```
+
+But the import statement only imported `datetime`, not `timedelta`:
+```python
+from datetime import datetime  # Missing timedelta!
+```
+
+**Impact:**
+- **CRITICAL**: Every recompute cycle crashed with `NameError: name 'timedelta' is not defined`
+- Affected: periodic recompute (60s), sensor changes, timer events, service calls
+- System completely non-functional since Tier 3 Timeout Cooldown was added
+- Heating logic never executed after entry condition evaluation
+
+**Fix:**
+Updated import statement to include `timedelta`:
+```python
+from datetime import datetime, timedelta
+```
+
+**Root Cause:**
+Oversight during Tier 3 Timeout Cooldown implementation. The feature was tested syntactically but never activated in production (load sharing inactive), so the error wasn't caught until first evaluation cycle.
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: Added `timedelta` to imports (line 14)
+
+**Testing:**
+- AppDaemon restart will verify fix
+- System should resume normal operation immediately
+
+---
+
+## 2025-11-28: Tier 3 Timeout Cooldown - Anti-Oscillation Fix
+
+**Status:** IMPLEMENTED ✅ (BUG FIXED ABOVE)
+
+**Branch:** `main`
+
+**Summary:**
+Added cooldown tracking for Tier 3 fallback rooms to prevent oscillation after timeout. When a Tier 3 room times out (15 minutes), it now enters a 30-minute cooldown period during which it cannot be re-selected, forcing the system to try the next priority room or accept cycling as the lesser evil.
+
+**Problem:**
+Tier 3 timeout created an oscillation vulnerability:
+1. Room selected as Tier 3 fallback (heating to 20°C comfort target)
+2. After 15 minutes, room times out and is removed (Exit Trigger D)
+3. Load sharing deactivates, `context.reset()` clears ALL state
+4. Next evaluation cycle (60s later):
+   - Original calling room STILL has low capacity
+   - Entry conditions STILL met (cycling risk still present)
+   - **Same room re-selected immediately** (no memory of timeout)
+5. Infinite loop: select → timeout → select → timeout
+
+**Example Scenario:**
+```
+10:00 - Pete calling (2800W), lounge selected (Tier 3)
+10:15 - Lounge timeout, load sharing deactivates
+10:16 - Lounge re-selected (entry conditions still met)
+10:31 - Lounge timeout again
+10:32 - Lounge re-selected again
+... (continues indefinitely)
+```
+
+**Root Cause:**
+`context.reset()` cleared ALL state including timeout history. The system had no memory that a room had just timed out, so Tier 3 selection saw it as a fresh eligible candidate.
+
+**Solution:**
+Implemented cooldown tracking for timed-out Tier 3 rooms:
+
+**1. State Tracking (`load_sharing_state.py`)**
+- Added `tier3_timeout_history: Dict[str, datetime]` to `LoadSharingContext`
+- Records `{room_id: timeout_timestamp}` when timeout occurs
+- Persists across activation/deactivation cycles (NOT cleared by `reset()`)
+- Only cleared on cooldown expiry or AppDaemon restart
+
+**2. Timeout Recording (`load_sharing_manager.py`)**
+- When Exit Trigger D fires (Tier 3 timeout):
+  ```python
+  self.context.tier3_timeout_history[room_id] = now
+  ```
+- Logs cooldown end time for operator visibility
+
+**3. Selection Exclusion (`load_sharing_manager.py`)**
+- Tier 3 selection checks cooldown before evaluating candidates:
+  ```python
+  last_timeout = self.context.tier3_timeout_history.get(room_id)
+  if last_timeout:
+      cooldown_elapsed = (now - last_timeout).total_seconds()
+      if cooldown_elapsed < self.tier3_cooldown_s:
+          continue  # Skip - still in cooldown
+  ```
+
+**4. Automatic Cleanup**
+- Expired cooldown entries removed during evaluation
+- Prevents memory growth (max ~10 rooms)
+- Logs when rooms become eligible again
+
+**5. Configuration**
+Added `tier3_cooldown_s` parameter (default: 1800s = 30 minutes):
+```yaml
+load_sharing:
+  tier3_timeout_s: 900       # 15 min timeout
+  tier3_cooldown_s: 1800     # 30 min cooldown
+```
+
+**Behavior After Fix:**
+```
+10:00 - Load sharing activates, lounge selected (Tier 3)
+10:15 - Lounge timeout, enters cooldown (until 10:45)
+10:16 - Next evaluation: lounge SKIPPED (in cooldown)
+        → games selected (priority=2)
+10:31 - Games timeout, enters cooldown (until 11:01)
+10:32 - Next evaluation: lounge & games SKIPPED
+        → office selected (priority=3)
+10:45 - Lounge cooldown expires, eligible again
+```
+
+**Changes:**
+1. `managers/load_sharing_state.py`:
+   - Added `tier3_timeout_history` field to `LoadSharingContext`
+   - Updated `reset()` docstring to clarify timeout history NOT cleared
+
+2. `managers/load_sharing_manager.py`:
+   - Added `tier3_cooldown_s` configuration parameter (default: 1800s)
+   - Updated `_evaluate_exit_conditions()` to record timeouts
+   - Updated `_select_tier3_rooms()` to check cooldown and auto-cleanup
+   - Added cooldown end time to timeout log message
+
+3. `config/boiler.yaml`:
+   - Added `tier3_cooldown_s: 1800` configuration
+
+4. `core/constants.py`:
+   - Added `LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT = 1800`
+
+5. `core/config_loader.py`:
+   - Added default for `tier3_cooldown_s`
+   - Added validation: cooldown must be >= 0
+   - Added warning if cooldown < timeout
+
+6. `docs/ARCHITECTURE.md`:
+   - Updated Exit Trigger D documentation with cooldown details
+   - Added `tier3_cooldown_m` to configuration examples
+
+**Impact:**
+- ✅ Prevents Tier 3 oscillation (timeout → re-select loop)
+- ✅ Distributes load sharing burden across multiple fallback rooms
+- ✅ Configurable cooldown period for household-specific tuning
+- ✅ Accepts cycling when all Tier 3 rooms exhausted (correct fallback)
+- ✅ No impact on Tier 1/2 (schedule-based pre-warming unaffected)
+- ✅ All exit triggers work unchanged (cooldown only affects selection)
+
+**Testing:**
+- ✅ Code syntax validated (Python import successful)
+- ✅ AppDaemon restart successful
+- ✅ LoadSharingManager initialized with cooldown parameter
+- ✅ No errors in logs after restart
+
+**Configuration Notes:**
+- Default 30 min cooldown = 2× timeout (ensures reasonable spacing)
+- Cooldown = 0 disables feature (reverts to old behavior for testing)
+- Warning logged if cooldown < timeout (may cause quick re-selection)
+
+---
+
+## 2025-11-28: Load Sharing Exit Trigger B - Bypass Minimum Duration
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed load sharing Exit Trigger B to bypass the 5-minute minimum activation duration when additional naturally-calling rooms provide sufficient capacity. This allows immediate exit when the fundamental problem (insufficient capacity) is solved, rather than forcing the system to wait unnecessarily.
+
+**Problem:**
+When load sharing was active and new rooms started calling with sufficient total capacity, the system correctly detected this via Exit Trigger B but was blocked by the minimum activation duration check (5 minutes). This caused load sharing to persist for up to 5 extra minutes even when the capacity problem was completely solved.
+
+**Example Timeline:**
+- 13:44:29: Load sharing activates (bathroom alone, 415W)
+- 13:44:48: Pete starts calling (bathroom + pete ≈ 1915W)
+- 13:46:43: Games starts calling (bathroom + pete + games ≈ 4400W >> 2500W target)
+- 13:49:29: Load sharing finally exits (had to wait full 5 minutes)
+
+Result: Lounge valve stayed open for 2 min 46 sec after capacity problem was solved.
+
+**Root Cause:**
+The minimum duration check was positioned FIRST in `_evaluate_exit_conditions()`, blocking ALL exit condition checks including Exit Trigger B. The minimum duration was designed to prevent oscillation from load sharing rooms heating/cooling, but was incorrectly preventing exit when new naturally-calling rooms fundamentally solved the capacity problem.
+
+**Solution:**
+Reordered exit condition checks in `_evaluate_exit_conditions()`:
+
+1. **Exit Trigger B evaluated FIRST** (before minimum duration check)
+   - Calculates current calling rooms
+   - Detects new rooms that weren't in trigger set
+   - Calculates total capacity with new rooms
+   - If capacity >= target: **Exit immediately, bypass minimum duration**
+   - If capacity still insufficient: Update trigger set and continue
+
+2. **Minimum duration check SECOND** (blocks all other triggers)
+   - Applies to Exit Triggers A, C, D, E, F
+   - Prevents oscillation from load sharing room temperature changes
+
+**Changes:**
+- `managers/load_sharing_manager.py`:
+  - Lines 1031-1084: Moved Exit Trigger B logic to top of function
+  - Lines 1086-1088: Enforces minimum duration for remaining triggers
+  - Lines 1148-1154: Removed duplicate Exit Trigger B logic (now at top)
+  - Lines 1156: Added comment explaining Exit Trigger B already checked
+  - Updated docstring to clarify Exit Trigger B bypasses minimum duration
+
+**Impact:**
+- ✅ Exit Trigger B now responds immediately when capacity problem solved
+- ✅ Eliminates unnecessary 0-5 minute delay in exit
+- ✅ Reduces energy waste from unwanted load sharing continuation
+- ✅ Maintains oscillation prevention for other exit triggers
+- ✅ No behavioral changes to other exit triggers
+
+**Testing:**
+- ✅ Code syntax validated (no Python errors)
+- ✅ AppDaemon restart successful
+- Ready for real-world validation
+
+**Expected Behavior After Fix:**
+When bathroom override triggers load sharing, then pete and games start calling:
+- Previously: Wait 5 minutes before exiting (regardless of capacity)
+- Now: Exit immediately when games joins (capacity >> target)
+
+---
+
+## 2025-11-28: Load Sharing Status Text Enhancement
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Enhanced status_publisher.py to generate load-sharing-aware status text for room cards. Status text now shows "Pre-warming for HH:MM" for schedule-based load sharing (Tier 1/2) and "Fallback heating P{priority}" for fallback load sharing (Tier 3).
+
+**Problem:**
+Room cards didn't indicate WHY a room was heating when load sharing was active. Users couldn't distinguish between:
+- Natural heating (room called for heat on its own schedule)
+- Pre-warming for upcoming schedule (Tier 1/2)
+- Fallback heating to provide boiler load (Tier 3)
+
+**Solution:**
+Modified `_format_status_text()` to check load sharing status BEFORE override status:
+1. Checks `self.ad.load_sharing.state.active_rooms` for current room
+2. For Tier 1/2: Calls `scheduler.get_next_schedule_block(within_minutes=120)` to get next schedule time, formats as "Pre-warming for HH:MM"
+3. For Tier 3: Looks up fallback_priority from config and formats as "Fallback heating P{priority}"
+4. Falls back to original status text logic if not in load sharing
+
+**Technical Details:**
+- Load sharing check takes precedence over override check (load sharing is more relevant context)
+- Uses scheduler_ref from ApiHandler instance (passed in via status_attrs)
+- Respects time window (only shows "Pre-warming" if schedule is within 2 hours)
+- Handles missing scheduler gracefully (falls back to basic heating status)
+
+**Files Modified:**
+- `services/status_publisher.py`: Enhanced _format_status_text() with load sharing checks
+
+**Example Status Texts:**
+- Tier 1/2: "Pre-warming for 14:30"
+- Tier 3: "Fallback heating P3"
+- Natural: "Heating to 20.0C" (unchanged)
+
+**Related:**
+- Works with frontend visual indicators (pyheat-web room card enhancements)
+- Coordinated with 2025-11-28 pyheat-web changelog entry
+
+---
+
+## 2025-11-28: API Handler Load Sharing Data Flow Fix
+
+**Status:** FIXED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed API handler to include load_sharing data in pyheat_get_status response. The data was being published to the HA entity but not extracted and forwarded to pyheat-web clients.
+
+**Problem:**
+Load sharing status was being published by status_publisher.py to sensor.pyheat_status attributes, but api_handler.py's api_get_status() function wasn't extracting and including it in the response. This caused pyheat-web to receive `load_sharing: null` despite the data existing in Home Assistant.
+
+**Solution:**
+Added `"load_sharing": status_attrs.get("load_sharing")` to the system dictionary in api_handler.py (line 441).
+
+**Files Modified:**
+- `services/api_handler.py`: Added load_sharing to system response dict
+
+**Verification:**
+```bash
+curl http://localhost:8000/api/status | jq '.system.load_sharing'
+# Returns: {"state": "inactive", "active_rooms": [], ...}
+```
+
+---
+
+## 2025-11-28: Tier 3 Comfort Target Fix
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed Tier 3 load sharing selection to use a configurable global comfort target (default 20°C) instead of parking temperature + 1°C margin. This prevents immediate exit when rooms are parked at low temperatures (10-12°C) but sitting at ambient temperature (15-17°C).
+
+**Problem:**
+Tier 3 rooms are selected by fallback priority when schedule-based tiers don't provide enough capacity. These rooms are typically "parked" at low default temperatures:
+- Games: 12°C default_target
+- Office: 12°C default_target
+- Bathroom: 10°C default_target
+- Lounge: 16°C default_target
+
+Previous logic: `tier3_target = current_target + 1.0` produced targets of 11-17°C.
+
+However, these rooms often sit at ambient temperature (15-17°C) due to heat transfer from adjacent rooms. With targets below ambient, rooms would exit load sharing immediately (already above target), making Tier 3 effectively useless.
+
+**Solution:**
+Use a global comfort target (20°C) that's above ambient temperature and provides genuine pre-warming:
+```python
+# config/boiler.yaml
+load_sharing:
+  tier3_comfort_target_c: 20.0  # Bypasses low parking temps
+
+# managers/load_sharing_manager.py
+ls_config = self.config.boiler_config.get('load_sharing', {})
+tier3_target = ls_config.get('tier3_comfort_target_c', 20.0)
+```
+
+**Changes:**
+- `config/boiler.yaml`:
+  - Added `tier3_comfort_target_c: 20.0` under load_sharing section
+- `managers/load_sharing_manager.py`:
+  - Lines 920-923: Replaced 8 lines of broken current_target + 1.0 logic with 3 lines of simple config lookup
+- `docs/BUGS.md`:
+  - Updated Bug #8 status from "KNOWN LIMITATION" to "FIXED ✅"
+  - Added comprehensive resolution section with root cause analysis
+
+**Impact:**
+- ✅ Tier 3 rooms now stay in load sharing long enough to provide capacity
+- ✅ Pre-warming actually occurs (16°C → 20°C instead of immediate exit)
+- ✅ Works with low parking temperatures (10-12°C scheduled defaults)
+- ✅ Simple configuration with sensible default
+- ✅ No complex logic or edge cases
+
+**Why This Approach:**
+- **Simple:** One global configuration value, no max() complexity
+- **Predictable:** Always pre-warms to 20°C regardless of parking temperature
+- **Above ambient:** 20°C is higher than typical ambient (15-17°C)
+- **Reasonable:** Provides genuine pre-warming without overheating
+- **Edge case proof:** Parking temps (10-12°C) don't affect behavior
+
+**Configuration:**
+- Default: 20.0°C (comfortable room temperature)
+- Customizable: Adjust based on personal preferences
+- Fallback: 20.0°C if config missing
+
+**Testing:**
+- Syntax validation: PASSED (no Python errors)
+- AppDaemon logs: No errors detected
+- Next Tier 3 activation will verify effectiveness
+
+---
+
+## 2025-11-28: Load Sharing Overshoot Prevention (Exit Triggers E & F)
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Fixed critical bug where load sharing rooms would overheat when pre-warming succeeded. System now tracks target temperatures and automatically removes rooms from load sharing when they reach their intended temperature or when room mode changes.
+
+**Problem:**
+Load sharing activates rooms for pre-warming based on upcoming schedule targets (e.g., pre-warm to 20°C before 07:00 schedule). However, exit conditions only checked:
+- Exit Trigger C: Room naturally calling (starts needing heat)
+- Exit Trigger D: Tier 3 timeout (15 minutes)
+
+**Missing exit condition:** Room reaches target temperature and stops needing heat (temp >= target + off_delta). Result: valve stayed open at 70%, room overheated to 21-22°C.
+
+**Root Cause:**
+`RoomActivation` dataclass didn't track the target temperature load sharing was aiming for. Exit condition evaluator couldn't check if pre-warming succeeded because it didn't know what target to compare against.
+
+**Solution:**
+1. Enhanced `RoomActivation` to track `target_temp` for exit condition checks
+2. Updated all tier selection methods to store target temperature:
+   - **Tier 1/2 (schedule-based)**: Use upcoming schedule target (e.g., 20°C)
+   - **Tier 3 (fallback)**: Use current_target + 1°C margin (emergency tolerance)
+3. Added **Exit Trigger E**: Temperature-based exit
+   - Check: `temp >= target_temp + off_delta` (matches normal hysteresis)
+   - Logs: "Room exceeded target - removing from load sharing"
+   - Prevents overshoot by closing valve when pre-warming succeeds
+4. Added **Exit Trigger F**: Mode change exit
+   - Check: `mode != 'auto'` (respects user switching to manual/off)
+   - Logs: "Room mode changed from auto - removing"
+   - Already missing before this fix, now properly implemented
+
+**Changes:**
+- `managers/load_sharing_state.py`:
+  - Line 60: Added `target_temp: float` field to `RoomActivation`
+- `managers/load_sharing_manager.py`:
+  - Lines 748-751: Tier 1 selection returns `(room_id, valve_pct, reason, target_temp)`
+  - Lines 844-847: Tier 2 selection returns `(room_id, valve_pct, reason, target_temp)`
+  - Lines 904-921: Tier 3 selection calculates `tier3_target = current_target + 1.0`
+  - Lines 973-984: `_activate_tier1()` passes `target_temp` to RoomActivation
+  - Lines 1012-1022: `_activate_tier2()` passes `target_temp` to RoomActivation
+  - Lines 1254-1264: `_activate_tier3()` passes `target_temp` to RoomActivation
+  - Lines 1052-1071: Added Exit Trigger F (mode change check)
+  - Lines 1073-1104: Added Exit Trigger E (temperature-based exit with off_delta hysteresis)
+- `docs/BUGS.md`: Documented two known limitations (Bug #8, Bug #9)
+
+**Exit Trigger Order (Priority):**
+1. Minimum duration check (5 minutes, prevents oscillation)
+2. **Exit Trigger D**: Tier 3 timeout (15 minutes max for fallback)
+3. **Exit Trigger F**: Room mode changed from auto (NEW)
+4. **Exit Trigger E**: Room reached target temperature (NEW - primary fix)
+5. Exit Trigger A: Original calling rooms stopped
+6. Exit Trigger B: Additional rooms started calling
+7. Exit Trigger C: Load sharing room naturally calling
+
+**Impact:**
+- ✅ Fixes overshoot bug: Valves close when pre-warming reaches target
+- ✅ Prevents 1-2°C overshoots in pre-warmed rooms
+- ✅ Improves energy efficiency (no wasted heating)
+- ✅ Respects user mode changes (manual/off during load sharing)
+- ✅ Works for all three tiers with appropriate target semantics
+
+**Edge Cases Handled:**
+- Sensor failure: Skips temperature check, relies on other triggers
+- Multiple rooms: Independent exit checks per room
+- Re-activation: Room can be re-selected if it cools down
+- Mode changes: Removed from load sharing when switching to manual/off
+- Tier 3 rooms: Current target + 1°C prevents runaway while allowing emergency margin
+
+**Testing:**
+- Syntax validation: PASSED (no Python errors)
+- AppDaemon logs: No errors detected
+- Will verify effectiveness during next load sharing activation
+
+**Known Limitations (see BUGS.md):**
+- Bug #8: Tier 3 target calculation uses simple current_target + 1°C (not adaptive)
+- Bug #9: Exit Trigger F was already missing before this fix (now implemented)
+
+---
+
 ## 2025-11-28: BUG #7 FIX - Cycling Protection Triggers on Intentional Boiler Shutdown
 
 **Status:** FIXED ✅

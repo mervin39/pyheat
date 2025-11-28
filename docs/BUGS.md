@@ -4,6 +4,260 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #10: HA Restarts Leave PyHeat with Stale State
+
+**Status:** OPEN 🔴  
+**Date Discovered:** 2025-11-28  
+**Severity:** Medium - Can cause incorrect heating decisions after HA restarts  
+**Category:** State Management
+
+### Description
+
+When Home Assistant restarts but AppDaemon remains running (separate Docker containers), PyHeat continues operating but:
+1. Entity states in AppDaemon's cache become stale
+2. Service calls to HA fail silently during reconnection
+3. State diverges between PyHeat and actual HA/hardware state
+4. No automatic re-initialization occurs when HA reconnects
+
+### Investigation
+
+AppDaemon detects HA restarts and provides `plugin_started()` and `plugin_stopped()` lifecycle callbacks. However, these are **NOT** triggered by simple HA restarts.
+
+From testing (2025-11-28 15:35):
+- HA restarted at 15:35:11 (container stopped)
+- AppDaemon showed "Attempting reconnection" messages 15:35:11-15:35:21
+- HA reconnected at 15:35:26 ("Connected to Home Assistant")
+- AppDaemon showed "Processing restart for plugin namespace 'default'" at 15:35:52 (26 seconds later!)
+- **plugin_started() and plugin_stopped() were NEVER called**
+
+The lifecycle callbacks appear to only fire when the AppDaemon **plugin configuration** changes, not when HA itself restarts.
+
+### Impact
+
+**Medium severity because:**
+- Occurs on every HA restart (common during updates, config changes)
+- TRV feedback resilience (Bug #7 fix) mitigates some issues with grace period
+- State usually resynchronizes within a few minutes through callbacks
+- No catastrophic failures, but can cause:
+  - Incorrect boiler decisions based on stale valve positions
+  - Missed heating opportunities if room temperatures stale
+  - Load sharing decisions based on outdated capacity data
+
+**Mitigation currently in place:**
+- TRV feedback grace period (120s) tolerates sensor unavailability during reconnection
+- Sensor callbacks will update temperatures as they change
+- Valve coordinator re-reads pump overrun state on first access
+
+### Attempted Solution (Reverted)
+
+Attempted to use `plugin_started()` and `plugin_stopped()` callbacks to:
+- Pause operations during disconnect
+- Re-initialize all state from HA on reconnect
+- Cancel in-flight TRV commands
+- Reset grace periods
+
+**Why it was reverted:**
+- Testing showed these callbacks are NOT called during HA restarts
+- Callbacks may only trigger when AppDaemon plugin config changes
+- Need to research alternative approaches (websocket events, entity monitoring)
+
+**Commits reverted:**
+- `18c99dd` - HA connection state management
+- `d12061e` - Bug fix for missing newline (introduced during implementation)
+
+### Potential Solutions to Research
+
+1. **Monitor special HA entity**: Listen for state changes on an entity that indicates HA startup (e.g., `sensor.uptime` resetting)
+2. **WebSocket events**: Check if AppDaemon exposes websocket connection/disconnection events
+3. **Polling approach**: Periodically check if entity state reads return errors/None
+4. **Accept current behavior**: Document that AppDaemon restart is needed after HA restart for clean state
+
+### Related Issues
+
+- Bug #7: TRV feedback sensors showing "unknown" during HA restarts (FIXED - grace period mitigates this)
+- The TRV resilience features help mask this issue but don't solve the root cause
+
+---
+
+## BUG #9: Load Sharing Exit Trigger F Was Previously Missing
+
+**Status:** FIXED ✅ (as part of 2025-11-28 overshoot prevention work)  
+**Date Discovered:** 2025-11-28 (during analysis of load sharing exit conditions)  
+**Date Fixed:** 2025-11-28  
+**Severity:** Minor - edge case that rarely occurs but should be handled  
+**Category:** Load Sharing
+
+### Description
+
+Load sharing did not have an exit condition to handle when a user changes a room's mode from `auto` to `manual` or `off` while the room is being pre-warmed by load sharing. This could cause the valve to remain open at the load sharing percentage even though the user explicitly changed the room mode.
+
+### Root Cause
+
+The `_evaluate_exit_conditions()` method checked several exit triggers:
+- Exit Trigger A: Original calling rooms stopped
+- Exit Trigger B: Additional rooms started calling
+- Exit Trigger C: Load sharing room naturally calling
+- Exit Trigger D: Tier 3 timeout
+
+But it never checked if the room's mode changed from `auto` (which is required for load sharing selection).
+
+### Impact
+
+**Minor because:**
+- Load sharing only selects rooms in `auto` mode initially
+- Users rarely change room modes during active heating
+- Even without Exit Trigger F, other exit conditions would eventually remove the room:
+  - Exit Trigger A fires when original trigger rooms stop calling
+  - Exit Trigger D fires after 15 minutes for Tier 3 rooms
+
+**However, it violates user intent:**
+- User switches room to `manual` or `off` → expects immediate valve control change
+- Without Exit Trigger F, valve stays at load sharing percentage until other exit condition
+
+### Fix
+
+Added Exit Trigger F as part of 2025-11-28 overshoot prevention work (see changelog):
+
+```python
+# Exit Trigger F: Room mode changed from auto (NEW)
+mode_changed_rooms = []
+for room_id, activation in list(self.context.active_rooms.items()):
+    state = room_states.get(room_id, {})
+    if state.get('mode') != 'auto':
+        self.ad.log(
+            f"Load sharing: Room '{room_id}' mode changed from auto - removing",
+            level="INFO"
+        )
+        mode_changed_rooms.append(room_id)
+
+# Remove rooms with mode changes
+for room_id in mode_changed_rooms:
+    del self.context.active_rooms[room_id]
+```
+
+Now properly handles mode changes and immediately removes rooms from load sharing control.
+
+---
+
+## BUG #8: Tier 3 Target Calculation Uses Simple Fixed Margin
+
+**Status:** FIXED ✅  
+**Date Discovered:** 2025-11-28 (during implementation of overshoot prevention)  
+**Date Fixed:** 2025-11-28  
+**Severity:** Minor - acceptable for emergency fallback behavior  
+**Category:** Load Sharing
+
+### Description
+
+Tier 3 (fallback priority) rooms previously used a simple `current_target + 1°C` calculation for their exit temperature threshold. This fixed margin failed when rooms were "parked" at low temperatures (10-12°C default_target) but actually at ambient temperature (15-17°C), causing immediate exit from load sharing.
+
+### Context
+
+**Why Tier 3 is different:**
+- Tier 1/2 rooms are selected based on upcoming schedules → have explicit target temperature
+- Tier 3 rooms are selected by priority alone → have NO schedule-based target
+- Tier 3 is emergency fallback when schedules don't provide enough capacity
+
+**Current implementation:**
+```python
+# In _select_tier3_rooms()
+current_target = state.get('target')  # e.g., 16°C (default schedule)
+if current_target is None:
+    current_target = 16.0  # Safe default
+
+tier3_target = current_target + 1.0  # Emergency heating tolerance
+```
+
+**Exit condition:** Room exits load sharing when `temp >= tier3_target + off_delta` (e.g., 17.3°C with 0.3°C hysteresis)
+
+### Why This is Acceptable
+
+**Tier 3 rooms are emergency fallback:**
+- Only activated when Tier 1/2 don't provide enough capacity
+- Indicates schedule gaps that should be addressed
+- Accepting 1°C overheat is reasonable trade-off vs short-cycling
+
+**Alternative approaches would be complex:**
+1. **Adaptive margin based on room size:** Requires capacity estimates per room
+2. **No temperature exit:** Rely only on 15-minute timeout (can overheat more)
+3. **Current_target only:** Would exit too early for emergency heating purpose
+
+**Current behavior is reasonable:**
+- 1°C above current target is noticeable but not uncomfortable
+- Prevents runaway heating (without exit, could reach 20°C+ from 16°C)
+- Timeout (15 minutes) provides secondary safety limit
+- Logged as WARNING to encourage schedule improvements
+
+### Potential Improvements (Future Work)
+
+If Tier 3 usage becomes frequent:
+1. **Dynamic margin based on room capacity:** Larger rooms get larger margin
+2. **Historical learning:** Adjust margin based on past overshoot patterns
+3. **Boiler modulation feedback:** Exit when modulation drops below threshold
+
+**For now:** Document as known limitation, acceptable for emergency fallback behavior.
+
+### Resolution (2025-11-28)
+
+**Fix Applied:**
+Replaced `current_target + 1.0°C` calculation with configurable global comfort target.
+
+**Root Cause:**
+Rooms used for Tier 3 load sharing are typically "parked" at low default temperatures (Games: 12°C, Office: 12°C, Bathroom: 10°C, Lounge: 16°C) when not scheduled for heating. However, these rooms often sit at ambient temperature (15-17°C) due to heat transfer from adjacent rooms or external factors. The old logic:
+```python
+tier3_target = current_target + 1.0  # 11-13°C target when current is 10-12°C
+```
+Produced targets of 11-17°C. With ambient temps of 15-17°C, rooms with targets below ambient would exit load sharing immediately (already above target), making Tier 3 effectively useless.
+
+**New Implementation:**
+```python
+# config/boiler.yaml
+load_sharing:
+  tier3_comfort_target_c: 20.0  # Global comfort target for Tier 3 pre-warming
+
+# managers/load_sharing_manager.py (lines 920-923)
+ls_config = self.config.boiler_config.get('load_sharing', {})
+tier3_target = ls_config.get('tier3_comfort_target_c', 20.0)
+```
+
+**Why This Works:**
+- **Parking temps don't matter:** Pre-warming target is always 20°C regardless of room's scheduled default
+- **Above ambient:** 20°C comfort target is higher than typical ambient temperatures (15-17°C)
+- **Reasonable heating:** Provides genuine pre-warming (e.g., 16°C → 20°C) without overheating
+- **Simple and predictable:** No complex calculations, one global configuration value
+- **Edge case proof:** Works even if room is already at 18°C (still provides 2°C of pre-warming)
+
+**Configuration:**
+- **Parameter:** `tier3_comfort_target_c` under `load_sharing` section in `boiler.yaml`
+- **Default:** 20.0°C (comfortable room temperature)
+- **Rationale:** High enough to provide genuine pre-warming, low enough to prevent discomfort
+- **Customization:** User can adjust based on personal comfort preferences
+
+**Edge Cases Handled:**
+1. **Config missing:** Falls back to 20.0°C default
+2. **Invalid value:** Non-numeric values caught by YAML parsing
+3. **Room already at target:** Exit Trigger E removes room (temp >= 20.0 + off_delta)
+4. **Room calling naturally:** Exit Trigger C removes room (normal demand takes priority)
+5. **Mode change:** Exit Trigger F removes room (respects user control)
+
+**Impact:**
+- ✅ Tier 3 rooms now stay in load sharing long enough to provide capacity
+- ✅ Pre-warming actually occurs (16°C → 20°C instead of immediate exit)
+- ✅ Works with low parking temperatures (10-12°C scheduled defaults)
+- ✅ Simple configuration with sensible default
+- ✅ No complex logic or edge cases to maintain
+
+**Files Modified:**
+- `config/boiler.yaml`: Added `tier3_comfort_target_c: 20.0` configuration
+- `managers/load_sharing_manager.py` (lines 920-923): Replaced 8 lines with 3 lines of simple config lookup
+
+**Testing:**
+- Syntax validated: No Python errors
+- AppDaemon logs: No errors after implementation
+- Next Tier 3 activation will verify effectiveness in production
+
+---
+
 ## BUG #7: Cycling Protection Triggers on Intentional Boiler Shutdown
 
 **Status:** FIXED ✅  

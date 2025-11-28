@@ -173,6 +173,19 @@ class ConfigLoader:
         ls_cfg.setdefault('target_capacity_w', C.LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT)
         ls_cfg.setdefault('min_activation_duration_s', C.LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT)
         ls_cfg.setdefault('tier3_timeout_s', C.LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT)
+        ls_cfg.setdefault('tier3_cooldown_s', C.LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT)
+        
+        # Validate tier3_cooldown_s
+        if ls_cfg['tier3_cooldown_s'] < 0:
+            raise ValueError("load_sharing.tier3_cooldown_s must be >= 0")
+        
+        if ls_cfg['tier3_cooldown_s'] < ls_cfg['tier3_timeout_s']:
+            self.ad.log(
+                f"WARNING: tier3_cooldown_s ({ls_cfg['tier3_cooldown_s']}s) is less than "
+                f"tier3_timeout_s ({ls_cfg['tier3_timeout_s']}s). "
+                f"Rooms may be re-selected quickly after timeout.",
+                level="WARNING"
+            )
         
         self.ad.log(f"Loaded boiler config: entity_id={bc['entity_id']}")
     

@@ -91,6 +91,7 @@ class StatusPublisher:
         """Format human-readable status text for a room.
         
         Implements STATUS_FORMAT_SPEC.md formats:
+        - Load Sharing (priority): "Pre-warming for HH:MM" or "Fallback heating P{N}"
         - Auto: "Auto: T° until HH:MM on $DAY (S°)" or "Auto: T° forever"
         - Override: "Override: T° (ΔD°) until HH:MM" - delta calculated on-the-fly
         - Manual: "Manual: T°"
@@ -105,6 +106,39 @@ class StatusPublisher:
             Formatted status string
         """
         mode = data.get('mode', 'off')
+        
+        # Check load sharing FIRST (takes priority over override)
+        if hasattr(self.ad, 'load_sharing') and self.ad.load_sharing:
+            load_sharing_context = self.ad.load_sharing.context
+            if load_sharing_context and load_sharing_context.active_rooms:
+                for room_id_key, activation in load_sharing_context.active_rooms.items():
+                    if activation.room_id == room_id:
+                        # Room is in load sharing
+                        if activation.tier in [1, 2]:
+                            # Tier 1/2: Schedule-aware pre-warming
+                            # Get next schedule block time
+                            if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
+                                try:
+                                    from datetime import datetime
+                                    now = datetime.now()
+                                    # Look ahead up to 2 hours for Tier 2
+                                    next_block = self.scheduler_ref.get_next_schedule_block(
+                                        room_id, now, within_minutes=120
+                                    )
+                                    if next_block:
+                                        block_start_dt, _, _ = next_block
+                                        return f"Pre-warming for {block_start_dt.strftime('%H:%M')}"
+                                except Exception as e:
+                                    self.ad.log(f"Error getting schedule for load sharing status: {e}", level="WARNING")
+                            # Fallback if can't get schedule time
+                            return "Pre-warming for schedule"
+                        else:
+                            # Tier 3: Fallback priority
+                            room_config = self.config.rooms.get(room_id, {})
+                            load_sharing_config = room_config.get('load_sharing', {})
+                            priority = load_sharing_config.get('fallback_priority', '?')
+                            return f"Fallback heating P{priority}"
+                        break
         
         # Check if override is active
         timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)

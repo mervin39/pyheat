@@ -217,6 +217,15 @@ TRV_COMMAND_RETRY_INTERVAL_S = 2    # Wait time between command and feedback che
 TRV_COMMAND_MAX_RETRIES = 3         # Max retries per command
 TRV_COMMAND_FEEDBACK_TOLERANCE = 5  # Percent tolerance for feedback match
 
+# TRV Feedback Resilience (Handle HA/Z2M restart lag)
+# When Home Assistant or Zigbee2MQTT restarts, feedback sensors may report 'unknown'
+# for several minutes while the systems reconnect and poll devices.
+TRV_STARTUP_GRACE_PERIOD_S = 120    # 2 minutes - relaxed feedback checks after restart
+TRV_NUDGE_MIN_INTERVAL_S = 10       # Minimum time between nudge attempts
+TRV_NUDGE_MAX_ATTEMPTS = 3          # Maximum nudge attempts per room
+TRV_NUDGE_DELTA_PERCENT = 1         # Small valve change to unstick Z2M reporting
+TRV_FEEDBACK_ALERT_DELAY_S = 300    # 5 minutes - trigger alert if still unavailable
+
 # ============================================================================
 # Home Assistant Helper Entities (Expected to Exist)
 # ============================================================================
@@ -318,6 +327,7 @@ LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT = 4000       # Target capacity to reach
 # Load sharing timing constraints (seconds)
 LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT = 300  # 5 minutes minimum
 LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT = 900           # 15 minutes max for Tier 3
+LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT = 1800         # 30 minutes before re-eligible
 
 # Load sharing valve opening defaults (percent)
 LOAD_SHARING_TIER1_INITIAL_PCT = 70   # Schedule-aware rooms start here

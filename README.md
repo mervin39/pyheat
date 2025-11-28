@@ -218,13 +218,24 @@ rooms:
     load_sharing:
       schedule_lookahead_m: 60    # Check schedules within 60 min (default)
       fallback_priority: 1         # Lower = higher priority for fallback
+  
+  - id: bedroom
+    load_sharing:
+      schedule_lookahead_m: 30    # Conservative for bedrooms
+      # Omit fallback_priority to exclude from Tier 3 (privacy)
 
 # boiler.yaml - system thresholds
 boiler:
   load_sharing:
-    min_calling_capacity_w: 3500  # Activation threshold
-    target_capacity_w: 4000       # Target to reach
+    min_calling_capacity_w: 3500       # Activation threshold
+    target_capacity_w: 4000            # Target to reach
+    tier3_comfort_target_c: 20.0       # Tier 3 pre-warming target (default: 20°C)
 ```
+
+**Bedroom Configuration Strategy:**
+- **Include in Tier 1/2**: Set `schedule_lookahead_m` (typically 30 min for conservative pre-warming)
+- **Exclude from Tier 3**: Omit `fallback_priority` to prevent unexpected heating during off-schedule periods
+- This ensures bedrooms only pre-warm when scheduled, respecting privacy and comfort preferences
 
 See [docs/load_sharing_proposal.md](docs/load_sharing_proposal.md) for complete design details.
 
@@ -499,6 +510,13 @@ curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_status \
 - `boiler_actual_state` - Actual boiler status: "on" or "off"
 - `last_recompute` - ISO 8601 timestamp of last system update
 - `boiler_*_end_time` - ISO 8601 timestamps for active boiler timers (null if inactive)
+- `load_sharing` - Load sharing status object (null if feature disabled):
+  - `state` - Current state: "disabled", "inactive", "tier1_active", "tier2_active", "tier3_active"
+  - `active_rooms` - Array of rooms currently in load sharing with tier, valve_pct, reason, and duration_s
+  - `trigger_capacity` - Capacity that triggered load sharing (kW)
+  - `trigger_rooms` - Array of room IDs that triggered load sharing
+  - `master_enabled` - Whether load sharing is enabled in configuration
+  - `decision_explanation` - Human-readable explanation of current load sharing decision
 
 ---
 

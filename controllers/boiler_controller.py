@@ -563,7 +563,20 @@ class BoilerController:
             if not self.trvs.is_valve_feedback_consistent(room_id, tolerance=C.TRV_COMMAND_FEEDBACK_TOLERANCE):
                 commanded = self.trvs.get_valve_command(room_id)
                 feedback = self.trvs.get_valve_feedback(room_id)
-                self.ad.log(f"Boiler: room {room_id} TRV feedback {feedback}% != commanded {commanded}%", level="DEBUG")
+                
+                # Provide more context in the log message
+                if feedback is None:
+                    if self.trvs.is_in_startup_grace_period():
+                        status = "unknown (startup grace period - allowing)"
+                    else:
+                        status = "unknown (degraded mode - allowing if recently commanded)"
+                else:
+                    status = f"{feedback}% (mismatch)"
+                
+                self.ad.log(
+                    f"Boiler: room {room_id} TRV feedback {status} != commanded {commanded}%",
+                    level="DEBUG"
+                )
                 return False
         
         return True
