@@ -4,6 +4,81 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #10: HA Restarts Leave PyHeat with Stale State
+
+**Status:** OPEN 🔴  
+**Date Discovered:** 2025-11-28  
+**Severity:** Medium - Can cause incorrect heating decisions after HA restarts  
+**Category:** State Management
+
+### Description
+
+When Home Assistant restarts but AppDaemon remains running (separate Docker containers), PyHeat continues operating but:
+1. Entity states in AppDaemon's cache become stale
+2. Service calls to HA fail silently during reconnection
+3. State diverges between PyHeat and actual HA/hardware state
+4. No automatic re-initialization occurs when HA reconnects
+
+### Investigation
+
+AppDaemon detects HA restarts and provides `plugin_started()` and `plugin_stopped()` lifecycle callbacks. However, these are **NOT** triggered by simple HA restarts.
+
+From testing (2025-11-28 15:35):
+- HA restarted at 15:35:11 (container stopped)
+- AppDaemon showed "Attempting reconnection" messages 15:35:11-15:35:21
+- HA reconnected at 15:35:26 ("Connected to Home Assistant")
+- AppDaemon showed "Processing restart for plugin namespace 'default'" at 15:35:52 (26 seconds later!)
+- **plugin_started() and plugin_stopped() were NEVER called**
+
+The lifecycle callbacks appear to only fire when the AppDaemon **plugin configuration** changes, not when HA itself restarts.
+
+### Impact
+
+**Medium severity because:**
+- Occurs on every HA restart (common during updates, config changes)
+- TRV feedback resilience (Bug #7 fix) mitigates some issues with grace period
+- State usually resynchronizes within a few minutes through callbacks
+- No catastrophic failures, but can cause:
+  - Incorrect boiler decisions based on stale valve positions
+  - Missed heating opportunities if room temperatures stale
+  - Load sharing decisions based on outdated capacity data
+
+**Mitigation currently in place:**
+- TRV feedback grace period (120s) tolerates sensor unavailability during reconnection
+- Sensor callbacks will update temperatures as they change
+- Valve coordinator re-reads pump overrun state on first access
+
+### Attempted Solution (Reverted)
+
+Attempted to use `plugin_started()` and `plugin_stopped()` callbacks to:
+- Pause operations during disconnect
+- Re-initialize all state from HA on reconnect
+- Cancel in-flight TRV commands
+- Reset grace periods
+
+**Why it was reverted:**
+- Testing showed these callbacks are NOT called during HA restarts
+- Callbacks may only trigger when AppDaemon plugin config changes
+- Need to research alternative approaches (websocket events, entity monitoring)
+
+**Commits reverted:**
+- `18c99dd` - HA connection state management
+- `d12061e` - Bug fix for missing newline (introduced during implementation)
+
+### Potential Solutions to Research
+
+1. **Monitor special HA entity**: Listen for state changes on an entity that indicates HA startup (e.g., `sensor.uptime` resetting)
+2. **WebSocket events**: Check if AppDaemon exposes websocket connection/disconnection events
+3. **Polling approach**: Periodically check if entity state reads return errors/None
+4. **Accept current behavior**: Document that AppDaemon restart is needed after HA restart for clean state
+
+### Related Issues
+
+- Bug #7: TRV feedback sensors showing "unknown" during HA restarts (FIXED - grace period mitigates this)
+- The TRV resilience features help mask this issue but don't solve the root cause
+
+---
+
 ## BUG #9: Load Sharing Exit Trigger F Was Previously Missing
 
 **Status:** FIXED ✅ (as part of 2025-11-28 overshoot prevention work)  
