@@ -24,7 +24,6 @@ input_boolean:
   pyheat_load_sharing_enable:
     name: "PyHeat Load Sharing"
     icon: mdi:share-variant
-    initial: false
 
 # ---------------------------------------------------------------------------
 # Input selects (per-room modes) - used if present; app checks entity_exists()
