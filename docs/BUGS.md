@@ -4,6 +4,83 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #11: Inconsistent Config Initialization Pattern Across Codebase
+
+**Status:** OPEN 🔴  
+**Date Discovered:** 2025-11-29  
+**Severity:** Low - Code quality/maintainability issue, no functional impact  
+**Category:** Code Architecture
+
+### Description
+
+Classes that load configuration in `initialize_from_ha()` use inconsistent patterns for initializing config attributes in `__init__()`. This creates confusion about what values are actually used and which are placeholder defaults vs. real fallbacks.
+
+### Affected Classes
+
+**LoadCalculator** (`managers/load_calculator.py`):
+- **Pattern:** Sets misleading default values in `__init__()` that look like placeholders:
+  ```python
+  self.enabled = False  # Gets overwritten to True by default in initialize_from_ha()
+  self.system_delta_t = C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT  # 10
+  self.global_radiator_exponent = C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT  # 1.3
+  ```
+- **Issue:** The `False` for `enabled` is particularly misleading - it looks like "disabled by default" but actually defaults to `True` if not in config
+- **Config loading:** Uses `.get()` with these constants as actual fallback defaults
+- **Impact:** Confusing to read - unclear if these are real defaults or just placeholders
+
+**LoadSharingManager** (`managers/load_sharing_manager.py`):
+- **Pattern (FIXED 2025-11-29):** ✅ Now initializes all config to `None` with explicit validation
+  ```python
+  self.min_calling_capacity_w = None  # Loaded from config
+  self.target_capacity_w = None
+  # ... etc
+  ```
+- **Previous issue (NOW RESOLVED):** Had hardcoded values like `3500`, `15` that were always overwritten
+- **Current state:** Best practice implementation - explicit that values MUST come from config
+
+### Classes Without Issue
+
+The following classes correctly avoid this pattern:
+- **BoilerController**: Loads config on-demand in methods, not in `__init__`
+- **CyclingProtection**: Only initializes state, no config loading in `initialize_from_ha()`
+- **SensorManager**: Only initializes state dictionaries
+- **TRVController**: Only initializes state dictionaries
+- **RoomController**: Only initializes state dictionaries
+- **ValveCoordinator**: Only initializes state dictionaries
+- **OverrideManager**: No config attributes, only passes through to config object
+
+### Recommendation
+
+**LoadCalculator should be refactored to match LoadSharingManager's pattern:**
+1. Initialize all config attributes to `None` in `__init__()`
+2. Load from config in `initialize_from_ha()` with proper fallback defaults
+3. Add validation to ensure config is loaded before use
+4. Make it explicit when values are required vs. optional with defaults
+
+**Example fix for LoadCalculator:**
+```python
+# In __init__:
+self.enabled = None
+self.system_delta_t = None
+self.global_radiator_exponent = None
+
+# In initialize_from_ha:
+load_config = self.config.boiler_config.get('load_monitoring', {})
+self.enabled = load_config.get('enabled', True)  # True is actual default
+self.system_delta_t = load_config.get('system_delta_t', C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT)
+self.global_radiator_exponent = load_config.get('radiator_exponent', C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT)
+
+# Validate
+if None in [self.enabled, self.system_delta_t, self.global_radiator_exponent]:
+    raise ValueError("LoadCalculator: Configuration not properly initialized")
+```
+
+### Priority
+
+**Low** - This is a code quality issue, not a functional bug. Current behavior is correct, just confusing to maintain.
+
+---
+
 ## BUG #10: HA Restarts Leave PyHeat with Stale State
 
 **Status:** OPEN 🔴  
