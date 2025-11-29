@@ -49,13 +49,13 @@ class LoadSharingManager:
         # Track rooms that need explicit closure on deactivation (Bug #6 fix)
         self.last_deactivated_rooms = []
         
-        # Configuration (loaded from boiler.yaml)
-        self.min_calling_capacity_w = 3500  # Activation threshold
-        self.target_capacity_w = 4000       # Target capacity to reach
-        self.min_activation_duration_s = 300  # 5 minutes minimum
-        self.tier3_timeout_s = 900          # 15 minutes max for Tier 3
-        self.tier3_cooldown_s = 1800        # 30 minutes before re-eligible
-        self.high_return_delta_c = 15       # Return temp delta for cycling risk detection
+        # Configuration (loaded from boiler.yaml in initialize_from_ha)
+        self.min_calling_capacity_w = None  # Activation threshold
+        self.target_capacity_w = None       # Target capacity to reach
+        self.min_activation_duration_s = None  # Minimum activation duration
+        self.tier3_timeout_s = None         # Tier 3 timeout
+        self.tier3_cooldown_s = None        # Tier 3 cooldown period
+        self.high_return_delta_c = None     # Return temp delta for cycling risk detection
         
         # Master enable switch (HA helper)
         self.master_enable_entity = C.HELPER_LOAD_SHARING_ENABLE
@@ -83,6 +83,15 @@ class LoadSharingManager:
         self.tier3_timeout_s = ls_config.get('tier3_timeout_s', 900)
         self.tier3_cooldown_s = ls_config.get('tier3_cooldown_s', 1800)
         self.high_return_delta_c = ls_config['high_return_delta_c']
+        
+        # Validate all required config loaded
+        if None in [self.min_calling_capacity_w, self.target_capacity_w, 
+                    self.min_activation_duration_s, self.tier3_timeout_s,
+                    self.tier3_cooldown_s, self.high_return_delta_c]:
+            raise ValueError(
+                "LoadSharingManager: Configuration not properly initialized. "
+                "Ensure initialize_from_ha() is called before evaluate()."
+            )
         
         # Check master enable switch (single source of truth)
         master_enabled = self._is_master_enabled()

@@ -1,6 +1,37 @@
 
 # PyHeat Changelog
 
+## 2025-11-29: Remove Confusing Hardcoded Values from LoadSharingManager
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `main`
+
+**Summary:**
+Removed confusing hardcoded default values from `LoadSharingManager.__init__()` that were immediately overwritten by `initialize_from_ha()`. Changed initialization to use `None` with explicit validation to ensure configuration is properly loaded before use.
+
+**Problem:**
+`LoadSharingManager.__init__()` set hardcoded default values (e.g., `min_calling_capacity_w = 3500`, `high_return_delta_c = 15`) that were always overwritten when `initialize_from_ha()` loaded config from boiler.yaml. This was confusing and gave false impression about actual configured values.
+
+**Solution:**
+- Initialize all config parameters to `None` in `__init__()`
+- Add validation after loading config to ensure all parameters properly initialized
+- Clear comments indicate values loaded from boiler.yaml
+- Validation raises `ValueError` if `evaluate()` called before `initialize_from_ha()`
+
+**Changes:**
+- `managers/load_sharing_manager.py`:
+  - Changed all config parameter initialization to `None`
+  - Updated comment: "loaded from boiler.yaml in initialize_from_ha"
+  - Added validation check after config loading with informative error message
+
+**Impact:**
+- No functional change - behavior identical
+- Clearer code - no misleading hardcoded values
+- Better error handling - explicit validation prevents using uninitialized config
+
+---
+
 ## 2025-11-28: TRV Feedback Resilience - Handle Z2M Sensor Lag During HA Restarts
 
 **Status:** IMPLEMENTED ✅
