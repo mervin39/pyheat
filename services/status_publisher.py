@@ -374,7 +374,9 @@ class StatusPublisher:
                 holiday_mode = False
                 if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
                     holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
-                scheduled_temp = self.scheduler_ref.get_scheduled_target(room_id, now, holiday_mode)
+                scheduled_info = self.scheduler_ref.get_scheduled_target(room_id, now, holiday_mode)
+                if scheduled_info is not None:
+                    scheduled_temp = scheduled_info['target']
             except Exception as e:
                 self.ad.log(f"Error getting scheduled temp for {room_id}: {e}", level="WARNING")
         

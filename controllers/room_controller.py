@@ -65,8 +65,9 @@ class RoomController:
                     holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
                 
                 # Get current target (pass is_stale=False as placeholder, it won't affect target resolution)
-                current_target = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, False)
-                if current_target is not None:
+                current_target_info = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, False)
+                if current_target_info is not None:
+                    current_target = current_target_info['target']
                     self.room_last_target[room_id] = current_target
                     self.ad.log(f"Room {room_id}: Initialized target tracking at {current_target}C", level="DEBUG")
             except Exception as e:
@@ -226,8 +227,18 @@ class RoomController:
         # Get temperature (smoothed for consistent control and display)
         temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
         
-        # Get target
-        target = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
+        # Get target info (dict with target, mode, valve_percent)
+        target_info = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
+        
+        # Extract target temperature (may be setpoint for active, max_temp for passive)
+        target = None
+        operating_mode = 'off'  # 'active', 'passive', or 'off'
+        passive_valve_percent = None
+        
+        if target_info is not None:
+            target = target_info['target']
+            operating_mode = target_info['mode']
+            passive_valve_percent = target_info.get('valve_percent')
         
         # Get manual setpoint for status display
         manual_setpoint = None
@@ -245,6 +256,7 @@ class RoomController:
             'target': target,
             'is_stale': is_stale,
             'mode': room_mode,
+            'operating_mode': operating_mode,
             'calling': False,
             'valve_percent': 0,
             'error': None,
@@ -277,6 +289,25 @@ class RoomController:
             # NOTE: Don't send valve command here - let app.py persistence logic handle it
             return result
         
+        # PASSIVE MODE: Binary threshold control
+        if operating_mode == 'passive':
+            # Passive never calls for heat
+            self.room_call_for_heat[room_id] = False
+            self.room_current_band[room_id] = 0
+            result['calling'] = False
+            
+            # Valve control: open if temp < max_temp, else close
+            if temp < target:
+                valve_percent = passive_valve_percent if passive_valve_percent is not None else 0
+            else:
+                valve_percent = 0
+            
+            result['valve_percent'] = valve_percent
+            result['error'] = target - temp  # Still show error for monitoring
+            self.room_last_valve[room_id] = valve_percent
+            return result
+        
+        # ACTIVE MODE: PID control with call for heat
         # Calculate error
         error = target - temp
         result['error'] = error
