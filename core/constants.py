@@ -51,6 +51,17 @@ PRECISION_ALLOWED = {0, 1, 2}
 TIMEOUT_MIN_M = 1
 
 # ============================================================================
+# Room Modes
+# ============================================================================
+
+# Valid room modes
+MODE_AUTO = "auto"
+MODE_MANUAL = "manual"
+MODE_PASSIVE = "passive"
+MODE_OFF = "off"
+VALID_MODES = [MODE_AUTO, MODE_MANUAL, MODE_PASSIVE, MODE_OFF]
+
+# ============================================================================
 # Per-Room Hysteresis (Call-for-Heat Deadband)
 # ============================================================================
 
@@ -235,10 +246,16 @@ HELPER_MASTER_ENABLE = "input_boolean.pyheat_master_enable"
 HELPER_HOLIDAY_MODE = "input_boolean.pyheat_holiday_mode"
 
 # Per-room helpers (format strings - use .format(room=room_id))
-HELPER_ROOM_MODE = "input_select.pyheat_{room}_mode"  # auto, manual, off
+HELPER_ROOM_MODE = "input_select.pyheat_{room}_mode"  # auto, manual, passive, off
 HELPER_ROOM_MANUAL_SETPOINT = "input_number.pyheat_{room}_manual_setpoint"
 HELPER_ROOM_OVERRIDE_TIMER = "timer.pyheat_{room}_override"
 HELPER_ROOM_OVERRIDE_TARGET = "input_number.pyheat_{room}_override_target"
+HELPER_ROOM_PASSIVE_MAX_TEMP = "input_number.pyheat_{room}_passive_max_temp"
+HELPER_ROOM_PASSIVE_VALVE_PERCENT = "input_number.pyheat_{room}_passive_valve_percent"
+
+# Passive mode defaults
+PASSIVE_MAX_TEMP_DEFAULT = 18.0  # °C
+PASSIVE_VALVE_PERCENT_DEFAULT = 30  # %
 
 # Pump overrun persistence
 HELPER_PUMP_OVERRUN_TIMER = "timer.pyheat_boiler_pump_overrun_timer"
