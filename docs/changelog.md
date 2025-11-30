@@ -1,6 +1,48 @@
 
 # PyHeat Changelog
 
+## 2025-11-30: Passive Mode Valve Hysteresis Enhancement
+
+**Branch:** `feature/passive-mode`
+
+**Summary:**
+Added valve hysteresis to passive mode to prevent valve cycling when temperature hovers near the max_temp threshold. Previously, passive mode used simple binary threshold control (valve open if temp < max_temp, else closed), which could cause rapid open/close cycles as temperature fluctuated around the threshold. Now passive mode reuses the same hysteresis deltas (on_delta_c, off_delta_c) already configured per-room for active mode.
+
+**Changes:**
+
+### Code
+- **`controllers/room_controller.py`:**
+  - Modified passive mode valve control logic in `compute_room()`:
+    - Added hysteresis using room's configured `on_delta_c` and `off_delta_c` values
+    - Valve opens when `error > on_delta` (temp < max_temp - on_delta)
+    - Valve closes when `error < -off_delta` (temp > max_temp + off_delta)
+    - Dead band maintains previous valve state to prevent oscillation
+  - Example with on_delta=0.30°C, off_delta=0.10°C, max_temp=18.0°C:
+    - Opens when temp < 17.7°C
+    - Closes when temp > 18.1°C
+    - Dead band 17.7-18.1°C maintains current state
+
+### Documentation
+- **`docs/ARCHITECTURE.md`:**
+  - Updated high-level flow diagram passive mode description
+  - Updated "Passive Mode Behavior" section with hysteresis details
+  - Updated "Passive Mode Details" in target precedence section
+  - Documented non-persistent valve state (defaults to closed on reload)
+
+**Design Decision:**
+- Valve state NOT persisted across AppDaemon reloads (uses in-memory `room_last_valve`)
+- On reload, passive valves default to closed (0%) and recompute within 10-60s
+- This avoids adding complexity to persistence format (already at 3 fields per room)
+- Acceptable for opportunistic heating use case
+
+**Rationale:**
+- Reuses existing per-room thermal tuning (on_delta/off_delta) for consistency
+- Prevents TRV mechanical wear from frequent valve cycling
+- Reduces Zigbee traffic from unnecessary valve commands
+- Maintains same asymmetric hysteresis behavior as active mode
+
+---
+
 ## 2025-11-30: Passive Heating Mode Implementation
 
 **Status:** IN PROGRESS 🚧

@@ -289,21 +289,40 @@ class RoomController:
             # NOTE: Don't send valve command here - let app.py persistence logic handle it
             return result
         
-        # PASSIVE MODE: Binary threshold control
+        # PASSIVE MODE: Threshold control with hysteresis
         if operating_mode == 'passive':
             # Passive never calls for heat
             self.room_call_for_heat[room_id] = False
             self.room_current_band[room_id] = 0
             result['calling'] = False
             
-            # Valve control: open if temp < max_temp, else close
-            if temp < target:
+            # Get hysteresis config (same as active mode to maintain consistency)
+            hysteresis = self.config.rooms[room_id]['hysteresis']
+            on_delta = hysteresis['on_delta_c']
+            off_delta = hysteresis['off_delta_c']
+            
+            # Calculate error (positive = below target, negative = above target)
+            error = target - temp
+            result['error'] = error
+            
+            # Get previous valve state for hysteresis
+            prev_valve = self.room_last_valve.get(room_id, 0)
+            
+            # Valve control with hysteresis to prevent cycling:
+            # - Open when temp < max_temp - on_delta (e.g., < 17.7C for max_temp=18C)
+            # - Close when temp > max_temp + off_delta (e.g., > 18.1C for max_temp=18C)
+            # - Dead band: maintain previous state between thresholds
+            if error > on_delta:
+                # Too cold: open valve
                 valve_percent = passive_valve_percent if passive_valve_percent is not None else 0
-            else:
+            elif error < -off_delta:
+                # Too warm: close valve
                 valve_percent = 0
+            else:
+                # Dead band: maintain previous state
+                valve_percent = prev_valve
             
             result['valve_percent'] = valve_percent
-            result['error'] = target - temp  # Still show error for monitoring
             self.room_last_valve[room_id] = valve_percent
             return result
         

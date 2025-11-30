@@ -83,15 +83,6 @@ input_select:
       - 'Off'
     icon: mdi:cogs
 
-  pyheat_pete_mode:
-    name: Pete's Room Heating Mode
-    options:
-      - Auto
-      - Manual
-      - Passive
-      - 'Off'
-    icon: mdi:cogs
-
 # ---------------------------------------------------------------------------
 # Input numbers (manual setpoints and override targets)
 # ---------------------------------------------------------------------------

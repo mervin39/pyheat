@@ -103,10 +103,11 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  For each room:                                                               │
 │    ├─ Calculate error = target - current_temp                                │
-│    ├─ PASSIVE MODE: Binary threshold control                                 │
+│    ├─ PASSIVE MODE: Threshold control with hysteresis                        │
 │    │    • Never calls for heat (calling = False)                             │
-│    │    • Valve = configured % if temp < max_temp, else 0%                   │
-│    │    • Simple on/off control (no PID, no hysteresis)                      │
+│    │    • Valve opens if error > on_delta (temp < max_temp - on_delta)       │
+│    │    • Valve closes if error < -off_delta (temp > max_temp + off_delta)   │
+│    │    • Dead band maintains previous valve state (prevents cycling)        │
 │    ├─ ACTIVE MODE: Call-for-heat decision (asymmetric hysteresis):           │
 │    │    • error ≥ on_delta (0.30°C)  → start calling                         │
 │    │    • error ≤ off_delta (0.10°C) → stop calling                          │
@@ -877,8 +878,11 @@ Priority (highest to lowest):
 
 **Passive Mode Details:**
 - Passive mode never calls for heat (calling = False)
-- Valve opens to configured percentage when temp < max_temp, else closes
-- Simple binary threshold control (no PID, no hysteresis)
+- Uses same hysteresis deltas (on_delta/off_delta) as active mode for consistency
+- Valve opens to configured percentage when temp < max_temp - on_delta
+- Valve closes when temp > max_temp + off_delta
+- Dead band between thresholds maintains previous valve state (prevents cycling)
+- No PID control (fixed valve percentage, not proportional to error)
 - Useful for opportunistic heating when other rooms call for heat
 - Excluded from load sharing (user has manual valve control)
 
@@ -2178,10 +2182,13 @@ def compute_room(room_id: str, now: datetime) -> Dict:
 
 **Passive Mode Behavior:**
 - Never calls for heat (`calling` always False)
-- Valve opens to configured percentage when temp < max_temp
-- Closes when temp >= max_temp (simple binary threshold)
-- No hysteresis, no PID control (intentionally simple)
+- Uses same hysteresis deltas as active mode to prevent valve cycling
+- Valve opens to configured percentage when `temp < max_temp - on_delta`
+- Valve closes when `temp > max_temp + off_delta`
+- Dead band maintains previous valve state to prevent oscillation
+- No PID control (fixed valve percentage, not proportional)
 - Excluded from load sharing calculations
+- Valve state not persisted (defaults to closed on reload, recomputes within 10-60s)
 
 ### Asymmetric Hysteresis (Call-for-Heat Decision)
 
