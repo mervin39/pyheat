@@ -924,6 +924,7 @@ class PyHeat(hass.Hass):
                 'valve_fb': valve_fb if valve_fb is not None else '',
                 'valve_cmd': valve_cmd if valve_cmd is not None else '',
                 'mode': data.get('mode', 'auto'),
+                'operating_mode': data.get('operating_mode', 'off'),
                 'override': override_active,
             }
         

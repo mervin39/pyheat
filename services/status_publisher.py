@@ -300,6 +300,7 @@ class StatusPublisher:
         for room_id, data in room_data.items():
             room_attrs = {
                 'mode': data.get('mode', 'off'),
+                'operating_mode': data.get('operating_mode', 'off'),
                 'temperature': round(data['temp'], 1) if data['temp'] is not None else None,
                 'target': round(data['target'], 1) if data['target'] is not None else None,
                 'calling_for_heat': data.get('calling', False),
@@ -312,6 +313,10 @@ class StatusPublisher:
                 if self.load_calculator_ref.enabled:
                     estimated_capacity = self.load_calculator_ref.estimated_capacities.get(room_id, 0.0)
                     room_attrs['estimated_dump_capacity'] = round(estimated_capacity, 0)
+            
+            # Add passive-specific fields when in passive mode
+            if data.get('operating_mode') == 'passive':
+                room_attrs['passive_max_temp'] = data.get('target')  # In passive mode, target is max_temp
             
             attrs['rooms'][room_id] = room_attrs
             total_valve += data.get('valve_percent', 0)

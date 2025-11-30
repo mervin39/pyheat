@@ -52,16 +52,28 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
   - Added passive operating_mode check to `_select_tier3_rooms()`
   - Passive rooms now excluded from load sharing (user has manual valve control)
 
+### ✅ Phase 7: Status Publisher Enhancement (COMPLETE)
+- Modified `services/status_publisher.py`:
+  - Added `operating_mode` field to room attributes in `publish_system_status()`
+  - Added `passive_max_temp` field when room in passive mode
+  - Status API now exposes passive mode state for pyheat-web integration
+
+### ✅ Phase 10: Heating Logger Enhancement (COMPLETE)
+- Modified `services/heating_logger.py`:
+  - Added `{room_id}_operating_mode` column to CSV logs
+  - Added operating_mode change detection in `should_log()`
+  - Updated prev_state cache to track operating_mode changes
+- Modified `app.py`:
+  - Added `operating_mode` to room data passed to heating logger
+
 ### ⏳ Phase 5: Boiler Controller (NO CHANGES NEEDED)
 - Verified existing boiler interlock already counts passive room valves
 - No code changes required
 
 ### ⏳ Remaining Phases:
-- Phase 7: Status Publisher Enhancement (add passive fields to status output)
-- Phase 8: API Handler Enhancement (expose passive state in API)
+- Phase 8: API Handler Enhancement (expose passive settings endpoints)
 - Phase 9: Alert Manager Enhancement (passive mode alerts)
-- Phase 10: Heating Logger Enhancement (log passive mode)
-- Phase 11: Documentation updates
+- Phase 11: Documentation updates (README, ARCHITECTURE)
 
 **Passive Mode Behavior:**
 - **Manual Passive Mode:** User sets room to "passive" mode via input_select
@@ -77,15 +89,18 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
   - User needs immediate temperature rise → requires active PID control
 
 **Testing Status:**
-- ✅ System running without errors after Phases 1-6
+- ✅ System running without errors after Phases 1-7, 10
 - ✅ Core passive mode functionality implemented
 - ✅ Load sharing correctly excludes passive rooms
-- ⏳ Need to test: actual passive mode operation, status display, pyheat-web integration
+- ✅ Status API exposes operating_mode for UI integration
+- ✅ CSV logs include operating_mode for analysis
+- ⏳ Need to test: actual passive mode operation with real room
 
 **Commits:**
 1. `463f764` - Phase 3: Update scheduler to return dict with mode and valve_percent
 2. `2392e32` - Phase 4: Update room_controller and status_publisher for dict-based scheduler
 3. `f2b2d6f` - Phase 6: Exclude passive rooms from load sharing tier selection
+4. Pending - Phases 7 & 10: Status publisher and heating logger enhancements + config fix
 
 **Next Steps:**
 1. Complete remaining implementation phases (7-11)

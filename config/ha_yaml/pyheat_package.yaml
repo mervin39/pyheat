@@ -84,11 +84,11 @@ input_select:
     icon: mdi:cogs
 
   pyheat_pete_mode:
-  pyheat_pete_mode:
     name: Pete's Room Heating Mode
     options:
       - Auto
       - Manual
+      - Passive
       - 'Off'
     icon: mdi:cogs
 
