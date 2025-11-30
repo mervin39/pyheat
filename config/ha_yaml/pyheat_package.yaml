@@ -29,11 +29,21 @@ input_boolean:
 # Input selects (per-room modes) - used if present; app checks entity_exists()
 # ---------------------------------------------------------------------------
 input_select:
+  pyheat_pete_mode:
+    name: Pete's Room Heating Mode
+    options:
+      - Auto
+      - Manual
+      - Passive
+      - 'Off'
+    icon: mdi:cogs
+
   pyheat_abby_mode:
     name: Abby's Room Heating Mode
     options:
       - Auto
       - Manual
+      - Passive
       - 'Off'
     icon: mdi:cogs
 
@@ -42,6 +52,7 @@ input_select:
     options:
       - Auto
       - Manual
+      - Passive
       - 'Off'
     icon: mdi:cogs
 
@@ -50,6 +61,7 @@ input_select:
     options:
       - Auto
       - Manual
+      - Passive
       - 'Off'
     icon: mdi:cogs
 
@@ -58,6 +70,7 @@ input_select:
     options:
       - Auto
       - Manual
+      - Passive
       - 'Off'
     icon: mdi:cogs
 
@@ -66,9 +79,11 @@ input_select:
     options:
       - Auto
       - Manual
+      - Passive
       - 'Off'
     icon: mdi:cogs
 
+  pyheat_pete_mode:
   pyheat_pete_mode:
     name: Pete's Room Heating Mode
     options:
@@ -184,6 +199,127 @@ input_number:
     unit_of_measurement: "°C"
     mode: box
     icon: mdi:radiator
+
+  # Passive mode settings (max temp and valve percent)
+  pyheat_pete_passive_max_temp:
+    name: "Pete's Room Passive Max Temp"
+    min: 10
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-high
+    initial: 18.0
+
+  pyheat_pete_passive_valve_percent:
+    name: "Pete's Room Passive Valve Percent"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:valve
+    initial: 30
+
+  pyheat_abby_passive_max_temp:
+    name: "Abby's Room Passive Max Temp"
+    min: 10
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-high
+    initial: 18.0
+
+  pyheat_abby_passive_valve_percent:
+    name: "Abby's Room Passive Valve Percent"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:valve
+    initial: 30
+
+  pyheat_office_passive_max_temp:
+    name: "Office Passive Max Temp"
+    min: 10
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-high
+    initial: 18.0
+
+  pyheat_office_passive_valve_percent:
+    name: "Office Passive Valve Percent"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:valve
+    initial: 30
+
+  pyheat_lounge_passive_max_temp:
+    name: "Living Room Passive Max Temp"
+    min: 10
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-high
+    initial: 18.0
+
+  pyheat_lounge_passive_valve_percent:
+    name: "Living Room Passive Valve Percent"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:valve
+    initial: 30
+
+  pyheat_games_passive_max_temp:
+    name: "Dining Room Passive Max Temp"
+    min: 10
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-high
+    initial: 18.0
+
+  pyheat_games_passive_valve_percent:
+    name: "Dining Room Passive Valve Percent"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:valve
+    initial: 30
+
+  pyheat_bathroom_passive_max_temp:
+    name: "Bathroom Passive Max Temp"
+    min: 10
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-high
+    initial: 18.0
+
+  pyheat_bathroom_passive_valve_percent:
+    name: "Bathroom Passive Valve Percent"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:valve
+    initial: 30
 
   # OpenTherm flow temperature setpoint (for cycling protection)
   pyheat_opentherm_setpoint:
@@ -563,6 +699,7 @@ script:
             options:
               - auto
               - manual
+              - passive
               - "off"
       manual_setpoint:
         description: "Manual temperature setpoint (only used when mode is 'manual')"
