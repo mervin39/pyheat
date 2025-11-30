@@ -30,3 +30,5 @@ docs/debug/
 docs/heating_logs/*.csv
 docs/heating_logs/*.jsonl
 docs/heating_logs/*.csv.*
+
+state/persistence.json

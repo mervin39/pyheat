@@ -388,23 +388,28 @@ timer:
     icon: mdi:pump
 
 # ---------------------------------------------------------------------------
-# Input text - room state persistence
+# Input text - DEPRECATED: Persistence migrated to local file
 # ---------------------------------------------------------------------------
-input_text:
-  pyheat_room_persistence:
-    name: "PyHeat Room State Persistence"
-    initial: ""
-    max: 255
-
-  pyheat_pump_overrun_valves:
-    name: "PyHeat Pump Overrun Valve Positions (deprecated - migrated to pyheat_room_persistence)"
-    initial: ""
-    max: 255
-
-  pyheat_cycling_protection_state:
-    name: "PyHeat Cycling Protection State"
-    initial: '{"mode":"NORMAL","saved_setpoint":null,"cooldown_start":null}'
-    max: 255
+# The following entities are no longer used by PyHeat as of the persistence
+# migration. State is now persisted to /opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json
+# These entities can be safely removed from your configuration after confirming
+# PyHeat is working correctly with file-based persistence.
+#
+# input_text:
+#   pyheat_room_persistence:
+#     name: "PyHeat Room State Persistence (DEPRECATED)"
+#     initial: ""
+#     max: 255
+#
+#   pyheat_pump_overrun_valves:
+#     name: "PyHeat Pump Overrun Valve Positions (DEPRECATED)"
+#     initial: ""
+#     max: 255
+#
+#   pyheat_cycling_protection_state:
+#     name: "PyHeat Cycling Protection State (DEPRECATED)"
+#     initial: '{"mode":"NORMAL","saved_setpoint":null,"cooldown_start":null}'
+#     max: 255
 
 # ---------------------------------------------------------------------------
 # MQTT sensors (TRV feedback) - these are important for valve feedback

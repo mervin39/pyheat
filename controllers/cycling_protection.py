@@ -15,8 +15,8 @@ Responsibilities:
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from collections import deque
-import json
 import constants as C
+from core.persistence import PersistenceManager
 
 
 class CyclingProtection:
@@ -46,6 +46,7 @@ class CyclingProtection:
         self.config = config
         self.alert_manager = alert_manager
         self.boiler_controller = boiler_controller
+        self.persistence = PersistenceManager(C.PERSISTENCE_FILE)
         
         # State machine state
         self.state = self.STATE_NORMAL
@@ -65,26 +66,25 @@ class CyclingProtection:
         self.recovery_handle = None
         
     def initialize_from_ha(self) -> None:
-        """Restore state from Home Assistant persistence entity."""
+        """Restore state from persistence file."""
         try:
-            state_str = self.ad.get_state(C.HELPER_CYCLING_STATE)
-            if state_str and state_str not in ['unknown', 'unavailable', '']:
-                state_dict = json.loads(state_str)
-                self.state = state_dict.get('mode', self.STATE_NORMAL)
-                self.saved_setpoint = state_dict.get('saved_setpoint')
+            state_dict = self.persistence.get_cycling_protection_state()
+            
+            self.state = state_dict.get('mode', self.STATE_NORMAL)
+            self.saved_setpoint = state_dict.get('saved_setpoint')
+            
+            cooldown_start_str = state_dict.get('cooldown_start')
+            if cooldown_start_str:
+                self.cooldown_entry_time = datetime.fromisoformat(cooldown_start_str)
                 
-                cooldown_start_str = state_dict.get('cooldown_start')
-                if cooldown_start_str:
-                    self.cooldown_entry_time = datetime.fromisoformat(cooldown_start_str)
-                    
-                # If in cooldown, resume monitoring
-                if self.state == self.STATE_COOLDOWN:
-                    self.ad.log("Restored COOLDOWN state from persistence - resuming monitoring", level="INFO")
-                    self._resume_cooldown_monitoring()
-                    
-        except (json.JSONDecodeError, ValueError) as e:
+            # If in cooldown, resume monitoring
+            if self.state == self.STATE_COOLDOWN:
+                self.ad.log("Restored COOLDOWN state from persistence - resuming monitoring", level="INFO")
+                self._resume_cooldown_monitoring()
+                
+        except Exception as e:
             self.ad.log(f"Failed to restore cycling protection state: {e}", level="WARNING")
-            # Default to NORMAL on parse error
+            # Default to NORMAL on error
             self._reset_to_normal()
     
     def on_dhw_state_change(self, entity, attribute, old, new, kwargs):
@@ -651,7 +651,7 @@ class CyclingProtection:
         return recovery_temp
         
     def _save_state(self):
-        """Persist state to Home Assistant helper entity."""
+        """Persist state to persistence file."""
         state_dict = {
             'mode': self.state,
             'saved_setpoint': self.saved_setpoint,
@@ -659,10 +659,7 @@ class CyclingProtection:
         }
         
         try:
-            self.ad.set_state(
-                C.HELPER_CYCLING_STATE,
-                state=json.dumps(state_dict)
-            )
+            self.persistence.update_cycling_protection_state(state_dict)
         except Exception as e:
             self.ad.log(f"Failed to save cycling protection state: {e}", level="ERROR")
             

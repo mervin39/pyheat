@@ -12,8 +12,8 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Dict, Optional
-import json
 import constants as C
+from core.persistence import PersistenceManager
 
 
 class ValveCoordinator:
@@ -39,6 +39,7 @@ class ValveCoordinator:
         """
         self.ad = ad
         self.trvs = trv_controller
+        self.persistence = PersistenceManager(C.PERSISTENCE_FILE)
         
         # Persistence overrides from boiler controller (DEPRECATED - kept for compatibility)
         self.persistence_overrides = {}  # {room_id: valve_percent}
@@ -126,107 +127,89 @@ class ValveCoordinator:
         self.load_sharing_overrides = {}
     
     # ========================================================================
-    # Pump Overrun Persistence (NEW - replaces boiler controller logic)
+    # Pump Overrun Persistence
     # ========================================================================
     
-    def _read_persistence_entity(self) -> Dict:
-        """Read room persistence entity.
-        
-        Returns:
-            Dict in format: {room_id: [valve_pct, calling_state], ...}
-        """
-        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            return {}
-        
-        data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
-        if not data_str or data_str in ['unknown', 'unavailable', '']:
-            return {}
-        
-        try:
-            return json.loads(data_str)
-        except (json.JSONDecodeError, ValueError, TypeError):
-            return {}
-    
-    def _write_valve_positions_to_entity(self, positions: Dict[str, int]) -> None:
-        """Write valve positions to persistence entity (index 0).
-        
-        Preserves calling state (index 1) from room controller.
+    def _write_valve_positions_to_persistence(self, positions: Dict[str, int]) -> None:
+        """Write valve positions to persistence file.
         
         Args:
             positions: Dict of {room_id: valve_pct}
         """
-        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            return
-        
         try:
-            # Read current data to preserve calling states
-            data = self._read_persistence_entity()
+            data = self.persistence.load()
             
-            # Update valve positions (index 0), preserve calling state (index 1)
+            # Ensure room_state exists
+            if 'room_state' not in data:
+                data['room_state'] = {}
+            
+            # Update valve positions for pump overrun
             for room_id, valve_pct in positions.items():
-                if room_id not in data:
-                    data[room_id] = [0, 0]
-                data[room_id][0] = int(valve_pct)
-                # Keep index 1 (calling state) unchanged
+                if room_id not in data['room_state']:
+                    data['room_state'][room_id] = {
+                        'valve_percent': 0,
+                        'last_calling': False,
+                        'passive_valve': 0
+                    }
+                data['room_state'][room_id]['valve_percent'] = int(valve_pct)
             
-            # Write back
-            self.ad.call_service("input_text/set_value",
-                entity_id=C.HELPER_ROOM_PERSISTENCE,
-                value=json.dumps(data, separators=(',', ':'))
-            )
-            self.ad.log(f"ValveCoordinator: Wrote pump overrun positions to entity: {positions}", level="DEBUG")
+            self.persistence.save(data)
+            self.ad.log(f"ValveCoordinator: Wrote pump overrun positions: {positions}", level="DEBUG")
         except Exception as e:
             self.ad.log(f"ValveCoordinator: Failed to write valve positions: {e}", level="WARNING")
     
-    def _clear_valve_positions_in_entity(self) -> None:
-        """Clear valve positions in persistence entity (set index 0 to 0).
-        
-        Preserves calling state (index 1).
-        """
-        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            return
-        
+    def _clear_valve_positions_in_persistence(self) -> None:
+        """Clear valve positions in persistence file."""
         try:
-            data = self._read_persistence_entity()
+            data = self.persistence.load()
             
-            # Clear all valve positions (set index 0 to 0)
-            for room_id in data.keys():
-                data[room_id][0] = 0
-                # Keep index 1 unchanged
+            # Clear all valve positions
+            if 'room_state' in data:
+                for room_id in data['room_state'].keys():
+                    data['room_state'][room_id]['valve_percent'] = 0
             
-            self.ad.call_service("input_text/set_value",
-                entity_id=C.HELPER_ROOM_PERSISTENCE,
-                value=json.dumps(data, separators=(',', ':'))
-            )
-            self.ad.log("ValveCoordinator: Cleared pump overrun positions in entity", level="DEBUG")
+            self.persistence.save(data)
+            self.ad.log("ValveCoordinator: Cleared pump overrun positions", level="DEBUG")
         except Exception as e:
             self.ad.log(f"ValveCoordinator: Failed to clear valve positions: {e}", level="WARNING")
     
     def initialize_from_ha(self) -> None:
-        """Initialize valve coordinator state from Home Assistant.
+        """Initialize valve coordinator state from persistence file.
         
         Restores pump overrun state if AppDaemon restarted during pump overrun period.
         """
-        # Read persistence entity
-        data = self._read_persistence_entity()
-        
-        # Check if any valves are persisted (index 0 > 0)
-        persisted_positions = {
-            room_id: room_data[0]
-            for room_id, room_data in data.items()
-            if len(room_data) >= 2 and room_data[0] > 0
-        }
-        
-        if persisted_positions:
-            # We were in pump overrun when AppDaemon restarted
-            self.pump_overrun_active = True
-            self.pump_overrun_snapshot = persisted_positions
-            self.ad.log(
-                f"ValveCoordinator: Restored pump overrun state from entity: {persisted_positions}",
-                level="INFO"
-            )
-        else:
+        try:
+            data = self.persistence.load()
+            room_state = data.get('room_state', {})
+            
+            # Check if any valves are persisted (valve_percent > 0)
+            persisted_positions = {
+                room_id: room_data['valve_percent']
+                for room_id, room_data in room_state.items()
+                if room_data.get('valve_percent', 0) > 0
+            }
+            
+            if persisted_positions:
+                # We were in pump overrun when AppDaemon restarted
+                self.pump_overrun_active = True
+                self.pump_overrun_snapshot = persisted_positions
+                self.ad.log(
+                    f"ValveCoordinator: Restored pump overrun state from persistence: {persisted_positions}",
+                    level="INFO"
+                )
+            else:
+                # Normal initialization
+                self.pump_overrun_active = False
+                self.pump_overrun_snapshot = {}
+                self.ad.log("ValveCoordinator: Initialized (no pump overrun active)", level="DEBUG")
+        except Exception as e:
+            self.ad.log(f"ValveCoordinator: Failed to restore from persistence: {e}", level="WARNING")
             # Normal initialization
+            self.pump_overrun_active = False
+            self.pump_overrun_snapshot = {}
+            self.ad.log("ValveCoordinator: Initialized (no pump overrun active)", level="DEBUG")
+    
+    def enable_pump_overrun_persistence(self) -> None:
             self.pump_overrun_active = False
             self.pump_overrun_snapshot = {}
             self.ad.log("ValveCoordinator: Initialized (no pump overrun active)", level="DEBUG")
@@ -234,15 +217,15 @@ class ValveCoordinator:
     def enable_pump_overrun_persistence(self) -> None:
         """Enable pump overrun persistence.
         
-        Snapshots current commanded valve positions and persists to HA entity.
+        Snapshots current commanded valve positions and persists to file.
         These positions will be held during pump overrun period.
         """
         # Take snapshot of current commanded positions
         self.pump_overrun_snapshot = self.current_commands.copy()
         self.pump_overrun_active = True
         
-        # Persist to HA entity for restart resilience
-        self._write_valve_positions_to_entity(self.pump_overrun_snapshot)
+        # Persist to file for restart resilience
+        self._write_valve_positions_to_persistence(self.pump_overrun_snapshot)
         
         self.ad.log(
             f"ValveCoordinator: Pump overrun enabled, persisting: {self.pump_overrun_snapshot}",
@@ -252,13 +235,13 @@ class ValveCoordinator:
     def disable_pump_overrun_persistence(self) -> None:
         """Disable pump overrun persistence.
         
-        Clears snapshot and persistence entity, allowing valves to return to normal control.
+        Clears snapshot and persistence file, allowing valves to return to normal control.
         """
         self.pump_overrun_active = False
         self.pump_overrun_snapshot = {}
         
-        # Clear persistence entity
-        self._clear_valve_positions_in_entity()
+        # Clear persistence file
+        self._clear_valve_positions_in_persistence()
         
         self.ad.log("ValveCoordinator: Pump overrun disabled", level="INFO")
     

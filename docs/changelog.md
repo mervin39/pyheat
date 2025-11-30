@@ -1,6 +1,78 @@
 
 # PyHeat Changelog
 
+## 2025-11-30: Local File-Based Persistence Migration
+
+**Branch:** `feature/passive-mode`
+
+**Summary:**
+Migrated internal state persistence from Home Assistant input_text entities to local JSON file. This removes 3 helper entities from HA namespace, eliminates 255-character size limits, improves performance, and provides better debugging capability. Also implemented passive valve state persistence (now no size constraints).
+
+**Changes:**
+
+### New Infrastructure
+- **`core/persistence.py`:**
+  - New `PersistenceManager` class for file-based persistence
+  - Atomic writes using temp file + rename to prevent corruption
+  - Compact JSON format (`separators=(',', ':')`)
+  - Location: `/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json`
+  - Structure:
+    ```json
+    {
+      "room_state": {
+        "pete": {"valve_percent": 0, "last_calling": false, "passive_valve": 0}
+      },
+      "cycling_protection": {
+        "mode": "NORMAL", "saved_setpoint": null, "cooldown_start": null
+      }
+    }
+    ```
+
+### Code Updates
+- **`controllers/room_controller.py`:**
+  - Replaced HA entity persistence with `PersistenceManager`
+  - Updated `_load_persisted_state()` to read from file
+  - Updated `_persist_calling_state()` to write to file
+  - Removed old HA entity migration code
+  - Now persists passive valve state for hysteresis
+
+- **`controllers/valve_coordinator.py`:**
+  - Replaced HA entity persistence with `PersistenceManager`
+  - Updated pump overrun persistence methods
+  - Simplified initialization logic
+
+- **`controllers/cycling_protection.py`:**
+  - Replaced HA entity persistence with `PersistenceManager`
+  - Updated `initialize_from_ha()` and `_save_state()`
+
+- **`core/constants.py`:**
+  - Removed `HELPER_ROOM_PERSISTENCE`, `HELPER_PUMP_OVERRUN_VALVES`, `HELPER_CYCLING_STATE`
+  - Added `PERSISTENCE_FILE` constant
+
+### Configuration
+- **`config/ha_yaml/pyheat_package.yaml`:**
+  - Commented out deprecated persistence entities with migration notes
+  - Entities can be safely removed after confirming system works
+
+- **`state/.gitignore`:**
+  - Added to prevent committing user-specific persistence file
+
+**Benefits:**
+- ✅ No 255-character size limit
+- ✅ Faster I/O (direct file vs HA API)
+- ✅ Cleaner HA entity namespace (-3 entities)
+- ✅ Easier debugging (can inspect/edit file directly)
+- ✅ No HA dependency for persistence
+- ✅ Room for future expansion (version field, metadata, etc.)
+- ✅ Passive valve state now persisted across reloads
+
+**Migration:**
+- One-time manual migration: Current HA entity state captured and written to initial file
+- No automatic migration code needed (file created during implementation)
+- Old HA entities left in place (commented out) for safety
+
+---
+
 ## 2025-11-30: Passive Mode Valve Hysteresis Enhancement
 
 **Branch:** `feature/passive-mode`

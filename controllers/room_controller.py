@@ -11,8 +11,8 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Dict, Tuple, Optional
-import json
 import constants as C
+from core.persistence import PersistenceManager
 
 
 class RoomController:
@@ -33,6 +33,7 @@ class RoomController:
         self.sensors = sensors
         self.scheduler = scheduler
         self.trvs = trvs
+        self.persistence = PersistenceManager(C.PERSISTENCE_FILE)
         
         self.room_call_for_heat = {}  # {room_id: bool}
         self.room_current_band = {}  # {room_id: band_index}
@@ -77,122 +78,58 @@ class RoomController:
         self._load_persisted_state()
         
     def _load_persisted_state(self) -> None:
-        """Load last_calling state from HA persistence entity on init.
+        """Load last_calling and passive_valve state from persistence file.
         
         This is the SINGLE SOURCE OF TRUTH for room_call_for_heat state.
-        Migrates data from old pyheat_pump_overrun_valves format if needed.
-        
-        Format: {"pete": [valve_percent, last_calling], ...}
-        Array indices: [0]=valve_percent (0-100), [1]=last_calling (0=False, 1=True)
         
         If persistence data is missing or invalid, defaults to False (not calling).
         The first recompute (within seconds) will establish correct state.
         """
-        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            self.ad.log("ERROR: Room persistence entity does not exist! All rooms defaulting to not calling.", level="ERROR")
-            # Default all rooms to False
-            for room_id in self.config.rooms.keys():
-                if not self.config.rooms[room_id].get('disabled'):
-                    self.room_call_for_heat[room_id] = False
-            return
-            
         try:
-            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
-            if not data_str or data_str in ['unknown', 'unavailable']:
-                # Try migrating from old format
-                self._migrate_from_old_format()
-                return
-                
-            data = json.loads(data_str)
+            data = self.persistence.load()
+            room_state = data.get('room_state', {})
             
             # Load state for each configured room
             for room_id in self.config.rooms.keys():
                 if self.config.rooms[room_id].get('disabled'):
                     continue
-                    
-                if room_id in data and len(data[room_id]) >= 2:
-                    # Load persisted state
-                    persisted_calling = bool(data[room_id][1])
+                
+                if room_id in room_state:
+                    # Load persisted calling state
+                    persisted_calling = room_state[room_id].get('last_calling', False)
                     self.room_call_for_heat[room_id] = persisted_calling
-                    self.ad.log(f"Room {room_id}: Loaded persisted calling state = {persisted_calling}", level="DEBUG")
+                    
+                    # Load persisted passive valve state
+                    persisted_passive_valve = room_state[room_id].get('passive_valve', 0)
+                    self.room_last_valve[room_id] = persisted_passive_valve
+                    
+                    self.ad.log(
+                        f"Room {room_id}: Loaded persisted state - "
+                        f"calling={persisted_calling}, passive_valve={persisted_passive_valve}%",
+                        level="DEBUG"
+                    )
                 else:
                     # Room not in persistence data (new room?) - default to False
                     self.room_call_for_heat[room_id] = False
+                    self.room_last_valve[room_id] = 0
                     self.ad.log(f"Room {room_id}: Not in persistence data, defaulting to not calling", level="WARNING")
                     
-        except (json.JSONDecodeError, ValueError, TypeError) as e:
-            self.ad.log(f"ERROR: Failed to parse room persistence: {e}. All rooms defaulting to not calling.", level="ERROR")
-            # Default all rooms to False on parse error
+        except Exception as e:
+            self.ad.log(f"ERROR: Failed to load room persistence: {e}. All rooms defaulting to not calling.", level="ERROR")
+            # Default all rooms to False on error
             for room_id in self.config.rooms.keys():
                 if not self.config.rooms[room_id].get('disabled'):
                     self.room_call_for_heat[room_id] = False
-    
-    def _migrate_from_old_format(self) -> None:
-        """One-time migration from old pyheat_pump_overrun_valves format.
-        
-        Old format: {"pete": 70, "lounge": 100, ...}
-        New format: {"pete": [70, 0], "lounge": [100, 0], ...}
-        """
-        if not self.ad.entity_exists(C.HELPER_PUMP_OVERRUN_VALVES):
-            return
-            
-        try:
-            old_data_str = self.ad.get_state(C.HELPER_PUMP_OVERRUN_VALVES)
-            if not old_data_str or old_data_str in ['unknown', 'unavailable', '']:
-                return
-                
-            old_data = json.loads(old_data_str)
-            if not old_data:
-                return
-                
-            # Convert old format to new format
-            new_data = {}
-            for room_id, valve_percent in old_data.items():
-                if room_id in self.config.rooms:
-                    # Preserve valve position, initialize calling based on valve > 0
-                    calling = 1 if valve_percent > 0 else 0
-                    new_data[room_id] = [int(valve_percent), calling]
-            
-            # Save to new entity
-            if new_data:
-                self.ad.call_service("input_text/set_value",
-                    entity_id=C.HELPER_ROOM_PERSISTENCE,
-                    value=json.dumps(new_data, separators=(',', ':'))
-                )
-                self.ad.log(f"Migrated {len(new_data)} rooms from old persistence format", level="INFO")
-                
-                # Clear old entity
-                self.ad.call_service("input_text/set_value",
-                    entity_id=C.HELPER_PUMP_OVERRUN_VALVES,
-                    value=""
-                )
-        except (json.JSONDecodeError, ValueError, TypeError, Exception) as e:
-            self.ad.log(f"Failed to migrate from old persistence format: {e}", level="WARNING")
+                    self.room_last_valve[room_id] = 0
     
     def _persist_calling_state(self, room_id: str, calling: bool) -> None:
-        """Update last_calling in persistence entity.
+        """Update last_calling in persistence file.
         
-        Preserves existing valve_percent while updating calling state.
+        Preserves existing valve_percent and passive_valve while updating calling state.
         """
-        if not self.ad.entity_exists(C.HELPER_ROOM_PERSISTENCE):
-            return
-            
         try:
-            data_str = self.ad.get_state(C.HELPER_ROOM_PERSISTENCE)
-            data = json.loads(data_str) if data_str and data_str not in ['unknown', 'unavailable', ''] else {}
-            
-            # Initialize room entry if missing
-            if room_id not in data:
-                data[room_id] = [0, 0]
-            
-            # Update calling state (preserve valve_percent at index 0)
-            data[room_id][1] = 1 if calling else 0
-            
-            self.ad.call_service("input_text/set_value",
-                entity_id=C.HELPER_ROOM_PERSISTENCE,
-                value=json.dumps(data, separators=(',', ':'))
-            )
-        except (json.JSONDecodeError, ValueError, TypeError, Exception) as e:
+            self.persistence.update_room_state(room_id, last_calling=calling)
+        except Exception as e:
             self.ad.log(f"Failed to persist calling state for {room_id}: {e}", level="WARNING")
         
     def compute_room(self, room_id: str, now: datetime) -> Dict:
@@ -324,6 +261,14 @@ class RoomController:
             
             result['valve_percent'] = valve_percent
             self.room_last_valve[room_id] = valve_percent
+            
+            # Persist passive valve state if changed
+            if valve_percent != prev_valve:
+                try:
+                    self.persistence.update_room_state(room_id, passive_valve=valve_percent)
+                except Exception as e:
+                    self.ad.log(f"Failed to persist passive valve state for {room_id}: {e}", level="WARNING")
+            
             return result
         
         # ACTIVE MODE: PID control with call for heat

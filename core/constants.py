@@ -259,10 +259,9 @@ PASSIVE_VALVE_PERCENT_DEFAULT = 30  # %
 
 # Pump overrun persistence
 HELPER_PUMP_OVERRUN_TIMER = "timer.pyheat_boiler_pump_overrun_timer"
-HELPER_PUMP_OVERRUN_VALVES = "input_text.pyheat_pump_overrun_valves"  # Deprecated - use HELPER_ROOM_PERSISTENCE
 
-# Room state persistence (unified: valve positions + calling state)
-HELPER_ROOM_PERSISTENCE = "input_text.pyheat_room_persistence"
+# Local file-based persistence (replaces HA input_text entities)
+PERSISTENCE_FILE = "/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json"
 
 # Boiler anti-cycling timers (event-driven using timer helpers)
 HELPER_BOILER_MIN_ON_TIMER = "timer.pyheat_boiler_min_on_timer"

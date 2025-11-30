@@ -1,0 +1,2 @@
+# Ignore local state persistence file (user-specific)
+persistence.json

@@ -2104,35 +2104,51 @@ self.room_last_target = {}     # {room_id: float} - Previous target for change d
 
 **State Persistence:**
 - State survives across recompute cycles (essential for hysteresis)
-- `room_call_for_heat` persisted to HA entity `input_text.pyheat_room_persistence`
-- Restored on AppDaemon restart from persistence entity (single source of truth)
-- Updated every time `room_call_for_heat` changes
+- `room_call_for_heat` and `passive_valve` persisted to local file: `state/persistence.json`
+- Restored on AppDaemon restart from persistence file (single source of truth)
+- Updated every time calling state or passive valve position changes
 
-**Initialization on Restart (2025-11-20):**
+**Initialization on Restart:**
 
-The `room_call_for_heat` state is initialized from `input_text.pyheat_room_persistence` entity:
+State is initialized from local persistence file:
 
 ```python
 # Load persisted state on init
-data = json.loads(get_state('input_text.pyheat_room_persistence'))
-for room_id, [valve_percent, last_calling] in data.items():
-    room_call_for_heat[room_id] = bool(last_calling)
+persistence = PersistenceManager('/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json')
+data = persistence.load()
+room_state = data.get('room_state', {})
+
+for room_id in rooms:
+    room_call_for_heat[room_id] = room_state[room_id].get('last_calling', False)
+    room_last_valve[room_id] = room_state[room_id].get('passive_valve', 0)
 
 # Initialize target tracking to prevent false "changed" on first recompute
 room_last_target[room_id] = current_target
 ```
 
+**Persistence File Format:**
+```json
+{
+  "room_state": {
+    "pete": {"valve_percent": 0, "last_calling": false, "passive_valve": 0}
+  },
+  "cycling_protection": {"mode": "NORMAL", "saved_setpoint": null, "cooldown_start": null}
+}
+```
+
 **Single Source of Truth:**
-- `input_text.pyheat_room_persistence` is the authoritative source for calling state
-- Format: `{"pete": [valve_percent, last_calling], ...}`
-- Missing/invalid data defaults to `False` (not calling) with ERROR logs
+- `state/persistence.json` is the authoritative source for all internal state
+- Missing/invalid data defaults to safe values (`False` for calling, `0` for valves) with ERROR logs
 - First recompute (within seconds) establishes correct state from temperature vs target
+- Atomic writes (temp file + rename) prevent corruption on crashes
 
 **Why This Matters:**
 - Hysteresis state survives restarts correctly (prevents phantom bugs)
-- No ambiguity from stale valve positions or complex heuristics
-- Conservative default (not calling) prevents spurious heating on data loss
-- Robust against entity unavailability, JSON parse errors, or missing rooms
+- No 255-character size limits (was constrained by HA input_text entities)
+- Faster I/O (direct file access vs HA API calls)
+- Easier debugging (can inspect file directly)
+- No HA entity clutter
+- Conservative defaults prevent spurious heating on data loss
 
 ### The compute_room() Pipeline
 
