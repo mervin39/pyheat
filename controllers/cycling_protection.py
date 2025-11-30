@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from collections import deque
 import constants as C
-from core.persistence import PersistenceManager
+from persistence import PersistenceManager
 
 
 class CyclingProtection:

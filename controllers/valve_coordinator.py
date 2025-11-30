@@ -13,7 +13,7 @@ Responsibilities:
 from datetime import datetime
 from typing import Dict, Optional
 import constants as C
-from core.persistence import PersistenceManager
+from persistence import PersistenceManager
 
 
 class ValveCoordinator:

@@ -12,7 +12,7 @@ Responsibilities:
 from datetime import datetime
 from typing import Dict, Tuple, Optional
 import constants as C
-from core.persistence import PersistenceManager
+from persistence import PersistenceManager
 
 
 class RoomController:
