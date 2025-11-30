@@ -711,6 +711,10 @@ class LoadSharingManager:
             if state.get('mode') != 'auto':
                 continue
             
+            # Skip if in passive operating mode (user wants manual valve control)
+            if state.get('operating_mode') == 'passive':
+                continue
+            
             # Skip if already calling
             if state.get('calling', False):
                 continue
@@ -793,6 +797,10 @@ class LoadSharingManager:
         for room_id, state in room_states.items():
             # Skip if not in auto mode
             if state.get('mode') != 'auto':
+                continue
+            
+            # Skip if in passive operating mode (user wants manual valve control)
+            if state.get('operating_mode') == 'passive':
                 continue
             
             # Skip if already calling
@@ -901,6 +909,10 @@ class LoadSharingManager:
         for room_id, state in room_states.items():
             # Skip if not in auto mode
             if state.get('mode') != 'auto':
+                continue
+            
+            # Skip if in passive operating mode (user wants manual valve control)
+            if state.get('operating_mode') == 'passive':
                 continue
             
             # Skip if already calling
