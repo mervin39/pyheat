@@ -73,9 +73,16 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
 ### ⏳ Remaining Phases:
 - Phase 8: API Handler Enhancement (expose passive settings endpoints)
 - Phase 9: Alert Manager Enhancement (passive mode alerts)
-- Phase 11: Documentation updates - PARTIALLY COMPLETE
-  - ✅ README.md fully documented with usage examples
-  - ⏳ ARCHITECTURE.md needs flow diagram updates (deferred due to box drawing character encoding)
+
+### ✅ Phase 11: Documentation - COMPLETE
+- Updated `README.md` with comprehensive passive mode usage examples
+- Updated `docs/ARCHITECTURE.md`:
+  - Added passive mode to flow diagrams (target resolution, room heating logic, status publication)
+  - Documented passive room exclusion in load sharing (all 3 tiers)
+  - Updated target precedence hierarchy with passive mode
+  - Enhanced room control processing steps and return values
+  - Added passive mode to integration compatibility list
+- Documentation fully reflects implemented passive mode behavior
 
 **Passive Mode Behavior:**
 - **Manual Passive Mode:** User sets room to "passive" mode via input_select
@@ -102,7 +109,9 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
 1. `463f764` - Phase 3: Update scheduler to return dict with mode and valve_percent
 2. `2392e32` - Phase 4: Update room_controller and status_publisher for dict-based scheduler
 3. `f2b2d6f` - Phase 6: Exclude passive rooms from load sharing tier selection
-4. Pending - Phases 7 & 10: Status publisher and heating logger enhancements + config fix
+4. `e754921` - Phases 7 & 10: Status publisher and heating logger enhancements
+5. `be80668` - Phase 11: Add passive mode documentation to README.md (partial)
+6. `fe8848b` - Phase 11: Complete ARCHITECTURE.md passive mode documentation
 
 **Next Steps:**
 1. Complete remaining implementation phases (7-11)
