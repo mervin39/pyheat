@@ -4,6 +4,205 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #13: Load Sharing Entry Condition Ignores Passive Mode Rooms
+
+**Status:** OPEN 🔴  
+**Date Discovered:** 2025-11-30  
+**Severity:** Medium - causes unnecessary load sharing activation  
+**Category:** Load Sharing / Capacity Calculation
+
+### Description
+
+When evaluating whether to activate load sharing, the system calculates total capacity by summing only the capacity of **calling rooms**, completely ignoring **passive mode rooms** that have their valves open and are actively contributing heat capacity to the system.
+
+This causes load sharing to activate prematurely because it underestimates the actual system capacity.
+
+### Observed Behavior
+
+**Incident on 2025-11-30 at 22:36:37:**
+
+**System State:**
+- Pete's room: calling=True, mode=auto, valve=100%, capacity=1739W
+- Games room: calling=False, mode=**passive**, valve=20%, capacity=2504W (at 100%)
+- Office room: calling=False, mode=**passive**, valve=0%, capacity=777W (at 100%)
+
+**Load sharing entry calculation:**
+```python
+# Only counts calling rooms (Pete)
+total_capacity = 1739W
+
+# Log message
+"Load sharing entry: Low capacity (1739W < 2000W) + cycling protection active"
+```
+
+**Actual system capacity:**
+- Pete (calling): 1739W
+- Games (passive, 20% valve): ~501W (2504W × 0.20)
+- **Actual total: ~2240W** (not 1739W!)
+
+**Result:**
+- Load sharing activated to add Bathroom at 100% (valve change heard in bathroom)
+- This was unnecessary - system already had ~2240W of capacity
+- Bathroom valve opened from 0% → 100%, then closed 3 minutes later when load sharing cleared
+
+### Root Cause Analysis
+
+**Entry condition check** (`managers/load_sharing_manager.py` lines 617-644):
+```python
+def _evaluate_entry_conditions(self, room_states: Dict, cycling_protection_state: str) -> bool:
+    # Get calling rooms
+    calling_rooms = [rid for rid, state in room_states.items() if state.get('calling', False)]
+    
+    # Calculate total calling capacity
+    all_capacities = self.load_calculator.get_all_estimated_capacities()
+    total_capacity = 0.0
+    for room_id in calling_rooms:
+        capacity = all_capacities.get(room_id)
+        if capacity is not None:
+            total_capacity += capacity  # ❌ Only counts calling rooms!
+    
+    # Check capacity threshold
+    if total_capacity >= self.min_calling_capacity_w:
+        return False
+```
+
+**What's missing:** Passive mode rooms with open valves are not included in the capacity calculation.
+
+**Why this matters:**
+- Passive mode rooms with open valves are actively dissipating heat
+- They contribute to preventing boiler cycling just like calling rooms
+- Ignoring them leads to underestimating system capacity by 20-30% in typical scenarios
+- Load sharing activates when it shouldn't, causing unnecessary valve operations
+
+### Evidence
+
+**From heating_logs/2025-11-30.csv at 22:36:34:**
+```csv
+Room Capacities:
+- abby_estimated_dump_capacity: 2598.0W
+- bathroom_estimated_dump_capacity: 427.0W
+- games_estimated_dump_capacity: 2504.0W (mode=passive, valve_cmd=20)
+- lounge_estimated_dump_capacity: 2151.0W
+- office_estimated_dump_capacity: 777.0W (mode=passive, valve_cmd=0)
+- pete_estimated_dump_capacity: 1739.0W (calling=True, valve_cmd=100)
+
+Total valve opening: 120%
+System state: cycling protection active (COOLDOWN)
+```
+
+**From AppDaemon logs at 22:36:37:**
+```
+INFO pyheat: Load sharing entry: Low capacity (1739W < 2000W) + cycling protection active
+INFO pyheat: Load sharing Tier 3 selection: bathroom - priority=4, valve=50%, target=20.0C, adds 213W (total: 1952W)
+```
+
+Note: 1739W + 213W = 1952W, confirming that only Pete's capacity (1739W) was counted before adding bathroom.
+
+### Code Comparison
+
+**Entry condition** (counts calling rooms only):
+```python
+# managers/load_sharing_manager.py line 632-638
+calling_rooms = [rid for rid, state in room_states.items() if state.get('calling', False)]
+total_capacity = 0.0
+for room_id in calling_rooms:
+    capacity = all_capacities.get(room_id)
+    if capacity is not None:
+        total_capacity += capacity
+```
+
+**Active capacity calculation** (counts calling + load sharing rooms):
+```python
+# managers/load_sharing_manager.py line 1277-1292
+# Add calling rooms
+for room_id, state in room_states.items():
+    if state.get('calling', False):
+        capacity = all_capacities.get(room_id)
+        if capacity is not None:
+            total += capacity
+
+# Add load sharing rooms (with valve adjustment)
+for room_id, activation in self.context.active_rooms.items():
+    capacity = all_capacities.get(room_id)
+    if capacity is not None:
+        effective_capacity = capacity * (activation.valve_pct / 100.0)
+        total += effective_capacity
+```
+
+**Neither function includes passive mode rooms with open valves.**
+
+### Related Code Locations
+
+**Load sharing entry evaluation:**
+- `managers/load_sharing_manager.py` lines 617-667: `_evaluate_entry_conditions()`
+- Line 632: Gets calling rooms only
+- Lines 635-640: Calculates capacity from calling rooms only
+
+**Passive mode exclusion in tier selection:**
+- Lines 714-716 (Tier 1): Skip if `operating_mode == 'passive'`
+- Lines 802-804 (Tier 2): Skip if `operating_mode == 'passive'`
+- Lines 914-916 (Tier 3): Skip if `operating_mode == 'passive'`
+
+**Room state structure:**
+- `controllers/room_controller.py` lines 136-300: `compute_room()` returns dict with:
+  - `'calling'`: bool - whether actively calling for heat
+  - `'operating_mode'`: str - 'active', 'passive', or 'off'
+  - `'valve_percent'`: int - current valve position (0-100)
+
+**Passive mode valve control:**
+- `controllers/room_controller.py` lines 225-269: Passive mode logic
+  - Valves open/close based on temperature vs target
+  - Room does NOT call for heat (`calling=False`)
+  - Valve percentage stored and used
+
+### Impact
+
+**Medium severity because:**
+- Causes unnecessary load sharing activation (false positives)
+- Results in unwanted valve operations (user heard bathroom valve change)
+- Wastes energy by heating rooms that don't need it
+- Creates confusion - rooms appear to randomly receive heat
+- No safety issues - system continues to function
+- Load sharing eventually deactivates (usually within 3-5 minutes)
+
+**Frequency:** Occurs whenever:
+- System has passive mode rooms with open valves (common)
+- One or more calling rooms have capacity below threshold (< 2000W)
+- Cycling protection is active or high return temp detected
+- Combined actual capacity (calling + passive) would be sufficient
+
+**Typical scenario:**
+- Office or Games in passive mode with 10-20% valve open (opportunistic heating)
+- Pete's room calls for heat with 1700-1900W capacity
+- Load sharing activates thinking capacity is only 1700W
+- Actual capacity is 2200-2500W (including passive rooms)
+- Bathroom or other low-priority room unnecessarily opened
+
+### Configuration Context
+
+**From config/rooms.yaml:**
+- Games: delta_t50=2504W, frequently in passive mode
+- Office: delta_t50=777W, frequently in passive mode  
+- Pete: delta_t50=1900W, often the only calling room
+
+**From config/boiler.yaml:**
+- `min_calling_capacity_w: 2000` (load sharing entry threshold)
+- `target_capacity_w: 2500` (load sharing target capacity)
+
+### Investigation Notes
+
+Discovered while investigating why bathroom valve changed at 22:36:37. User heard the valve actuator sound and asked for explanation. Analysis revealed:
+
+1. Pete was the only calling room (1739W)
+2. Games was in passive mode with 20% valve open (~500W effective capacity)
+3. Load sharing entry condition saw only 1739W, triggered activation
+4. Actual system capacity was ~2240W (Pete 1739W + Games ~500W)
+5. This was above the 2000W threshold - activation was unnecessary
+
+The `_calculate_total_system_capacity()` function (used during active load sharing) also doesn't count passive rooms, suggesting this is a systemic issue in capacity calculation throughout the load sharing system.
+
+---
+
 ## BUG #12: Spurious "Not in persistence data" Warnings on Startup
 
 **Status:** OPEN 🔴  
