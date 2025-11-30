@@ -1,45 +1,121 @@
 
 # PyHeat Changelog
 
-## 2025-11-30: Add State Listeners for Passive Mode Settings
+## 2025-11-30: Passive Heating Mode Implementation
 
-**Status:** IMPLEMENTED ✅
+**Status:** IN PROGRESS 🚧
 
 **Branch:** `feature/passive-mode`
 
 **Summary:**
-Added real-time state listeners for passive mode configuration entities (`input_number.pyheat_{room}_passive_max_temp` and `input_number.pyheat_{room}_passive_valve_percent`) to provide immediate response to user changes, consistent with other room configuration entities.
+Adding "passive" heating mode that allows rooms to open valves opportunistically without calling for heat from the boiler. Passive mode enables heating during times when other rooms are calling for heat, or when a small amount of baseline warmth is desired without triggering boiler operation.
 
-**Problem:**
-Passive mode entities had no state listeners, meaning changes were only detected during the 60-second periodic recompute cycle. This caused:
-- Up to 60-second delay before valve changes took effect
-- Inconsistent UX compared to other settings (mode, manual setpoint, override) which respond instantly
-- Poor experience during passive mode testing/tuning when users expect immediate feedback
+**Passive Mode Behavior:**
+- **Manual Passive Mode:** User sets room to "passive" mode via input_select
+  - Room valve opens to configured percentage when temp < max_temp
+  - Room never calls for heat (demand = 0W)
+  - Useful for: baseline warmth, opportunistic heating, maintaining minimum temperature
+  
+- **Scheduled Passive Periods:** Auto mode can include passive schedule blocks
+  - Example: `passive 6-8am` (gentle morning warm-up), then `active 8am-10pm` (full heating)
+  - Schedule YAML: `{start: "06:00", target: 18.0, mode: "passive", valve_percent: 30}`
+  
+- **Override Always Active:** When override triggered, always uses active heating (never passive)
+  - User needs immediate temperature rise → requires active PID control
 
-**Solution:**
-- Added state listeners for both passive mode entities in `app.py`
+**Implementation Completed:**
+
+### Phase 1: Constants
+- Added `MODE_PASSIVE`, `VALID_MODES` to constants.py
+- Added `HELPER_ROOM_PASSIVE_MAX_TEMP` and `HELPER_ROOM_PASSIVE_VALVE_PERCENT` helper entity templates
+- Added `PASSIVE_MAX_TEMP_DEFAULT` (18.0°C) and `PASSIVE_VALVE_PERCENT_DEFAULT` (30%)
+
+### Phase 2: Home Assistant Entities
+- Updated `config/ha_yaml/pyheat_package.yaml`:
+  - Added "Passive" option to all 6 room mode selectors
+  - Added `input_number.pyheat_{room}_passive_max_temp` for each room (10-30°C, default 18°C)
+  - Added `input_number.pyheat_{room}_passive_valve_percent` for each room (0-100%, default 30%)
+  - Updated `pyheat_set_mode` script to handle passive mode
+
+### Phase 3: Scheduler Enhancement
+- Modified `core/scheduler.py`:
+  - Changed `resolve_room_target()` return type from `Optional[float]` to `Optional[Dict]`
+  - New dict format: `{'target': float, 'mode': 'active'|'passive', 'valve_percent': Optional[int]}`
+  - Added helper methods `_get_passive_max_temp()` and `_get_passive_valve_percent()`
+  - Schedule blocks can now include 'mode' and 'valve_percent' fields
+
+### Phase 4: Room Controller Enhancement
+- Modified `controllers/room_controller.py`:
+  - Updated `compute_room()` to handle dict return from scheduler
+  - Added `'operating_mode'` field to result dict (active/passive/off)
+  - Implemented passive mode valve control: binary threshold (valve opens if temp < max_temp)
+  - Passive mode never calls for heat (calling always False)
+- Modified `services/status_publisher.py`:
+  - Updated `publish_room_entities()` to extract target from scheduled_info dict
+
+### Phase 6: Load Sharing Enhancement
+- Modified `managers/load_sharing_manager.py`:
+  - Added passive operating_mode check to all three tier selection methods
+  - Passive rooms now excluded from load sharing (user has manual valve control)
+
+### Phase 7: Status Publisher Enhancement
+- Modified `services/status_publisher.py`:
+  - Added `operating_mode` field to room attributes in `publish_system_status()`
+  - Added `passive_max_temp` field when room in passive mode
+  - Status API now exposes passive mode state for pyheat-web integration
+
+### Phase 10: Heating Logger Enhancement
+- Modified `services/heating_logger.py`:
+  - Added `{room_id}_operating_mode` column to CSV logs
+  - Added operating_mode change detection in `should_log()`
+- Modified `app.py`:
+  - Added `operating_mode` to room data passed to heating logger
+
+### Phase 11: Documentation
+- Updated `README.md` with comprehensive passive mode usage examples
+- Updated `docs/ARCHITECTURE.md`:
+  - Added passive mode to flow diagrams (target resolution, room heating logic, status publication)
+  - Documented passive room exclusion in load sharing (all 3 tiers)
+  - Updated target precedence hierarchy with passive mode
+  - Enhanced room control processing steps and return values
+
+### Phase 12: State Listeners for Passive Settings
+- Added real-time state listeners for passive mode entities in `app.py`
 - Implemented `room_passive_setting_changed()` callback handler
-- Follows same pattern as existing `room_setpoint_changed()` handler
-- Triggers immediate recompute with descriptive trigger name
+- Changes to `passive_max_temp` and `passive_valve_percent` now trigger immediate recompute
+- Resolves 60-second delay issue (entities previously only checked during periodic recompute)
 
-**Changes:**
-- `app.py`:
-  - Added `listen_state()` for `HELPER_ROOM_PASSIVE_MAX_TEMP` (per room)
-  - Added `listen_state()` for `HELPER_ROOM_PASSIVE_VALVE_PERCENT` (per room)
-  - Implemented `room_passive_setting_changed()` callback
-  - Logs which setting changed (max_temp or valve_percent)
-  - Triggers recompute with `room_{room_id}_passive_{setting}_changed`
+**Testing Status:**
+- ✅ System running without errors
+- ✅ Core passive mode functionality implemented
+- ✅ Load sharing correctly excludes passive rooms
+- ✅ Status API exposes operating_mode for UI integration
+- ✅ CSV logs include operating_mode for analysis
+- ✅ Passive settings respond immediately to user changes
+- ⏳ Need to test: actual passive mode operation with real room
 
-**Impact:**
-- Passive mode settings now respond immediately (< 1 second)
-- Consistent behavior with all other room configuration entities
-- Better user experience for passive mode testing and adjustment
-- No performance impact (rare manual changes, not sensor updates)
+**Remaining Work:**
+- Phase 8: API Handler Enhancement (expose passive settings endpoints)
+- Phase 9: Alert Manager Enhancement (passive mode alerts)
 
-**Testing:**
-- Changes to `input_number.pyheat_{room}_passive_max_temp` trigger immediate recompute
-- Changes to `input_number.pyheat_{room}_passive_valve_percent` trigger immediate recompute
-- Valve commands sent within 1 second of entity change
+**Commits:**
+- `463f764` - Phase 3: Update scheduler to return dict with mode and valve_percent
+- `2392e32` - Phase 4: Update room_controller and status_publisher for dict-based scheduler
+- `f2b2d6f` - Phase 6: Exclude passive rooms from load sharing tier selection
+- `e754921` - Phases 7 & 10: Status publisher and heating logger enhancements
+- `be80668` - Phase 11: Add passive mode documentation to README.md
+- `fe8848b` - Phase 11: Complete ARCHITECTURE.md passive mode documentation
+- `034d50f` - Phase 12: Add state listeners for passive settings
+
+---
+
+## 2025-11-30: Add State Listeners for Passive Mode Settings
+
+**Status:** IMPLEMENTED ✅ (Merged into Passive Mode Implementation above)
+
+**Branch:** `feature/passive-mode`
+
+**Note:** This was originally a standalone entry but has been merged into the main Passive Mode Implementation entry above (Phase 12) for better organization.
 
 ---
 
