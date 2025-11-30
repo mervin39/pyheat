@@ -10,7 +10,7 @@ Responsibilities:
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 import constants as C
 
 
@@ -30,27 +30,31 @@ class Scheduler:
         self.override_manager = override_manager
         
     def resolve_room_target(self, room_id: str, now: datetime, room_mode: str, 
-                           holiday_mode: bool, is_stale: bool) -> Optional[float]:
-        """Resolve the target temperature for a room.
+                           holiday_mode: bool, is_stale: bool) -> Optional[Dict]:
+        """Resolve the target temperature and operating mode for a room.
         
-        Precedence (highest wins): off → manual → override → schedule/default
+        Precedence (highest wins): off → manual → passive → override → schedule/default
         
         Args:
             room_id: Room identifier
             now: Current datetime
-            room_mode: Room mode (auto/manual/off)
+            room_mode: Room mode (auto/manual/passive/off)
             holiday_mode: Whether holiday mode is active
             is_stale: Whether temperature sensors are stale
             
         Returns:
-            Target temperature in C, or None if room is off
+            Dict with keys:
+                'target': float - Temperature (setpoint or max temp)
+                'mode': str - 'active' or 'passive'
+                'valve_percent': Optional[int] - For passive mode only
+            Or None if room is off
             Note: Manual mode returns target even if sensors are stale
         """
         # Room off → no target
         if room_mode == "off":
             return None
         
-        # Manual mode → use manual setpoint
+        # Manual mode → active heating with manual setpoint
         if room_mode == "manual":
             setpoint_entity = C.HELPER_ROOM_MANUAL_SETPOINT.format(room=room_id)
             if self.ad.entity_exists(setpoint_entity):
@@ -58,31 +62,87 @@ class Scheduler:
                     setpoint = float(self.ad.get_state(setpoint_entity))
                     # Round to room precision
                     precision = self.config.rooms[room_id].get('precision', 1)
-                    return round(setpoint, precision)
+                    return {
+                        'target': round(setpoint, precision),
+                        'mode': 'active',
+                        'valve_percent': None
+                    }
                 except (ValueError, TypeError):
                     self.ad.log(f"Invalid manual setpoint for room '{room_id}'", level="WARNING")
                     return None
             return None
         
+        # Passive mode → passive heating with helper entity values
+        if room_mode == "passive":
+            max_temp = self._get_passive_max_temp(room_id)
+            valve_pct = self._get_passive_valve_percent(room_id)
+            precision = self.config.rooms[room_id].get('precision', 1)
+            return {
+                'target': round(max_temp, precision),
+                'mode': 'passive',
+                'valve_percent': valve_pct
+            }
+        
         # Auto mode → check for override, then schedule
         
         # Check for active override via override manager
+        # Override ALWAYS forces active heating (not passive)
         if self.override_manager:
             override_target = self.override_manager.get_override_target(room_id)
             if override_target is not None:
                 precision = self.config.rooms[room_id].get('precision', 1)
-                return round(override_target, precision)
+                return {
+                    'target': round(override_target, precision),
+                    'mode': 'active',
+                    'valve_percent': None
+                }
         
-        # No override → get scheduled target
-        scheduled_target = self.get_scheduled_target(room_id, now, holiday_mode)
-        if scheduled_target is not None:
+        # No override → get scheduled target (may be active or passive)
+        scheduled_info = self.get_scheduled_target(room_id, now, holiday_mode)
+        if scheduled_info is not None:
             precision = self.config.rooms[room_id].get('precision', 1)
-            return round(scheduled_target, precision)
+            # Round target but preserve mode and valve_percent
+            scheduled_info['target'] = round(scheduled_info['target'], precision)
+            return scheduled_info
         
         return None
         
-    def get_scheduled_target(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[float]:
-        """Get the scheduled target temperature for a room.
+    def _get_passive_max_temp(self, room_id: str) -> float:
+        """Get the passive max temperature for a room from helper entity.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            Passive max temperature (defaults to PASSIVE_MAX_TEMP_DEFAULT if not found)
+        """
+        entity = C.HELPER_ROOM_PASSIVE_MAX_TEMP.format(room=room_id)
+        if self.ad.entity_exists(entity):
+            try:
+                return float(self.ad.get_state(entity))
+            except (ValueError, TypeError):
+                self.ad.log(f"Invalid passive_max_temp for room '{room_id}', using default", level="WARNING")
+        return C.PASSIVE_MAX_TEMP_DEFAULT
+    
+    def _get_passive_valve_percent(self, room_id: str) -> int:
+        """Get the passive valve opening percentage for a room from helper entity.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            Passive valve opening percentage (defaults to PASSIVE_VALVE_PERCENT_DEFAULT if not found)
+        """
+        entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
+        if self.ad.entity_exists(entity):
+            try:
+                return int(float(self.ad.get_state(entity)))
+            except (ValueError, TypeError):
+                self.ad.log(f"Invalid passive_valve_percent for room '{room_id}', using default", level="WARNING")
+        return C.PASSIVE_VALVE_PERCENT_DEFAULT
+    
+    def get_scheduled_target(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[Dict]:
+        """Get the scheduled target temperature and mode for a room.
         
         Args:
             room_id: Room identifier
@@ -90,15 +150,23 @@ class Scheduler:
             holiday_mode: Whether holiday mode is active
             
         Returns:
-            Target temperature from schedule or default, or None if no schedule
+            Dict with keys:
+                'target': float - Temperature (setpoint or max temp)
+                'mode': str - 'active' or 'passive'
+                'valve_percent': Optional[int] - For passive mode only
+            Or None if no schedule
         """
         schedule = self.config.schedules.get(room_id)
         if not schedule:
             return None
         
-        # If holiday mode, return holiday target
+        # If holiday mode, return active heating at holiday target
         if holiday_mode:
-            return C.HOLIDAY_TARGET_C
+            return {
+                'target': C.HOLIDAY_TARGET_C,
+                'mode': 'active',
+                'valve_percent': None
+            }
         
         # Get day of week (0=Monday, 6=Sunday)
         day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
@@ -121,10 +189,22 @@ class Scheduler:
             
             # Check if current time is within block (start inclusive, end exclusive)
             if start_time <= current_time < end_time:
-                return block['target']
+                # Get mode from block (default to active if not specified)
+                block_mode = block.get('mode', 'active')
+                valve_percent = block.get('valve_percent') if block_mode == 'passive' else None
+                
+                return {
+                    'target': block['target'],
+                    'mode': block_mode,
+                    'valve_percent': valve_percent
+                }
         
-        # No active block → return default
-        return schedule.get('default_target')
+        # No active block → return default target with active mode
+        return {
+            'target': schedule.get('default_target'),
+            'mode': 'active',
+            'valve_percent': None
+        }
     
     def get_next_schedule_change(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[tuple[str, float, int]]:
         """Get the next schedule change time and target temperature.
@@ -148,9 +228,10 @@ class Scheduler:
             return None
         
         # Get current target temperature to compare against
-        current_target = self.resolve_room_target(room_id, now, "auto", holiday_mode, False)
-        if current_target is None:
+        current_target_info = self.resolve_room_target(room_id, now, "auto", holiday_mode, False)
+        if current_target_info is None:
             return None
+        current_target = current_target_info['target']
         
         # Get day of week (0=Monday, 6=Sunday)
         day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
