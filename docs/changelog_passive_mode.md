@@ -73,7 +73,9 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
 ### ⏳ Remaining Phases:
 - Phase 8: API Handler Enhancement (expose passive settings endpoints)
 - Phase 9: Alert Manager Enhancement (passive mode alerts)
-- Phase 11: Documentation updates (README, ARCHITECTURE)
+- Phase 11: Documentation updates - PARTIALLY COMPLETE
+  - ✅ README.md fully documented with usage examples
+  - ⏳ ARCHITECTURE.md needs flow diagram updates (deferred due to box drawing character encoding)
 
 **Passive Mode Behavior:**
 - **Manual Passive Mode:** User sets room to "passive" mode via input_select
