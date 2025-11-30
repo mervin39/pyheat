@@ -171,7 +171,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    ├─ Entry conditions:                                                      │
 │    │    • Low capacity (calling capacity < 3500W)                            │
 │    │    • Cycling risk evidence (recent cooldown OR high return temp)        │
-│    ├─ Three-tier cascading selection:                                        │
+│    ├─ Three-tier cascading selection (passive rooms excluded):               │
 │    │    • Tier 1: Schedule-aware pre-warming (60 min lookahead)              │
 │    │    • Tier 2: Extended lookahead (120 min window)                        │
 │    │    • Tier 3: Fallback priority list (deterministic)                     │
@@ -845,11 +845,12 @@ The `resolve_room_target()` method implements a strict precedence hierarchy:
 ```
 Priority (highest to lowest):
 1. OFF mode          → None (no heating)
-2. MANUAL mode       → manual setpoint (ignores schedule/override)
-3. OVERRIDE active   → override target (absolute, calculated from target or delta at creation)
-4. SCHEDULE block    → block target for current time
-5. DEFAULT           → default_target (gap between blocks)
-6. HOLIDAY mode      → 15.0°C (if no schedule/override/manual)
+2. MANUAL mode       → manual setpoint (ignores schedule/override) - active heating
+3. PASSIVE mode      → passive_max_temp (threshold, not setpoint) - passive heating
+4. OVERRIDE active   → override target (absolute, calculated from target or delta) - active heating
+5. SCHEDULE block    → block target for current time (may specify active or passive)
+6. DEFAULT           → default_target (gap between blocks) - active heating
+7. HOLIDAY mode      → 15.0°C (if no schedule/override/manual) - active heating
 ```
 
 **Precedence Examples:**
@@ -857,19 +858,29 @@ Priority (highest to lowest):
 | Mode | Override | Schedule | Result |
 |------|----------|----------|--------|
 | Off | - | 18.0°C | **None** (off wins) |
-| Manual | 21.0°C | 18.0°C | **20.0°C** (manual setpoint, ignores override) |
-| Auto | 21.0°C | 18.0°C | **21.0°C** (override wins) |
-| Auto | 20.0°C (from delta +2) | 18.0°C | **20.0°C** (override calculated from delta) |
-| Auto | - | 18.0°C | **18.0°C** (scheduled block) |
-| Auto | - | (gap) | **14.0°C** (default_target) |
-| Auto | - | (gap, holiday) | **15.0°C** (holiday mode) |
+| Manual | 21.0°C | 18.0°C | **20.0°C** (manual setpoint, active, ignores override) |
+| Passive | 21.0°C | 18.0°C | **18.0°C** (passive max_temp, passive, ignores override) |
+| Auto | 21.0°C | 18.0°C | **21.0°C** (override wins, active) |
+| Auto | 20.0°C (from delta +2) | 18.0°C | **20.0°C** (override calculated from delta, active) |
+| Auto | - | 18.0°C | **18.0°C** (scheduled block, mode from schedule) |
+| Auto | - | (gap) | **14.0°C** (default_target, active) |
+| Auto | - | (gap, holiday) | **15.0°C** (holiday mode, active) |
 
 **Key Behaviors:**
 - **Off mode** always wins - even if override active
-- **Manual mode** ignores ALL overrides and schedules
-- **Override** is stored as absolute temperature (delta only used at creation time)
+- **Manual mode** ignores ALL overrides and schedules, uses active heating
+- **Passive mode** ignores ALL overrides and schedules, uses passive heating with max_temp threshold
+- **Override** is stored as absolute temperature (delta only used at creation time), always uses active heating
+- **Schedule blocks** can specify `mode: 'passive'` for scheduled passive periods
 - **Holiday mode** only applies when no override active
 - **Stale sensors** prevent heating EXCEPT in manual mode
+
+**Passive Mode Details:**
+- Passive mode never calls for heat (calling = False)
+- Valve opens to configured percentage when temp < max_temp, else closes
+- Simple binary threshold control (no PID, no hysteresis)
+- Useful for opportunistic heating when other rooms call for heat
+- Excluded from load sharing (user has manual valve control)
 
 ### Schedule Resolution Algorithm
 
@@ -1776,6 +1787,7 @@ class LoadSharingContext:
 
 **Selection Criteria:**
 - Room in "auto" mode (respects user intent)
+- Room NOT in passive operating mode (passive rooms excluded from load sharing)
 - Next scheduled block within `schedule_lookahead_m` minutes (per-room configurable, default: 60)
 - Scheduled target > current temp + 0.5°C (will definitely need heating)
 - Not currently calling for heat
@@ -1791,6 +1803,7 @@ class LoadSharingContext:
 **Selection Criteria:**
 - Same as Tier 1, but with 2× `schedule_lookahead_m` window
 - Room with 60 min lookahead → check 120 min window
+- Room NOT in passive operating mode (passive rooms excluded from load sharing)
 - Catches rooms with later schedules that might be acceptable to pre-warm
 
 **Valve Opening:** 40% initial → 50% escalated (gentler than Tier 1)
@@ -1802,6 +1815,7 @@ class LoadSharingContext:
 **Selection Criteria:**
 - Explicit `fallback_priority` ranking from room configs (1, 2, 3, ...)
 - Only "auto" mode rooms eligible
+- Room NOT in passive operating mode (passive rooms excluded from load sharing)
 - **No temperature check** - ultimate fallback accepts any room to prevent cycling
 - Excludes "off" and "manual" mode rooms
 
@@ -2049,6 +2063,7 @@ Load sharing: Tier 3 ACTIVATED (fallback) - consider improving schedules
 - ✅ **Room Controller Hysteresis:** Load sharing rooms transition to normal when naturally calling
 - ✅ **Master Enable:** System properly handles enable/disable
 - ✅ **Manual Mode:** Excluded from selection (only "auto" mode eligible)
+- ✅ **Passive Mode:** Excluded from selection (user controls valve opening manually)
 - ✅ **Safety Room:** Different priority tiers (no conflict)
 - ✅ **Recompute Triggers:** Existing triggers adequate (sensor changes, timers, mode changes)
 
@@ -2127,18 +2142,18 @@ def compute_room(room_id: str, now: datetime) -> Dict:
 **Processing Steps:**
 
 ```
-1. Read room mode (auto/manual/off) from helper entity
+1. Read room mode (auto/manual/passive/off) from helper entity
 2. Read holiday mode (system-wide) from helper entity
 3. Get fused temperature from SensorManager
-4. Resolve target temperature from Scheduler
+4. Resolve target temperature and operating mode from Scheduler
 5. Validate inputs:
    - If target is None → calling=False, valve=0%
    - If temp is None (sensors stale) → calling=False, valve=0%
    - Exception: Manual mode still requires valid temp
-6. Calculate error = target - temp
-7. Compute call-for-heat using hysteresis
-8. Compute valve percentage using stepped bands
-9. Return room state dict
+6. Branch on operating mode:
+   - PASSIVE: Binary threshold control (valve open if temp < max_temp)
+   - ACTIVE: Calculate error, hysteresis, and stepped valve bands
+7. Return room state dict
 ```
 
 **Return Value:**
@@ -2147,7 +2162,8 @@ def compute_room(room_id: str, now: datetime) -> Dict:
     'temp': 21.3,              # Current temperature (°C) or None
     'target': 22.0,            # Target temperature (°C) or None
     'is_stale': False,         # True if sensors stale
-    'mode': 'auto',            # Room mode
+    'mode': 'auto',            # Room mode (auto/manual/passive/off)
+    'operating_mode': 'active',# Operating mode ('active', 'passive', or 'off')
     'calling': True,           # Whether room calls for heat
     'valve_percent': 65,       # Commanded valve opening (0-100)
     'error': 0.7,              # target - temp (°C)
@@ -2159,6 +2175,13 @@ def compute_room(room_id: str, now: datetime) -> Dict:
 - No target → no heating (off mode or invalid schedule)
 - Stale sensors → no heating (safety, prevents runaway)
 - Manual mode with stale sensors → still no heating (safety override)
+
+**Passive Mode Behavior:**
+- Never calls for heat (`calling` always False)
+- Valve opens to configured percentage when temp < max_temp
+- Closes when temp >= max_temp (simple binary threshold)
+- No hysteresis, no PID control (intentionally simple)
+- Excluded from load sharing calculations
 
 ### Asymmetric Hysteresis (Call-for-Heat Decision)
 
