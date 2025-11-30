@@ -4,6 +4,78 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #12: Spurious "Not in persistence data" Warnings on Startup
+
+**Status:** OPEN 🔴  
+**Date Discovered:** 2025-11-30  
+**Severity:** Low - Cosmetic only, no functional impact  
+**Category:** Logging / Initialization
+
+### Description
+
+On AppDaemon restart, some rooms (lounge, abby, bathroom) consistently log WARNING messages claiming they're "Not in persistence data, defaulting to not calling" even though they ARE present in the persistence.json file with correct data structure.
+
+### Observed Behavior
+
+```
+2025-11-30 16:01:31.352943 DEBUG pyheat: Room pete: Loaded persisted state - calling=False, passive_valve=10%
+2025-11-30 16:01:31.353797 DEBUG pyheat: Room games: Loaded persisted state - calling=False, passive_valve=10%
+2025-11-30 16:01:31.354632 WARNING pyheat: Room lounge: Not in persistence data, defaulting to not calling
+2025-11-30 16:01:31.355539 WARNING pyheat: Room abby: Not in persistence data, defaulting to not calling
+2025-11-30 16:01:31.356635 DEBUG pyheat: Room office: Loaded persisted state - calling=False, passive_valve=70%
+2025-11-30 16:01:31.357492 WARNING pyheat: Room bathroom: Not in persistence data, defaulting to not calling
+```
+
+**Actual persistence.json content:**
+```json
+{
+  "room_state": {
+    "games": {"valve_percent": 0, "last_calling": false, "passive_valve": 0},
+    "pete": {"valve_percent": 0, "last_calling": false, "passive_valve": 0},
+    "lounge": {"valve_percent": 0, "last_calling": false, "passive_valve": 0},
+    "abby": {"valve_percent": 0, "last_calling": false, "passive_valve": 0},
+    "office": {"valve_percent": 0, "last_calling": false, "passive_valve": 0},
+    "bathroom": {"valve_percent": 0, "last_calling": false, "passive_valve": 0}
+  }
+}
+```
+
+All 6 rooms are present in the file with identical structure.
+
+### Additional Mystery
+
+Some logs show rooms loading non-zero passive_valve values (10%, 70%) that don't exist in the actual persistence file on disk. These values don't match the file content at time of startup, suggesting possible:
+- Race condition during initialization
+- Bytecode caching issue
+- Multiple PersistenceManager instances reading at different times
+- Temp file from previous atomic write still cached somewhere
+
+### Impact
+
+- ✅ **Functional:** None - rooms default safely and system operates correctly
+- ❌ **Cosmetic:** Confusing/misleading logs
+- ❌ **Debugging:** Makes it harder to trust persistence-related logs
+
+### Root Cause Hypothesis
+
+Possible causes:
+1. **Race condition:** Multiple controllers (RoomController, ValveCoordinator, CyclingProtection) each create PersistenceManager instances and may read file at different moments during initialization
+2. **Dictionary iteration order:** The for-loop in `_load_persisted_state()` may have timing-dependent behavior
+3. **File I/O timing:** File system cache or delayed writes/flushes creating stale reads
+4. **AppDaemon initialization quirk:** Some aspect of how AppDaemon initializes apps
+
+### Investigation Notes
+
+File modification time shows persistence.json hasn't been written since first migration (15:48), yet logs show it being read with different values across restarts. This is unexplained.
+
+**Location:** `controllers/room_controller.py:_load_persisted_state()` lines 80-115
+
+### Workaround
+
+None needed - system functions correctly. Could potentially downgrade WARNING to DEBUG for these cases, but want to keep WARNING for genuinely missing rooms (new additions to config).
+
+---
+
 ## BUG #11: Inconsistent Config Initialization Pattern Across Codebase
 
 **Status:** OPEN 🔴  
