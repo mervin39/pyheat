@@ -1,6 +1,48 @@
 
 # PyHeat Changelog
 
+## 2025-11-30: Add State Listeners for Passive Mode Settings
+
+**Status:** IMPLEMENTED ✅
+
+**Branch:** `feature/passive-mode`
+
+**Summary:**
+Added real-time state listeners for passive mode configuration entities (`input_number.pyheat_{room}_passive_max_temp` and `input_number.pyheat_{room}_passive_valve_percent`) to provide immediate response to user changes, consistent with other room configuration entities.
+
+**Problem:**
+Passive mode entities had no state listeners, meaning changes were only detected during the 60-second periodic recompute cycle. This caused:
+- Up to 60-second delay before valve changes took effect
+- Inconsistent UX compared to other settings (mode, manual setpoint, override) which respond instantly
+- Poor experience during passive mode testing/tuning when users expect immediate feedback
+
+**Solution:**
+- Added state listeners for both passive mode entities in `app.py`
+- Implemented `room_passive_setting_changed()` callback handler
+- Follows same pattern as existing `room_setpoint_changed()` handler
+- Triggers immediate recompute with descriptive trigger name
+
+**Changes:**
+- `app.py`:
+  - Added `listen_state()` for `HELPER_ROOM_PASSIVE_MAX_TEMP` (per room)
+  - Added `listen_state()` for `HELPER_ROOM_PASSIVE_VALVE_PERCENT` (per room)
+  - Implemented `room_passive_setting_changed()` callback
+  - Logs which setting changed (max_temp or valve_percent)
+  - Triggers recompute with `room_{room_id}_passive_{setting}_changed`
+
+**Impact:**
+- Passive mode settings now respond immediately (< 1 second)
+- Consistent behavior with all other room configuration entities
+- Better user experience for passive mode testing and adjustment
+- No performance impact (rare manual changes, not sensor updates)
+
+**Testing:**
+- Changes to `input_number.pyheat_{room}_passive_max_temp` trigger immediate recompute
+- Changes to `input_number.pyheat_{room}_passive_valve_percent` trigger immediate recompute
+- Valve commands sent within 1 second of entity change
+
+---
+
 ## 2025-11-29: Remove Confusing Hardcoded Values from LoadSharingManager
 
 **Status:** IMPLEMENTED ✅

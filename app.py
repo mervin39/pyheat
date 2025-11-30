@@ -239,6 +239,15 @@ class PyHeat(hass.Hass):
             if self.entity_exists(setpoint_entity):
                 self.listen_state(self.room_setpoint_changed, setpoint_entity, room_id=room_id)
             
+            # Passive mode setting changes
+            passive_max_entity = C.HELPER_ROOM_PASSIVE_MAX_TEMP.format(room=room_id)
+            if self.entity_exists(passive_max_entity):
+                self.listen_state(self.room_passive_setting_changed, passive_max_entity, room_id=room_id)
+            
+            passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
+            if self.entity_exists(passive_valve_entity):
+                self.listen_state(self.room_passive_setting_changed, passive_valve_entity, room_id=room_id)
+            
             # Override timer changes
             timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
             if self.entity_exists(timer_entity):
@@ -430,6 +439,16 @@ class PyHeat(hass.Hass):
         room_id = kwargs.get('room_id')
         self.log(f"Room '{room_id}' manual setpoint changed: {old} -> {new}")
         self.trigger_recompute(f"room_{room_id}_setpoint_changed")
+
+    def room_passive_setting_changed(self, entity, attribute, old, new, kwargs):
+        room_id = kwargs.get('room_id')
+        # Determine which setting changed (max_temp or valve_percent)
+        if 'passive_max_temp' in entity:
+            setting = 'max_temp'
+        else:
+            setting = 'valve_percent'
+        self.log(f"Room '{room_id}' passive {setting} changed: {old} -> {new}")
+        self.trigger_recompute(f"room_{room_id}_passive_{setting}_changed")
 
     def room_timer_changed(self, entity, attribute, old, new, kwargs):
         room_id = kwargs.get('room_id')

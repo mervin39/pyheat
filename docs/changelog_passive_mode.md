@@ -84,6 +84,13 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
   - Added passive mode to integration compatibility list
 - Documentation fully reflects implemented passive mode behavior
 
+### ✅ Phase 12: State Listeners for Passive Settings - COMPLETE
+- Added real-time state listeners for passive mode entities
+- Implemented `room_passive_setting_changed()` callback handler
+- Changes to `passive_max_temp` and `passive_valve_percent` now trigger immediate recompute
+- Resolves 60-second delay issue (entities previously only checked during periodic recompute)
+- Consistent UX with other room configuration entities (mode, manual setpoint, override)
+
 **Passive Mode Behavior:**
 - **Manual Passive Mode:** User sets room to "passive" mode via input_select
   - Room valve opens to configured percentage when temp < max_temp
@@ -98,11 +105,12 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
   - User needs immediate temperature rise → requires active PID control
 
 **Testing Status:**
-- ✅ System running without errors after Phases 1-7, 10
+- ✅ System running without errors after Phases 1-7, 10, 11, 12
 - ✅ Core passive mode functionality implemented
 - ✅ Load sharing correctly excludes passive rooms
 - ✅ Status API exposes operating_mode for UI integration
 - ✅ CSV logs include operating_mode for analysis
+- ✅ Passive settings respond immediately to user changes
 - ⏳ Need to test: actual passive mode operation with real room
 
 **Commits:**
@@ -111,6 +119,8 @@ Adding "passive" heating mode that allows rooms to open valves opportunistically
 3. `f2b2d6f` - Phase 6: Exclude passive rooms from load sharing tier selection
 4. `e754921` - Phases 7 & 10: Status publisher and heating logger enhancements
 5. `be80668` - Phase 11: Add passive mode documentation to README.md (partial)
+6. `fe8848b` - Phase 11: Complete ARCHITECTURE.md passive mode documentation
+7. Pending - Phase 12: Add state listeners for passive settings
 6. `fe8848b` - Phase 11: Complete ARCHITECTURE.md passive mode documentation
 
 **Next Steps:**
