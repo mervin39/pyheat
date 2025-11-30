@@ -11,7 +11,8 @@ PyHeat provides multi-room heating control with:
 - **Short-cycling protection** via return temperature monitoring and setpoint manipulation
 - **Load sharing** - intelligent multi-room heating to prevent boiler short-cycling
 - **Sensor fusion** with staleness detection and optional EMA smoothing
-- **Multiple control modes**: Auto (scheduled), Manual, and Off per room
+- **Multiple control modes**: Auto (scheduled), Manual, Passive, and Off per room
+- **Passive mode** - opportunistic heating without calling for heat (valves open when other rooms heating)
 - **Override** functionality with flexible parameters (absolute/delta temp, duration/end time)
 - **Holiday mode** for energy savings
 
@@ -38,10 +39,10 @@ PyHeat provides multi-room heating control with:
 ### Heating Logic
 
 1. **Sensor Fusion**: Averages multiple temperature sensors per room with primary/fallback roles and staleness detection. Optional EMA smoothing reduces display noise for rooms with sensors in different locations.
-2. **Target Resolution**: Precedence: Off → Manual → Override → Schedule → Default
+2. **Target Resolution**: Precedence: Off → Manual → Passive → Override → Schedule → Default
 3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override response
-4. **Valve Control**: 3 stepped heating bands (Band 1: 40%, Band 2: 70%, Band Max: 100%) based on temperature error with hysteresis
-5. **Load Sharing**: Intelligently opens additional room valves when primary calling rooms have insufficient capacity to prevent boiler short-cycling. Uses three-tier cascade: schedule-aware pre-warming → extended lookahead → fallback priority list
+4. **Valve Control**: 3 stepped heating bands (Band 1: 40%, Band 2: 70%, Band Max: 100%) based on temperature error with hysteresis. Passive mode uses binary threshold control (open/closed based on max temp).
+5. **Load Sharing**: Intelligently opens additional room valves when primary calling rooms have insufficient capacity to prevent boiler short-cycling. Uses three-tier cascade: schedule-aware pre-warming → extended lookahead → fallback priority list. Passive rooms excluded from load sharing.
 6. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 7. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
 8. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 10°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
@@ -152,9 +153,10 @@ rooms:
 
 ### Control Modes
 
-Each room has three modes:
+Each room has four modes:
 - **Auto**: Follows the configured schedule
 - **Manual**: Uses the manual setpoint (ignores schedule)
+- **Passive**: Opens valve opportunistically without calling for heat
 - **Off**: No heating, TRV closes
 
 Set via `input_select.pyheat_{room}_mode`
@@ -163,6 +165,45 @@ Set via `input_select.pyheat_{room}_mode`
 
 When in Manual mode, set temperature via:
 `input_number.pyheat_{room}_manual_setpoint`
+
+### Passive Mode
+
+**Opportunistic heating** that opens valves when temperature is below a maximum threshold, but never calls for heat from the boiler. Useful for:
+- Rooms that benefit from heat when other rooms are heating (hallways, bathrooms)
+- Gentle morning pre-warming before scheduled active periods
+- Maintaining minimum temperature without triggering boiler cycles
+
+**How it works:**
+1. Room never calls for heat (demand = 0W)
+2. Valve opens to configured percentage when temp < max_temp
+3. Valve closes when temp ≥ max_temp
+4. Room benefits from heat circulation when other rooms are actively heating
+
+**Configuration:**
+- `input_number.pyheat_{room}_passive_max_temp` - Maximum temperature (10-30°C, default 18°C)
+- `input_number.pyheat_{room}_passive_valve_percent` - Valve opening percentage (0-100%, default 30%)
+
+**Scheduled Passive Mode:**
+Schedules can specify passive periods in auto mode:
+```yaml
+rooms:
+  - id: bathroom
+    week:
+      mon:
+        - start: "06:30"
+          end: "08:00"
+          mode: passive      # Passive period
+          target: 18.0       # Max temp (not setpoint)
+          valve_percent: 30  # Valve opening when below max
+        - start: "08:00"
+          end: "22:00"
+          target: 19.0       # Active heating (mode defaults to active)
+```
+
+**Important:**
+- Passive rooms are excluded from load sharing (user controls valve opening)
+- Override always forces active heating (not passive)
+- Passive valves count toward boiler interlock (contribute to system capacity)
 
 ### Override
 

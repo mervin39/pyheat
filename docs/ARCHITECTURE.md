@@ -89,11 +89,12 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │  Determine target temperature using precedence hierarchy:                    │
 │    1. Off mode          → None (no heating)                                  │
 │    2. Manual mode       → manual_setpoint (user-set constant)                │
-│    3. Override active   → override_target (absolute temp, from target/delta) │
-│    4. Schedule block    → block target for current time/day                  │
-│    5. Default           → default_target (outside schedule blocks)           │
-│    6. Holiday mode      → 15.0°C (energy saving)                             │
-│  Return: target_temp (or None if off)                                        │
+│    3. Passive mode      → passive_max_temp (threshold, not setpoint)         │
+│    4. Override active   → override_target (absolute temp, from target/delta) │
+│    5. Schedule block    → block target for current time/day                  │
+│    6. Default           → default_target (outside schedule blocks)           │
+│    7. Holiday mode      → 15.0°C (energy saving)                             │
+│  Return: {target, mode: 'active'|'passive', valve_percent}                   │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
                        ▼
@@ -102,17 +103,21 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  For each room:                                                               │
 │    ├─ Calculate error = target - current_temp                                │
-│    ├─ Call-for-heat decision (asymmetric hysteresis):                        │
+│    ├─ PASSIVE MODE: Binary threshold control                                 │
+│    │    • Never calls for heat (calling = False)                             │
+│    │    • Valve = configured % if temp < max_temp, else 0%                   │
+│    │    • Simple on/off control (no PID, no hysteresis)                      │
+│    ├─ ACTIVE MODE: Call-for-heat decision (asymmetric hysteresis):           │
 │    │    • error ≥ on_delta (0.30°C)  → start calling                         │
 │    │    • error ≤ off_delta (0.10°C) → stop calling                          │
 │    │    • Between deltas             → maintain previous state               │
-│    ├─ Valve percentage (stepped bands with hysteresis):                      │
+│    ├─ ACTIVE MODE: Valve percentage (stepped bands with hysteresis):         │
 │    │    • Band 0 (0%):  Not calling (room satisfied)                         │
 │    │    • Band 1 (40%): error < 0.30°C  (gentle heating)                     │
 │    │    • Band 2 (70%): 0.30°C ≤ error < 0.80°C  (moderate)                  │
 │    │    • Band Max (100%): error ≥ 0.80°C  (maximum heating)                 │
 │    │    • Band transitions require step_hysteresis (0.05°C) crossing         │
-│    └─ Return: {temp, target, calling, valve_percent, error, mode}            │
+│    └─ Return: {temp, target, calling, valve_percent, error, mode, operating_mode} │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
                        ▼
@@ -202,12 +207,14 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │  Publish state to Home Assistant entities:                                   │
 │    ├─ Per-room entities (sensor.pyheat_room_{room}):                         │
 │    │    • State: current temperature                                         │
-│    │    • Attributes: target, mode, calling, valve_percent, error            │
+│    │    • Attributes: target, mode, operating_mode, calling, valve_percent   │
+│    │    • passive_max_temp (when in passive mode)                            │
 │    │    • formatted_status with schedule/override information                │
 │    │    • next_change, override_end_time (for UI countdowns)                 │
 │    ├─ System status (sensor.pyheat_status):                                  │
 │    │    • State: "heating", "idle", or "master_off"                          │
 │    │    • Attributes: boiler_state, calling_rooms[], all room_data           │
+│    │    • Room data includes operating_mode for passive detection            │
 │    │    • last_recompute, recompute_count                                    │
 │    └─ Format status text per STATUS_FORMAT_SPEC.md                           │
 └──────────────────────┬──────────────────────────────────────────────────────┘
