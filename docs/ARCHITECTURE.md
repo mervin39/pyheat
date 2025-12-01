@@ -177,7 +177,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    ├─ Three-tier cascading selection (passive rooms excluded):               │
 │    │    • Tier 1: Schedule-aware pre-warming (60 min lookahead)              │
 │    │    • Tier 2: Extended lookahead (120 min window)                        │
-│    │    • Tier 3: Fallback priority list (deterministic)                     │
+│    │    • Tier 3: Passive rooms + Fallback priority list (opportunistic/deterministic) │
 │    ├─ Exit conditions:                                                       │
 │    │    • Original calling rooms stopped (Trigger A)                         │
 │    │    • New room joined with sufficient capacity (Trigger B)               │
@@ -1829,12 +1829,43 @@ class LoadSharingContext:
 
 **Rationale:** Extended window provides more coverage while lower valve % prevents over-heating from early pre-warming.
 
-#### Tier 3: Fallback Priority List (Tertiary)
+#### Tier 3: Passive Rooms + Fallback Priority (Tertiary)
+
+Tier 3 is split into two phases:
+- **Phase A:** Passive room opportunistic heating
+- **Phase B:** Fallback priority list (if Phase A insufficient)
+
+##### Tier 3 Phase A: Passive Room Opportunistic Heating
 
 **Selection Criteria:**
+- Current `operating_mode == 'passive'` (room is passive RIGHT NOW)
+- Not currently calling for heat (excludes comfort/frost protection modes)
+- Current temperature < max_temp (room can still accept heat)
+- Temperature sensors not stale (both temp and max_temp available)
+
+**Target Temperature:** Room's configured max_temp (passive target)
+
+**Valve Opening:** 50% initial → 60% → 70% → 80% → 90% → 100% (standard Tier 3 escalation)
+- **Overrides user's `passive_valve_percent`** during load sharing
+- Normal passive operation: 10-30% (gentle opportunistic)
+- Load sharing active: 50-100% (effective heat dumping)
+
+**Selection Order:** Sorted by temperature deficit (neediest first)
+
+**Rooms Included:**
+- Manual passive mode rooms (user explicitly wants opportunistic heating)
+- Scheduled passive blocks with no upcoming schedule in lookahead window
+- Scheduled passive blocks after their active schedule target is reached
+
+**Rationale:** Passive mode means "I want opportunistic heating" - load sharing provides it more effectively. Different contexts warrant different valve percentages: normal passive uses low % to avoid diverting heat, load sharing uses high % to dump excess capacity.
+
+##### Tier 3 Phase B: Fallback Priority List
+
+**Selection Criteria:**
+- Only runs if Phase A provides insufficient capacity
 - Explicit `fallback_priority` ranking from room configs (1, 2, 3, ...)
 - Only "auto" mode rooms eligible
-- Room NOT in passive operating mode (passive rooms excluded from load sharing)
+- Room NOT in passive operating mode (Phase A handles these)
 - **No temperature check** - ultimate fallback accepts any room to prevent cycling
 - Excludes "off" and "manual" mode rooms
 

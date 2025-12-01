@@ -43,7 +43,7 @@ PyHeat provides multi-room heating control with:
 2. **Target Resolution**: Precedence: Off → Manual → Passive → Override → Schedule → Default
 3. **Hysteresis**: Asymmetric deadband (on_delta: 0.30°C, off_delta: 0.10°C) prevents oscillation; bypassed on target changes for immediate override response
 4. **Valve Control**: 3 stepped heating bands (Band 1: 40%, Band 2: 70%, Band Max: 100%) based on temperature error with hysteresis. Passive mode uses binary threshold control (open/closed based on max temp).
-5. **Load Sharing**: Intelligently opens additional room valves when primary calling rooms have insufficient capacity to prevent boiler short-cycling. Uses three-tier cascade: schedule-aware pre-warming → extended lookahead → fallback priority list. Passive rooms excluded from load sharing.
+5. **Load Sharing**: Intelligently opens additional room valves when primary calling rooms have insufficient capacity to prevent boiler short-cycling. Uses three-tier cascade: schedule-aware pre-warming (60min) → extended lookahead (120min) → passive rooms + fallback priority list. Passive rooms participate with higher valve percentages (50-100%) while respecting temperature ceilings.
 6. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 7. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
 8. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 10°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
@@ -223,7 +223,7 @@ rooms:
 - Omit to use entity value or frost protection temp only
 
 **Important:**
-- Passive rooms are excluded from load sharing (user controls valve opening)
+- Passive rooms participate in load sharing with valve override (50-100% vs normal 10-30%)
 - Override always forces active heating (not passive)
 - Passive valves count toward boiler interlock (contribute to system capacity)
 
@@ -263,10 +263,18 @@ When timer expires, room returns to scheduled target.
 **How it works:**
 1. Detects when calling rooms cannot dissipate boiler output (low capacity + cycling evidence)
 2. Opens additional room valves using three-tier cascading strategy:
-   - **Tier 1**: Rooms with schedules starting soon (schedule-aware pre-warming)
-   - **Tier 2**: Rooms with schedules in extended window (2× lookahead)
-   - **Tier 3**: Fallback priority list for off-schedule periods
+   - **Tier 1**: Rooms with schedules starting soon (schedule-aware pre-warming, 60 min default)
+   - **Tier 2**: Rooms with schedules in extended window (120 min default, 2× lookahead)
+   - **Tier 3 Phase A**: Passive mode rooms (opportunistic heating with valve override)
+   - **Tier 3 Phase B**: Fallback priority list for off-schedule periods
 3. Persists until calling pattern changes (not arbitrary timers)
+
+**Passive Room Participation:**
+- Passive mode rooms participate in Tier 3 Phase A with valve override
+- Normal passive: 10-30% valve (gentle opportunistic heating)
+- Load sharing active: 50-100% valve (effective heat dumping)
+- Respects max_temp ceiling (exits at max_temp + off_delta)
+- Context matters: passive mode = "I want opportunistic heating", load sharing provides it effectively
 
 **Control:**
 - Master switch: `input_boolean.pyheat_load_sharing_enable`

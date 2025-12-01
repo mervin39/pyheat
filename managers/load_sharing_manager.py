@@ -707,12 +707,8 @@ class LoadSharingManager:
         candidates = []
         
         for room_id, state in room_states.items():
-            # Skip if not in auto mode
+            # Skip if not in auto mode (only include auto mode rooms)
             if state.get('mode') != 'auto':
-                continue
-            
-            # Skip if in passive operating mode (user wants manual valve control)
-            if state.get('operating_mode') == 'passive':
                 continue
             
             # Skip if already calling
@@ -731,7 +727,7 @@ class LoadSharingManager:
                 # No schedule block within window
                 continue
             
-            start_time, end_time, target_temp = next_block
+            start_time, end_time, target_temp, block_mode = next_block
             current_temp = state.get('temp')
             
             if current_temp is None:
@@ -748,8 +744,8 @@ class LoadSharingManager:
             # Calculate time until schedule
             minutes_until = (start_time - now).total_seconds() / 60
             
-            # Determine reason string
-            reason = f"schedule_{int(minutes_until)}m"
+            # Determine reason string (include block mode for visibility)
+            reason = f"schedule_{int(minutes_until)}m_{block_mode}"
             
             candidates.append((room_id, need, target_temp, minutes_until, reason))
         
@@ -795,12 +791,8 @@ class LoadSharingManager:
         tier1_room_ids = set(self.context.active_rooms.keys())
         
         for room_id, state in room_states.items():
-            # Skip if not in auto mode
+            # Skip if not in auto mode (only include auto mode rooms)
             if state.get('mode') != 'auto':
-                continue
-            
-            # Skip if in passive operating mode (user wants manual valve control)
-            if state.get('operating_mode') == 'passive':
                 continue
             
             # Skip if already calling
@@ -824,7 +816,7 @@ class LoadSharingManager:
                 # No schedule block within extended window
                 continue
             
-            start_time, end_time, target_temp = next_block
+            start_time, end_time, target_temp, block_mode = next_block
             current_temp = state.get('temp')
             
             if current_temp is None:
@@ -841,8 +833,8 @@ class LoadSharingManager:
             # Calculate time until schedule
             minutes_until = (start_time - now).total_seconds() / 60
             
-            # Determine reason string
-            reason = f"schedule_{int(minutes_until)}m_ext"
+            # Determine reason string (include block mode for visibility)
+            reason = f"schedule_{int(minutes_until)}m_{block_mode}_ext"
             
             candidates.append((room_id, need, target_temp, minutes_until, reason))
         
@@ -863,16 +855,24 @@ class LoadSharingManager:
         return selections
     
     def _select_tier3_rooms(self, room_states: Dict) -> List[Tuple[str, int, str]]:
-        """Select Tier 3 (fallback priority) rooms.
+        """Select Tier 3 rooms: Phase A (passive rooms), then Phase B (fallback priority).
         
-        Phase 3: Priority list fallback - deterministic selection when schedules don't help.
+        PHASE A: Passive room opportunistic heating
+        - Current operating_mode == 'passive' (room is passive RIGHT NOW)
+        - Not currently calling for heat
+        - Current temperature < max_temp (room can still accept heat)
+        - Uses 50% initial valve (overrides user's passive_valve_percent)
+        
+        PHASE B: Priority list fallback (only if Phase A insufficient)
+        - Same as previous Tier 3 behavior
+        - Deterministic selection when schedules don't help
         
         STRATEGY: Maximize existing rooms before adding new ones.
         - Add ONE room at a time in priority order
         - Room will be escalated (50% → 60% → 70% → 80% → 90% → 100%) before next room is added
         - This minimizes the number of rooms heated (energy efficiency)
         
-        Selection criteria:
+        Selection criteria for Phase B:
         - Room in "auto" mode (respects user intent)
         - Not currently calling for heat
         - Not already in Tier 1 or Tier 2
@@ -886,8 +886,62 @@ class LoadSharingManager:
             room_states: Room state dict from room_controller
             
         Returns:
-            List of (room_id, valve_pct, reason) tuples (returns ONE room, will be escalated later)
+            List of (room_id, valve_pct, reason, target_temp) tuples (returns ONE room, will be escalated later)
         """
+        # ===== PHASE A: Passive rooms =====
+        passive_candidates = []
+        
+        for room_id, state in room_states.items():
+            # Must be in passive operating mode RIGHT NOW
+            if state.get('operating_mode') != 'passive':
+                continue
+            
+            # Skip if calling (comfort/frost protection)
+            if state.get('calling', False):
+                continue
+            
+            # Get current temp and max_temp
+            temp = state.get('temp')
+            max_temp = state.get('target')  # For passive, target is max_temp
+            
+            if temp is None or max_temp is None:
+                continue  # Skip rooms with stale sensors
+            
+            if temp >= max_temp:
+                continue  # Already at or above max_temp
+            
+            # Calculate capacity contribution
+            need = max_temp - temp
+            all_capacities = self.load_calculator.get_all_estimated_capacities()
+            room_capacity = all_capacities.get(room_id)
+            
+            if room_capacity is None:
+                continue  # No capacity estimate
+            
+            passive_candidates.append((room_id, need, room_capacity, max_temp))
+        
+        # Sort by need (neediest first)
+        passive_candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        # Return passive rooms with standard Tier 3 valve percentages
+        if passive_candidates:
+            selections = []
+            for room_id, need, capacity, max_temp in passive_candidates:
+                selections.append((
+                    room_id, 
+                    C.LOAD_SHARING_TIER3_INITIAL_PCT,  # 50%
+                    "passive_room",
+                    max_temp
+                ))
+                self.ad.log(
+                    f"Load sharing Tier 3 Phase A: {room_id} - need={need:.1f}C, "
+                    f"max_temp={max_temp:.1f}C, valve={C.LOAD_SHARING_TIER3_INITIAL_PCT}%",
+                    level="DEBUG"
+                )
+            
+            return selections
+        
+        # ===== PHASE B: Fallback priority =====
         candidates = []
         active_room_ids = set(self.context.active_rooms.keys())
         now = datetime.now()
@@ -911,7 +965,7 @@ class LoadSharingManager:
             if state.get('mode') != 'auto':
                 continue
             
-            # Skip if in passive operating mode (user wants manual valve control)
+            # Skip if in passive operating mode (Phase A handles these)
             if state.get('operating_mode') == 'passive':
                 continue
             
@@ -950,7 +1004,7 @@ class LoadSharingManager:
             candidates.append((room_id, fallback_priority, reason))
             
             self.ad.log(
-                f"Load sharing Tier 3 candidate: {room_id} - priority={fallback_priority}",
+                f"Load sharing Tier 3 Phase B candidate: {room_id} - priority={fallback_priority}",
                 level="DEBUG"
             )
         
@@ -966,7 +1020,7 @@ class LoadSharingManager:
             
             if room_capacity is None:
                 self.ad.log(
-                    f"Load sharing Tier 3: Skipping {room_id} - no capacity estimate",
+                    f"Load sharing Tier 3 Phase B: Skipping {room_id} - no capacity estimate",
                     level="DEBUG"
                 )
                 return []
@@ -982,7 +1036,7 @@ class LoadSharingManager:
             new_total_capacity = current_capacity + effective_room_capacity
             
             self.ad.log(
-                f"Load sharing Tier 3 selection: {room_id} - priority={priority}, "
+                f"Load sharing Tier 3 Phase B selection: {room_id} - priority={priority}, "
                 f"valve={valve_pct}%, target={tier3_target:.1f}C, adds {effective_room_capacity:.0f}W "
                 f"(total: {new_total_capacity:.0f}W)",
                 level="DEBUG"

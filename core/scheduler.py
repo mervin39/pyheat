@@ -419,7 +419,7 @@ class Scheduler:
         return None
     
     def get_next_schedule_block(self, room_id: str, from_time: datetime, 
-                               within_minutes: int) -> Optional[tuple[datetime, datetime, float]]:
+                               within_minutes: int) -> Optional[tuple[datetime, datetime, float, str]]:
         """Get the next schedule block within a time window.
         
         Used by load sharing to determine if a room has an upcoming schedule
@@ -431,7 +431,8 @@ class Scheduler:
             within_minutes: Maximum lookahead window in minutes
             
         Returns:
-            Tuple of (block_start_datetime, block_end_datetime, target_temp) or None
+            Tuple of (block_start_datetime, block_end_datetime, target_temp, block_mode) or None
+            block_mode is 'active' (default) or 'passive'
             
         Phase 0: Infrastructure only
         """
@@ -460,6 +461,7 @@ class Scheduler:
                 block_start_str = block['start']
                 block_end_str = block.get('end', '23:59')
                 block_target = block['target']
+                block_mode = block.get('mode', 'active')  # Read block mode
                 
                 # Parse times for comparison
                 block_start_h, block_start_m = map(int, block_start_str.split(':'))
@@ -489,7 +491,7 @@ class Scheduler:
                     
                     # Only return if block_target is higher than default (heating needed)
                     if block_target > default_target and block_start_dt <= search_end:
-                        return (block_start_dt, block_end_dt, block_target)
+                        return (block_start_dt, block_end_dt, block_target, block_mode)
             
             # Move to next day
             current_time = (current_time + timedelta(days=1)).replace(

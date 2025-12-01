@@ -1,6 +1,78 @@
 
 # PyHeat Changelog
 
+## 2025-12-01: Passive Rooms in Load Sharing (Bug #13 Fix + Enhancement)
+
+**Summary:**
+Fixed Bug #13 where scheduled passive→active transitions were incorrectly excluded from load sharing, and enhanced load sharing to include passive mode rooms for better capacity utilization and cycling prevention. This change allows rooms in passive mode (both manual and scheduled) to participate in load sharing while respecting their temperature ceilings.
+
+**Bug #13 Fix:**
+Load sharing Tier 1/2 selection was incorrectly checking `operating_mode == 'passive'` instead of `mode != 'auto'`. This excluded rooms in auto mode that were temporarily in a scheduled passive block from pre-warming benefits:
+- **Before:** Room in passive block excluded from Tier 1/2 pre-warming
+- **After:** Room in auto mode included regardless of current operating_mode
+- **Impact:** Schedule-aware pre-warming now works correctly for passive→active transitions
+
+**Load Sharing Enhancement - Tier 3 Phase A:**
+New selection phase for passive room opportunistic heating:
+- **Selection:** Rooms with `operating_mode == 'passive'` (passive RIGHT NOW)
+- **Not calling for heat:** Excludes comfort/frost protection modes
+- **Below max_temp:** Room can still accept heat
+- **Valve override:** 50% initial (overrides user's passive_valve_percent)
+- **Exit condition:** Exits at max_temp + off_delta (prevents overheating)
+
+**Three-Tier Enhancement Structure:**
+1. **Tier 1 (60 min lookahead):** Schedule-aware pre-warming
+2. **Tier 2 (120 min lookahead):** Extended lookahead
+3. **Tier 3 Phase A (NEW):** Passive room opportunistic heating
+4. **Tier 3 Phase B:** Fallback priority list (unchanged)
+
+**Key Changes:**
+
+- **`core/scheduler.py`:**
+  - `get_next_schedule_block()` now returns 4-tuple: `(start, end, target, block_mode)`
+  - `block_mode` is 'active' or 'passive' (read from schedule or defaults to 'active')
+  - Enables load sharing to distinguish pre-warming behavior for different block types
+
+- **`managers/load_sharing_manager.py`:**
+  - **Tier 1/2 fix:** Removed `operating_mode == 'passive'` check (Bug #13)
+  - **Tier 1/2 logging:** Reason strings now include block_mode (e.g., "schedule_45m_passive")
+  - **Tier 3 split:** Separated into Phase A (passive rooms) and Phase B (fallback priority)
+  - **Phase A selection:** Checks `operating_mode == 'passive'`, sorts by need (neediest first)
+  - **Phase A valve:** Uses 50% standard Tier 3 percentage (overrides passive_valve_percent)
+  - **Phase B unchanged:** Existing fallback priority logic preserved
+
+**Exit Conditions (Already Implemented):**
+- **Exit Trigger E:** Room exits when `temp >= target_temp + off_delta`
+  - Applies to passive rooms (prevents exceeding max_temp)
+  - Applies to active pre-warming (prevents overshoot)
+- **Exit Trigger F:** Room exits when mode changes from auto
+  - Respects user control when mode changes during load sharing
+
+**Benefits:**
+- ✅ Fixes Bug #13 - schedule-aware pre-warming works for passive blocks
+- ✅ More rooms available for load sharing (better cycling prevention)
+- ✅ Passive rooms provide meaningful dump capacity (50-100% vs 10-30%)
+- ✅ Temperature safety preserved (exits at max_temp + off_delta)
+- ✅ User intent respected (passive = "I want opportunistic heating")
+
+**Configuration Impact:**
+- No new configuration required
+- Existing `mode` and `passive_valve_percent` settings respected
+- Schedule blocks with optional `mode: passive` field now participate in load sharing
+- Fallback priority configuration still available for Phase B
+
+**Testing Notes:**
+- Passive rooms will participate in load sharing when cycling prevention needed
+- Valve percentages will temporarily override user settings during load sharing
+- Temperature ceilings are always respected (Exit Trigger E)
+- Monitor logs for "Load sharing Tier 3 Phase A" messages
+
+**Related:**
+- See `docs/archive/passive_rooms_load_sharing_proposal.md` for full design rationale
+- Bug #13 documented in `docs/BUGS.md`
+
+---
+
 ## 2025-12-01: Passive Mode Minimum Temperature (Comfort Floor)
 
 **Summary:**
