@@ -3,96 +3,96 @@ rooms:
   default_target: 14.0
   week:
     mon:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
-    - start: '19:00'
+    - start: '19:30'
       end: '21:00'
       target: 18.0
     tue:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
-    - start: '19:00'
+    - start: '19:30'
       end: '21:00'
       target: 18.0
     wed:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
-    - start: '19:00'
+    - start: '19:30'
       end: '21:00'
       target: 18.0
     thu:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
-    - start: '19:00'
+    - start: '19:30'
       end: '21:00'
       target: 18.0
     fri:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     sat: []
     sun:
-    - start: '19:00'
+    - start: '19:30'
       end: '21:00'
       target: 18.0
 - id: lounge
-  default_target: 15.0
+  default_target: 16.0
   week:
     mon:
-    - start: '07:00'
-      end: '09:00'
+    - start: 06:30
+      end: 08:30
       target: 18.0
     - start: '16:00'
       end: '20:30'
       target: 19.0
     tue:
-    - start: '07:00'
-      end: '09:00'
+    - start: 06:30
+      end: 08:30
       target: 18.0
     - start: '16:00'
       end: '20:30'
       target: 19.0
     wed:
-    - start: '07:00'
-      end: '09:00'
+    - start: 06:30
+      end: 08:30
       target: 18.0
     - start: '16:00'
       end: '20:30'
       target: 19.0
     thu:
-    - start: '07:00'
-      end: '09:00'
+    - start: 06:30
+      end: 08:30
       target: 18.0
     - start: '16:00'
       end: '20:30'
       target: 19.0
     fri:
-    - start: '07:00'
-      end: '09:00'
+    - start: 06:30
+      end: 08:30
       target: 18.0
     - start: '16:00'
       end: '20:30'
       target: 19.0
     sat:
-    - start: '07:00'
+    - start: 07:00
       end: '16:00'
       target: 18.0
     - start: '16:00'
       end: '20:30'
       target: 19.0
     sun:
-    - start: '07:00'
+    - start: 07:00
       end: '16:00'
       target: 18.0
     - start: '16:00'
       end: '20:30'
       target: 19.0
 - id: games
-  default_target: 14.0
+  default_target: 12.0
   week:
     mon: []
     tue: []
@@ -105,50 +105,50 @@ rooms:
   default_target: 12.0
   week:
     mon:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     - start: '19:30'
       end: '22:00'
       target: 17.0
     tue:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     - start: '19:30'
       end: '22:00'
       target: 17.0
     wed:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     - start: '19:30'
       end: '22:00'
       target: 17.0
     thu:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     - start: '19:30'
       end: '22:00'
       target: 17.0
     fri:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     - start: '19:30'
       end: '22:00'
       target: 17.0
     sat:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     - start: '19:30'
       end: '22:00'
       target: 17.0
     sun:
-    - start: '06:30'
-      end: '07:00'
+    - start: 06:30
+      end: 07:00
       target: 17.0
     - start: '19:30'
       end: '22:00'
@@ -157,38 +157,32 @@ rooms:
   default_target: 12.0
   week:
     mon:
-    - start: '07:00'
-      end: '09:15'
+    - start: 07:00
+      end: 09:15
       target: 17.0
-    - start: '09:15'
+    - start: 09:15
       end: '17:00'
       target: 18.0
     tue: []
     wed:
-    - start: '07:00'
-      end: '09:15'
+    - start: 07:00
+      end: 09:15
       target: 17.0
-    - start: '09:15'
+    - start: 09:15
       end: '17:00'
       target: 18.0
     thu:
-    - start: '07:00'
-      end: '09:15'
+    - start: 07:00
+      end: 09:15
       target: 17.0
-    - start: '09:15'
+    - start: 09:15
       end: '17:00'
       target: 18.0
-    fri:
-    - start: '07:00'
-      end: '09:15'
-      target: 17.0
-    - start: '09:15'
-      end: '17:00'
-      target: 18.0
+    fri: []
     sat: []
     sun: []
 - id: bathroom
-  default_target: 12.0
+  default_target: 10.0
   week:
     mon: []
     tue: []

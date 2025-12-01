@@ -1,57 +1,16 @@
 rooms:
-  # Room Configuration
-  # 
-  # Temperature Sensors:
-  # - entity_id: The Home Assistant entity ID
-  # - role: 'primary' or 'fallback' (primary sensors are used first)
-  # - timeout_m: Minutes before sensor is considered stale
-  # - temperature_attribute: (optional) Read temperature from this attribute instead of state
-  #     Example: For climate entities, use "current_temperature" to read the TRV's
-  #              internal temperature sensor as an attribute rather than state
-  #
-  # Temperature Smoothing (optional):
-  # Reduces visual noise when sensors fluctuate, especially helpful for:
-  # - Rooms with multiple sensors in different locations (spatial averaging noise)
-  # - Chatty sensors that report frequently (every 10-30 seconds)
-  # - Sensors near temperature boundaries causing display to flip (16.4 ↔ 16.5 ↔ 16.6)
-  #
-  # Configuration:
-  # - smoothing.enabled: true/false (default: false)
-  # - smoothing.alpha: Smoothing factor 0.0-1.0 (default: 0.3)
-  #
-  # Alpha Guidelines:
-  # - 0.3 (recommended for 2+ sensors): Strong smoothing, ~9 updates for 95% response
-  #   * With 30s sensor interval: 95% response in ~4.5 minutes
-  #   * Good for multi-sensor rooms with spatial averaging
-  # - 0.5 (good for 1 sensor): Moderate smoothing, ~6 updates for 95% response
-  #   * With 30s sensor interval: 95% response in ~3 minutes
-  #   * Use if single sensor is noisy but want faster response
-  # - 0.7+: Light smoothing, very fast response (3-4 updates)
-  #   * Use for minimal noise reduction with near-instant response
-  #
-  # Behavior:
-  # - Applied AFTER sensor fusion (averaging of multiple sensors)
-  # - Affects both display AND control logic (deadband checks, heating decisions)
-  # - Response time = (number of updates) × (sensor update interval)
-  # - Chatty sensors (10-30s interval) get faster response than slow sensors (60-120s)
-  #
-  # When to Enable:
-  # ✓ Multi-sensor rooms (2+ sensors) - recommended alpha: 0.3
-  # ✓ Displayed temperature bounces frequently (e.g., 16.4 ↔ 16.5 ↔ 16.6 every minute)
-  # ✓ Sensors in different room locations report different but valid temperatures
-  # ✗ Single-sensor rooms (unless sensor is very noisy)
-  # ✗ Need instant temperature display updates
-  # ✗ Sensors already report stable values
-  #
   - id: pete
     name: "Pete's Room"
+    delta_t50: 1900  # Watts - Type 22 panel radiator ~600x1100mm
     precision: 1
-    # Smoothing recommended for multi-sensor rooms (2 sensors here)
     smoothing:
-      enabled: false  # Set to true to enable
+      enabled: true
       alpha: 0.3      # 30% new, 70% history (good for 2+ sensors)
+    load_sharing:
+      schedule_lookahead_m: 30  # Conservative pre-warming (bedroom)
+      # No fallback_priority = excluded from Tier 3 (bedroom privacy)
     sensors:
-      - entity_id: sensor.roomtemp_pete
+      - entity_id: sensor.pete_xiaomi_temperature
         role: primary
         timeout_m: 180
       - entity_id: sensor.pete_snzb02_temperature
@@ -60,48 +19,59 @@ rooms:
     trv:
       entity_id: climate.trv_pete
     hysteresis:
-      on_delta_c: 0.40
+      on_delta_c: 0.50
       off_delta_c: 0.10
     valve_bands:
-      # Thresholds (temperature error in °C below setpoint)
-      band_1_error: 0.30   # Band 1 applies when error < 0.30°C (close to target)
-      band_2_error: 0.80   # Band 2 applies when 0.30 ≤ error < 0.80°C (moderate distance)
-                           # Band Max applies when error ≥ 0.80°C (far from target)
-      
-      # Valve openings (percentage 0-100)
-      # Missing percentages cascade to next higher band (graceful degradation)
-      band_0_percent: 0.0      # Not calling (optional, default: 0.0)
-      band_1_percent: 35.0     # Close to target (gentle heating)
-      band_2_percent: 65.0     # Moderate distance (moderate heating)
-      band_max_percent: 100.0  # Far from target (maximum heating)
-      
-      # Band transition hysteresis (prevents oscillation)
+      band_1_error: 0.30
+      band_2_error: 0.80
+      band_1_percent: 100.0
+      band_2_percent: 100.0
+      band_max_percent: 100.0
       step_hysteresis_c: 0.05
     valve_update:
       min_interval_s: 30
   - id: games
     name: "Dining Room"
+    delta_t50: 2500  # Watts - Type 22 panel radiator ~600x1420mm
     precision: 1
-    # Optional: Enable smoothing if temperature display bounces
     smoothing:
-      enabled: false  # Set to true to enable
-      alpha: 0.5      # 50% new, 50% history (single sensor - faster response)
+      enabled: true
+      alpha: 0.3      # 30% new, 70% history (good for 2+ sensors)
+    load_sharing:
+      schedule_lookahead_m: 60  # Default window
+      fallback_priority: 2       # Good fallback choice (high capacity, central location)
     sensors:
-      - entity_id: sensor.roomtemp_games
+      - entity_id: sensor.games_xiaomi_temperature
         role: primary
         timeout_m: 180
+      - entity_id: sensor.games_shtc3_temperature
+        role: primary
+        timeout_m: 180
+      - entity_id: sensor.games_snzb02_temperature
+        role: primary
+        timeout_m: 150
     trv:
       entity_id: climate.trv_games
+    valve_bands:
+      band_1_error: 0.30
+      band_2_error: 0.80
+      band_1_percent: 100.0
+      band_2_percent: 100.0
+      band_max_percent: 100.0
+      step_hysteresis_c: 0.05
   - id: lounge
     name: "Living Room"
+    delta_t50: 2290  # Watts - Vertical radiator 1780x590mm (exact from catalogue)
+    radiator_exponent: 1.25  # Oval tube radiator (between panels 1.3 and towel rails 1.2)
     precision: 1
-    # Example: Smoothing enabled for room with sensors in different locations
-    # One sensor near window (cool), one near radiator (warm) = spatial averaging
     smoothing:
-      enabled: true   # Enabled to reduce boundary flipping
-      alpha: 0.3      # 30% new, 70% history - good for 2+ sensors
+      enabled: true
+      alpha: 0.3      # 30% new, 70% history (good for 2+ sensors)
+    load_sharing:
+      schedule_lookahead_m: 90  # Aggressive pre-warming (main living space)
+      fallback_priority: 1       # First choice for fallback (high capacity, frequently used)
     sensors:
-      - entity_id: sensor.roomtemp_lounge
+      - entity_id: sensor.lounge_xiaomi_temperature
         role: primary
         timeout_m: 180
       - entity_id: sensor.awair_omni_270_temperature
@@ -109,39 +79,86 @@ rooms:
         timeout_m: 180
     trv:
       entity_id: climate.trv_lounge
+    valve_bands:
+      band_1_error: 0.30
+      band_2_error: 0.80
+      band_1_percent: 100.0
+      band_2_percent: 100.0
+      band_max_percent: 100.0
+      step_hysteresis_c: 0.05
   - id: abby
     name: "Abby's Room"
+    delta_t50: 2800  # Watts - Type 22 panel radiator ~600x1520mm
     precision: 1
-    # Optional: Enable smoothing for noisy single sensors
     smoothing:
-      enabled: false  # Usually not needed for single stable sensor
-      alpha: 0.5      # 50% new, 50% history (faster response for single sensor)
+      enabled: true
+      alpha: 0.3      # 30% new, 70% history (strong smoothing for noisy single sensor)
+    load_sharing:
+      schedule_lookahead_m: 30  # Conservative pre-warming (bedroom)
+      # No fallback_priority = excluded from Tier 3 (bedroom privacy)
     sensors:
       - entity_id: sensor.abby_xiaomi_temperature
         role: primary
         timeout_m: 180
-      # Example: Using a climate entity's current_temperature attribute
-      # - entity_id: climate.trv_abby
-      #   role: fallback
-      #   timeout_m: 180
-      #   temperature_attribute: current_temperature
+      - entity_id: sensor.abby_snzb02_temperature
+        role: primary
+        timeout_m: 180
     trv:
       entity_id: climate.trv_abby
+    valve_bands:
+      band_1_error: 0.30
+      band_2_error: 0.80
+      band_1_percent: 100.0
+      band_2_percent: 100.0
+      band_max_percent: 100.0
+      step_hysteresis_c: 0.05
   - id: office
     name: "Office"
+    delta_t50: 900  # Watts - Type 11 panel radiator ~600x950mm
     precision: 1
+    smoothing:
+      enabled: true
+      alpha: 0.3      # 30% new, 70% history (strong smoothing for noisy single sensor)
+    load_sharing:
+      schedule_lookahead_m: 45  # Moderate pre-warming
+      fallback_priority: 3       # Third choice (lower capacity)
     sensors:
-      - entity_id: sensor.roomtemp_office
+      - entity_id: sensor.office_xiaomi_temperature
+        role: primary
+        timeout_m: 180
+      - entity_id: sensor.office_dbth_temperature
         role: primary
         timeout_m: 180
     trv:
       entity_id: climate.trv_office
+    valve_bands:
+      band_1_error: 0.30
+      band_2_error: 0.80
+      band_1_percent: 100.0
+      band_2_percent: 100.0
+      band_max_percent: 100.0
+      step_hysteresis_c: 0.05
   - id: bathroom
     name: "Bathroom"
+    delta_t50: 415  # Watts - Towel rail 500x1000mm (exact from catalogue)
+    radiator_exponent: 1.2  # Towel rails use lower exponent than panel radiators
     precision: 1
+    smoothing:
+      enabled: true
+      alpha: 0.3      # 30% new, 70% history (strong smoothing for noisy single sensor)
+    load_sharing:
+      schedule_lookahead_m: 60  # Default window
+      fallback_priority: 4       # Last choice (very low capacity)
     sensors:
-      - entity_id: sensor.roomtemp_bathroom
+      - entity_id: sensor.temp_bathroom_temperature
         role: primary
         timeout_m: 180
     trv:
       entity_id: climate.trv_bathroom
+    valve_bands:
+      band_1_error: 0.30
+      band_2_error: 0.80
+      band_1_percent: 100.0
+      band_2_percent: 100.0
+      band_max_percent: 100.0
+      step_hysteresis_c: 0.05
