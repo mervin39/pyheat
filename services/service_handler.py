@@ -47,6 +47,7 @@ class ServiceHandler:
         self.ad.register_service("pyheat/override", self.svc_override)
         self.ad.register_service("pyheat/cancel_override", self.svc_cancel_override)
         self.ad.register_service("pyheat/set_mode", self.svc_set_mode)
+        self.ad.register_service("pyheat/set_passive_settings", self.svc_set_passive_settings)
         self.ad.register_service("pyheat/set_default_target", self.svc_set_default_target)
         self.ad.register_service("pyheat/reload_config", self.svc_reload_config)
         self.ad.register_service("pyheat/get_schedules", self.svc_get_schedules)
@@ -278,9 +279,9 @@ class ServiceHandler:
         
         # Validate mode
         mode = mode.lower()
-        if mode not in ["auto", "manual", "off"]:
-            self.ad.log(f"pyheat.set_mode: invalid mode '{mode}' (must be auto, manual, or off)", level="ERROR")
-            return {"success": False, "error": f"invalid mode '{mode}' (must be auto, manual, or off)"}
+        if mode not in ["auto", "manual", "passive", "off"]:
+            self.ad.log(f"pyheat.set_mode: invalid mode '{mode}' (must be auto, manual, passive, or off)", level="ERROR")
+            return {"success": False, "error": f"invalid mode '{mode}' (must be auto, manual, passive, or off)"}
         
         # Validate room exists
         if room not in self.config.rooms:
@@ -316,6 +317,130 @@ class ServiceHandler:
         
         except Exception as e:
             self.ad.log(f"pyheat.set_mode failed: {e}", level="ERROR")
+            return {"success": False, "error": str(e)}
+
+    def svc_set_passive_settings(self, namespace, domain, service, kwargs):
+        """Service: pyheat.set_passive_settings - Set all passive mode settings for a room.
+        
+        Batched update of passive mode configuration to ensure atomic changes.
+        
+        Args:
+            room (str): Room ID (required)
+            max_temp (float): Maximum temperature threshold in °C (10-30°C, required)
+            valve_percent (int): Valve opening percentage (0-100%, required)
+            min_temp (float): Minimum temperature (comfort floor) in °C (8-20°C, required)
+        
+        Returns:
+            Dict with success status
+        """
+        room = kwargs.get('room')
+        max_temp = kwargs.get('max_temp')
+        valve_percent = kwargs.get('valve_percent')
+        min_temp = kwargs.get('min_temp')
+        
+        # Validate required arguments
+        if room is None:
+            self.ad.log("pyheat.set_passive_settings: 'room' argument is required", level="ERROR")
+            return {"success": False, "error": "room argument is required"}
+        
+        if max_temp is None:
+            self.ad.log("pyheat.set_passive_settings: 'max_temp' argument is required", level="ERROR")
+            return {"success": False, "error": "max_temp argument is required"}
+        
+        if valve_percent is None:
+            self.ad.log("pyheat.set_passive_settings: 'valve_percent' argument is required", level="ERROR")
+            return {"success": False, "error": "valve_percent argument is required"}
+        
+        if min_temp is None:
+            self.ad.log("pyheat.set_passive_settings: 'min_temp' argument is required", level="ERROR")
+            return {"success": False, "error": "min_temp argument is required"}
+        
+        # Validate room exists
+        if room not in self.config.rooms:
+            self.ad.log(f"pyheat.set_passive_settings: room '{room}' not found", level="ERROR")
+            return {"success": False, "error": f"room '{room}' not found"}
+        
+        # Validate ranges
+        try:
+            max_temp = float(max_temp)
+            min_temp = float(min_temp)
+            valve_percent = int(valve_percent)
+            
+            if max_temp < 10.0 or max_temp > 30.0:
+                self.ad.log(f"pyheat.set_passive_settings: max_temp {max_temp}C out of range (10-30C)", level="ERROR")
+                return {"success": False, "error": f"max_temp {max_temp}C out of range (10-30C)"}
+            
+            if min_temp < 8.0 or min_temp > 20.0:
+                self.ad.log(f"pyheat.set_passive_settings: min_temp {min_temp}C out of range (8-20C)", level="ERROR")
+                return {"success": False, "error": f"min_temp {min_temp}C out of range (8-20C)"}
+            
+            if valve_percent < 0 or valve_percent > 100:
+                self.ad.log(f"pyheat.set_passive_settings: valve_percent {valve_percent}% out of range (0-100%)", level="ERROR")
+                return {"success": False, "error": f"valve_percent {valve_percent}% out of range (0-100%)"}
+            
+            # Validate min < max
+            if min_temp >= max_temp:
+                self.ad.log(f"pyheat.set_passive_settings: min_temp ({min_temp}C) must be less than max_temp ({max_temp}C)", level="ERROR")
+                return {"success": False, "error": f"min_temp ({min_temp}C) must be less than max_temp ({max_temp}C)"}
+            
+        except (ValueError, TypeError) as e:
+            self.ad.log(f"pyheat.set_passive_settings: invalid argument types: {e}", level="ERROR")
+            return {"success": False, "error": f"invalid argument types: {e}"}
+        
+        self.ad.log(f"pyheat.set_passive_settings: room={room}, max_temp={max_temp}C, valve_percent={valve_percent}%, min_temp={min_temp}C")
+        
+        try:
+            # Update all three input_number entities
+            max_temp_entity = C.HELPER_ROOM_PASSIVE_MAX_TEMP.format(room=room)
+            valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room)
+            min_temp_entity = C.HELPER_ROOM_PASSIVE_MIN_TEMP.format(room=room)
+            
+            if self.ad.entity_exists(max_temp_entity):
+                self.ad.call_service(
+                    "input_number/set_value",
+                    entity_id=max_temp_entity,
+                    value=max_temp
+                )
+                self.ad.log(f"Set {max_temp_entity} to {max_temp}C")
+            else:
+                self.ad.log(f"Entity {max_temp_entity} not found", level="WARNING")
+            
+            if self.ad.entity_exists(valve_entity):
+                self.ad.call_service(
+                    "input_number/set_value",
+                    entity_id=valve_entity,
+                    value=valve_percent
+                )
+                self.ad.log(f"Set {valve_entity} to {valve_percent}%")
+            else:
+                self.ad.log(f"Entity {valve_entity} not found", level="WARNING")
+            
+            if self.ad.entity_exists(min_temp_entity):
+                self.ad.call_service(
+                    "input_number/set_value",
+                    entity_id=min_temp_entity,
+                    value=min_temp
+                )
+                self.ad.log(f"Set {min_temp_entity} to {min_temp}C")
+            else:
+                self.ad.log(f"Entity {min_temp_entity} not found", level="WARNING")
+            
+            # Trigger immediate recompute
+            if self.trigger_recompute_callback:
+                self.ad.run_in(lambda kwargs: self.trigger_recompute_callback("set_passive_settings_service"), 1)
+            
+            return {
+                "success": True,
+                "room": room,
+                "max_temp": max_temp,
+                "valve_percent": valve_percent,
+                "min_temp": min_temp
+            }
+        
+        except Exception as e:
+            self.ad.log(f"pyheat.set_passive_settings failed: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}
 
     def svc_set_default_target(self, namespace, domain, service, kwargs):
