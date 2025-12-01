@@ -41,6 +41,7 @@ class RoomController:
         self.room_last_target = {}  # {room_id: float} - tracks previous target to detect changes
         self.room_frost_protection_active = {}  # {room_id: bool} - frost protection state
         self.room_frost_protection_alerted = {}  # {room_id: bool} - alert sent (rate limiting)
+        self.room_comfort_mode_active = {}  # {room_id: bool} - passive comfort mode state
         
     def initialize_from_ha(self) -> None:
         """Initialize room state from Home Assistant.
@@ -223,18 +224,20 @@ class RoomController:
                 # Continue frost protection heating
                 return self._frost_protection_heating(room_id, temp, frost_temp, room_mode)
         
-        # Get target info (dict with target, mode, valve_percent)
+        # Get target info (dict with target, mode, valve_percent, min_target)
         target_info = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
         
         # Extract target temperature (may be setpoint for active, max_temp for passive)
         target = None
         operating_mode = 'off'  # 'active', 'passive', or 'off'
         passive_valve_percent = None
+        passive_min_temp = None
         
         if target_info is not None:
             target = target_info['target']
             operating_mode = target_info['mode']
             passive_valve_percent = target_info.get('valve_percent')
+            passive_min_temp = target_info.get('min_target')
         
         # Get manual setpoint for status display
         manual_setpoint = None
@@ -257,6 +260,8 @@ class RoomController:
             'valve_percent': 0,
             'error': None,
             'manual_setpoint': manual_setpoint,
+            'passive_min_temp': passive_min_temp,
+            'comfort_mode': False,
         }
         
         # If no target or no temp (and not manual), can't heat
@@ -285,17 +290,56 @@ class RoomController:
             # NOTE: Don't send valve command here - let app.py persistence logic handle it
             return result
         
-        # PASSIVE MODE: Threshold control with hysteresis
+        # PASSIVE MODE: Threshold control with hysteresis, plus optional comfort mode
         if operating_mode == 'passive':
-            # Passive never calls for heat
-            self.room_call_for_heat[room_id] = False
-            self.room_current_band[room_id] = 0
-            result['calling'] = False
-            
             # Get hysteresis config (same as active mode to maintain consistency)
             hysteresis = self.config.rooms[room_id]['hysteresis']
             on_delta = hysteresis['on_delta_c']
             off_delta = hysteresis['off_delta_c']
+            
+            # Check if comfort mode should activate (temperature below min_temp)
+            in_comfort_mode = self.room_comfort_mode_active.get(room_id, False)
+            
+            if passive_min_temp is not None and temp < (passive_min_temp - on_delta) and not in_comfort_mode:
+                # Activate comfort mode - room is too cold
+                self.room_comfort_mode_active[room_id] = True
+                in_comfort_mode = True
+                self.ad.log(
+                    f"Room {room_id} comfort mode activated: {temp:.1f}C < {passive_min_temp:.1f}C",
+                    level="INFO"
+                )
+            
+            elif in_comfort_mode and passive_min_temp is not None and temp > (passive_min_temp + off_delta):
+                # Deactivate comfort mode - room has recovered
+                self.room_comfort_mode_active[room_id] = False
+                in_comfort_mode = False
+                self.ad.log(
+                    f"Room {room_id} comfort mode deactivated: {temp:.1f}C > {passive_min_temp:.1f}C",
+                    level="INFO"
+                )
+            
+            # COMFORT MODE: Active heating below minimum temperature
+            if in_comfort_mode:
+                # Call for heat and force 100% valve for rapid recovery
+                self.room_call_for_heat[room_id] = True
+                result['calling'] = True
+                result['valve_percent'] = 100
+                result['error'] = passive_min_temp - temp  # Error relative to min_temp
+                result['comfort_mode'] = True
+                self.room_last_valve[room_id] = 100
+                
+                # Persist calling state if changed
+                prev_calling = self.room_call_for_heat.get(room_id, False)
+                if True != prev_calling:
+                    self._persist_calling_state(room_id, True)
+                
+                return result
+            
+            # NORMAL PASSIVE MODE: No heat call, valve opens opportunistically
+            self.room_call_for_heat[room_id] = False
+            self.room_current_band[room_id] = 0
+            result['calling'] = False
+            result['comfort_mode'] = False
             
             # Calculate error (positive = below target, negative = above target)
             error = target - temp
@@ -327,6 +371,11 @@ class RoomController:
                     self.persistence.update_room_state(room_id, passive_valve=valve_percent)
                 except Exception as e:
                     self.ad.log(f"Failed to persist passive valve state for {room_id}: {e}", level="WARNING")
+            
+            # Persist calling state change (from comfort to normal passive)
+            prev_calling = self.room_call_for_heat.get(room_id, False)
+            if False != prev_calling:
+                self._persist_calling_state(room_id, False)
             
             return result
         

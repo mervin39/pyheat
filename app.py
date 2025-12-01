@@ -248,6 +248,10 @@ class PyHeat(hass.Hass):
             if self.entity_exists(passive_valve_entity):
                 self.listen_state(self.room_passive_setting_changed, passive_valve_entity, room_id=room_id)
             
+            passive_min_entity = C.HELPER_ROOM_PASSIVE_MIN_TEMP.format(room=room_id)
+            if self.entity_exists(passive_min_entity):
+                self.listen_state(self.room_passive_setting_changed, passive_min_entity, room_id=room_id)
+            
             # Override timer changes
             timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
             if self.entity_exists(timer_entity):
@@ -442,9 +446,11 @@ class PyHeat(hass.Hass):
 
     def room_passive_setting_changed(self, entity, attribute, old, new, kwargs):
         room_id = kwargs.get('room_id')
-        # Determine which setting changed (max_temp or valve_percent)
+        # Determine which setting changed (max_temp, valve_percent, or min_temp)
         if 'passive_max_temp' in entity:
             setting = 'max_temp'
+        elif 'passive_min_temp' in entity:
+            setting = 'min_temp'
         else:
             setting = 'valve_percent'
         self.log(f"Room '{room_id}' passive {setting} changed: {old} -> {new}")

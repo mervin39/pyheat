@@ -114,6 +114,12 @@ class StatusPublisher:
             target = data.get('target', 0)
             return f"FROST PROTECTION: {temp:.1f}C -> {target:.1f}C (emergency heating)"
         
+        # Check comfort mode SECOND (passive mode below minimum temperature)
+        if data.get('comfort_mode', False):
+            temp = data.get('temp', 0)
+            min_temp = data.get('passive_min_temp', 0)
+            return f"Comfort heating (below {min_temp:.1f}C)"
+        
         # Check load sharing SECOND (takes priority over override)
         if hasattr(self.ad, 'load_sharing') and self.ad.load_sharing:
             load_sharing_context = self.ad.load_sharing.context
@@ -195,6 +201,13 @@ class StatusPublisher:
         # Handle off mode
         if mode == 'off':
             return 'Heating Off'
+        
+        # Handle passive mode (not in comfort mode)
+        if mode == 'passive':
+            target = data.get('target')  # This is the max_temp in passive mode
+            if target is None:
+                return 'Passive (opportunistic)'
+            return f'Passive (opportunistic, max {target:.1f}C)'
         
         # Handle auto mode (no override)
         if mode == 'auto':
@@ -325,6 +338,8 @@ class StatusPublisher:
             # Add passive-specific fields when in passive mode
             if data.get('operating_mode') == 'passive':
                 room_attrs['passive_max_temp'] = data.get('target')  # In passive mode, target is max_temp
+                room_attrs['passive_min_temp'] = data.get('passive_min_temp')  # Comfort floor
+                room_attrs['comfort_mode'] = data.get('comfort_mode', False)
             
             attrs['rooms'][room_id] = room_attrs
             total_valve += data.get('valve_percent', 0)

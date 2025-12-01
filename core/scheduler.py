@@ -65,7 +65,8 @@ class Scheduler:
                     return {
                         'target': round(setpoint, precision),
                         'mode': 'active',
-                        'valve_percent': None
+                        'valve_percent': None,
+                        'min_target': None
                     }
                 except (ValueError, TypeError):
                     self.ad.log(f"Invalid manual setpoint for room '{room_id}'", level="WARNING")
@@ -76,11 +77,13 @@ class Scheduler:
         if room_mode == "passive":
             max_temp = self._get_passive_max_temp(room_id)
             valve_pct = self._get_passive_valve_percent(room_id)
+            min_temp = self._get_passive_min_temp(room_id)
             precision = self.config.rooms[room_id].get('precision', 1)
             return {
                 'target': round(max_temp, precision),
                 'mode': 'passive',
-                'valve_percent': valve_pct
+                'valve_percent': valve_pct,
+                'min_target': round(min_temp, precision)
             }
         
         # Auto mode → check for override, then schedule
@@ -94,7 +97,8 @@ class Scheduler:
                 return {
                     'target': round(override_target, precision),
                     'mode': 'active',
-                    'valve_percent': None
+                    'valve_percent': None,
+                    'min_target': None
                 }
         
         # No override → get scheduled target (may be active or passive)
@@ -141,6 +145,30 @@ class Scheduler:
                 self.ad.log(f"Invalid passive_valve_percent for room '{room_id}', using default", level="WARNING")
         return C.PASSIVE_VALVE_PERCENT_DEFAULT
     
+    def _get_passive_min_temp(self, room_id: str) -> float:
+        """Get the passive minimum temperature (comfort floor) for a room from helper entity.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            Passive minimum temperature (defaults to frost_protection_temp_c if not found)
+        """
+        entity = C.HELPER_ROOM_PASSIVE_MIN_TEMP.format(room=room_id)
+        if self.ad.entity_exists(entity):
+            try:
+                min_temp = float(self.ad.get_state(entity))
+                # Validate that min_temp >= frost_protection_temp_c
+                frost_temp = self.config.system_config.get('frost_protection_temp_c', C.FROST_PROTECTION_TEMP_C_DEFAULT)
+                if min_temp < frost_temp:
+                    self.ad.log(f"Room '{room_id}' passive_min_temp ({min_temp}C) is below frost_protection_temp_c ({frost_temp}C), using frost protection temp", level="WARNING")
+                    return frost_temp
+                return min_temp
+            except (ValueError, TypeError):
+                self.ad.log(f"Invalid passive_min_temp for room '{room_id}', using frost protection temp", level="WARNING")
+        # Default to frost protection temperature
+        return self.config.system_config.get('frost_protection_temp_c', C.FROST_PROTECTION_TEMP_C_DEFAULT)
+    
     def get_scheduled_target(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[Dict]:
         """Get the scheduled target temperature and mode for a room.
         
@@ -165,7 +193,8 @@ class Scheduler:
             return {
                 'target': C.HOLIDAY_TARGET_C,
                 'mode': 'active',
-                'valve_percent': None
+                'valve_percent': None,
+                'min_target': None
             }
         
         # Get day of week (0=Monday, 6=Sunday)
@@ -193,17 +222,34 @@ class Scheduler:
                 block_mode = block.get('mode', 'active')
                 valve_percent = block.get('valve_percent') if block_mode == 'passive' else None
                 
+                # For passive mode, check for min_target in schedule
+                min_target = None
+                if block_mode == 'passive':
+                    # Scheduled min_target takes precedence, otherwise fall back to entity
+                    if 'min_target' in block:
+                        min_target = block['min_target']
+                        # Validate against frost protection temp
+                        frost_temp = self.config.system_config.get('frost_protection_temp_c', C.FROST_PROTECTION_TEMP_C_DEFAULT)
+                        if min_target < frost_temp:
+                            self.ad.log(f"Room '{room_id}' scheduled min_target ({min_target}C) is below frost_protection_temp_c ({frost_temp}C), using frost protection temp", level="ERROR")
+                            min_target = frost_temp
+                    else:
+                        # Use entity value
+                        min_target = self._get_passive_min_temp(room_id)
+                
                 return {
                     'target': block['target'],
                     'mode': block_mode,
-                    'valve_percent': valve_percent
+                    'valve_percent': valve_percent,
+                    'min_target': min_target
                 }
         
         # No active block → return default target with active mode
         return {
             'target': schedule.get('default_target'),
             'mode': 'active',
-            'valve_percent': None
+            'valve_percent': None,
+            'min_target': None
         }
     
     def get_next_schedule_change(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[tuple[str, float, int]]:

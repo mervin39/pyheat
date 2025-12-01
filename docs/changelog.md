@@ -1,6 +1,107 @@
 
 # PyHeat Changelog
 
+## 2025-12-01: Passive Mode Minimum Temperature (Comfort Floor)
+
+**Summary:**
+Added optional minimum temperature (comfort floor) for passive mode rooms. When a passive room's temperature drops below the configured minimum, the system automatically activates comfort mode with active heating at 100% valve until the temperature recovers. This prevents passive rooms from getting uncomfortably cold while maintaining the passive mode philosophy of opportunistic heating during normal operation.
+
+**Key Concepts:**
+- **Normal passive mode** (temp ≥ min_temp): Room doesn't call for heat, valve opens opportunistically
+- **Comfort mode** (frost_temp < temp < min_temp): Room calls for heat, 100% valve for rapid recovery
+- **Frost protection** (temp < frost_temp): Emergency heating (already implemented 2025-12-01)
+
+**Configuration:**
+
+### Per-Room Entities (Optional)
+Added 6 new `input_number` entities in `config/ha_yaml/pyheat_package.yaml`:
+- `input_number.pyheat_{room}_passive_min_temp` (one per room)
+- Range: 8-20°C (minimum must be >= frost_protection_temp_c)
+- Default: 8°C (equals frost protection - no separate comfort floor unless user configures)
+- No initial value - preserves user settings across HA restarts
+
+### Schedule Configuration (Optional)
+Schedules can now specify `min_target` in passive blocks:
+```yaml
+rooms:
+  - id: games
+    week:
+      mon:
+        - start: "00:00"
+          end: "23:59"
+          mode: passive
+          target: 18.0        # Upper bound (max_temp)
+          min_target: 12.0    # Lower bound (comfort floor) - NEW
+          valve_percent: 50
+```
+
+**Precedence:** Scheduled `min_target` > Entity value > Frost protection temp (8°C)
+
+**Implementation Changes:**
+
+- **`core/constants.py`:**
+  - Added `HELPER_ROOM_PASSIVE_MIN_TEMP` template
+
+- **`core/scheduler.py`:**
+  - Added `_get_passive_min_temp()` method to read entity values
+  - Returns `min_target` in passive mode dictionaries
+  - Validates min_temp >= frost_protection_temp_c
+  - Handles scheduled `min_target` field (takes precedence over entity)
+  - All resolution methods now return `min_target` field (None for non-passive modes)
+
+- **`controllers/room_controller.py`:**
+  - Added `room_comfort_mode_active` state tracking dict
+  - Implemented comfort mode activation/deactivation logic with hysteresis
+  - Activation: temp < (min_temp - on_delta)
+  - Deactivation: temp > (min_temp + off_delta)
+  - Comfort mode behavior: calling=True, valve=100%, error relative to min_temp
+  - INFO level logging on comfort mode transitions
+  - Added `comfort_mode` and `passive_min_temp` to result dict
+
+- **`app.py`:**
+  - Added state listeners for 6 `passive_min_temp` entities
+  - Updated `room_passive_setting_changed()` callback to handle min_temp changes
+  - Triggers recompute when passive_min_temp entity changes
+
+- **`services/status_publisher.py`:**
+  - Added comfort mode status display (priority below frost protection)
+  - Status text: `"Comfort heating (below {min_temp}°C)"`
+  - Normal passive status: `"Passive (opportunistic, max {max_temp}°C)"`
+  - Added `passive_min_temp` and `comfort_mode` to room attributes
+  - Comfort mode check placed before load sharing check
+
+- **`services/heating_logger.py`:**
+  - Added `{room}_passive_min_temp` column to CSV logs
+  - Logs min_temp value for analysis
+  - Added to change detection (triggers logging when value changes)
+  - Added to prev_state cache
+
+**Behavior:**
+
+Example for room with min_temp=12°C, max_temp=18°C, frost_temp=8°C:
+1. **temp ≥ 12°C:** Normal passive mode - no heat call, valve opens opportunistically
+2. **8°C < temp < 12°C:** Comfort mode - calls for heat, 100% valve, rapid recovery
+3. **temp < 8°C:** Frost protection - emergency heating (existing feature)
+
+Uses existing per-room hysteresis values (on_delta, off_delta) for consistency across all modes.
+
+**Benefits:**
+- Prevents passive rooms from getting uncomfortably cold (e.g., 12-15°C comfort floor)
+- Layered protection: comfort floor (optional) + safety floor (frost protection)
+- Backward compatible: optional feature, defaults to frost protection only
+- No special handling needed for load sharing (passive mode excluded automatically)
+- Flexible configuration: per-room entities or per-schedule blocks
+- Simple default behavior: equals frost protection temp until user configures otherwise
+
+**CSV Columns Added:**
+- `{room}_passive_min_temp` - Current minimum temperature setting
+
+**Status Display:**
+- Comfort mode: `"Comfort heating (below 12.0°C)"`
+- Normal passive: `"Passive (opportunistic, max 18.0°C)"`
+
+---
+
 ## 2025-12-01: Alert Manager Integration for Frost Protection
 
 **Summary:**
