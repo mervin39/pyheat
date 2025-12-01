@@ -2165,15 +2165,20 @@ def compute_room(room_id: str, now: datetime) -> Dict:
 1. Read room mode (auto/manual/passive/off) from helper entity
 2. Read holiday mode (system-wide) from helper entity
 3. Get fused temperature from SensorManager
-4. Resolve target temperature and operating mode from Scheduler
-5. Validate inputs:
+4. FROST PROTECTION CHECK (highest priority):
+   - Only for modes other than "off" and only when master_enable is on
+   - If temp < (frost_temp - on_delta) → activate frost protection
+   - If already active and temp > (frost_temp + off_delta) → deactivate
+   - If active → return frost protection heating (100% valve, calling=True)
+5. Resolve target temperature and operating mode from Scheduler
+6. Validate inputs:
    - If target is None → calling=False, valve=0%
    - If temp is None (sensors stale) → calling=False, valve=0%
    - Exception: Manual mode still requires valid temp
-6. Branch on operating mode:
+7. Branch on operating mode:
    - PASSIVE: Binary threshold control (valve open if temp < max_temp)
    - ACTIVE: Calculate error, hysteresis, and stepped valve bands
-7. Return room state dict
+8. Return room state dict
 ```
 
 **Return Value:**
@@ -2183,10 +2188,11 @@ def compute_room(room_id: str, now: datetime) -> Dict:
     'target': 22.0,            # Target temperature (°C) or None
     'is_stale': False,         # True if sensors stale
     'mode': 'auto',            # Room mode (auto/manual/passive/off)
-    'operating_mode': 'active',# Operating mode ('active', 'passive', or 'off')
+    'operating_mode': 'active',# Operating mode ('active', 'passive', 'frost_protection', or 'off')
     'calling': True,           # Whether room calls for heat
     'valve_percent': 65,       # Commanded valve opening (0-100)
     'error': 0.7,              # target - temp (°C)
+    'frost_protection': False, # True if frost protection active
     'manual_setpoint': None    # For manual mode status display
 }
 ```
@@ -2205,6 +2211,64 @@ def compute_room(room_id: str, now: datetime) -> Dict:
 - No PID control (fixed valve percentage, not proportional)
 - Excluded from load sharing calculations
 - Valve state not persisted (defaults to closed on reload, recomputes within 10-60s)
+
+### Frost Protection
+
+**Priority: Highest** - Checked before all other mode logic (including target resolution).
+
+PyHeat includes automatic frost protection to prevent rooms from dropping to dangerously cold temperatures that could cause frozen pipes or property damage.
+
+**Configuration (system-wide in boiler.yaml):**
+```yaml
+system:
+  frost_protection_temp_c: 8.0  # Default: 8°C (standard UK/EU frost protection)
+```
+
+**Activation Conditions (ALL must be true):**
+1. Room mode is NOT "off" (respects explicit user disable)
+2. `master_enable` is ON (respects system-wide kill switch)
+3. Temperature sensor is valid (not stale)
+4. `temp < (frost_protection_temp_c - on_delta)`
+
+**Deactivation (Recovery):**
+- `temp > (frost_protection_temp_c + off_delta)`
+- Uses existing per-room hysteresis values to prevent oscillation
+
+**Behavior During Frost Protection:**
+- Room calls for heat (`calling = True`) - boiler will turn on
+- Valve forced to 100% (ignores normal valve bands and passive settings)
+- Target temperature = frost_protection_temp_c (8°C default)
+- Operating mode = 'frost_protection' (special state)
+- System logs WARNING on activation, INFO on deactivation
+- Returns to normal mode behavior after recovery
+
+**Mode Interactions:**
+- **Off mode**: Frost protection does NOT activate (user explicitly disabled room)
+- **Auto/Manual/Passive modes**: Frost protection activates if temperature drops below threshold
+- **Holiday mode**: Frost protection activates if holiday target (15°C) fails to prevent drop below 8°C
+
+**Example Scenario:**
+```
+Room in auto mode, target 12°C
+External temperature: -10°C (extreme cold)
+Room temp drops: 10°C → 9°C → 8°C → 7.7°C
+  ↓
+Frost protection ACTIVATES at 7.7°C (8.0 - 0.3)
+  ↓
+Emergency heating: valve 100%, calling for heat
+  ↓
+Room warms: 7.8°C → 8.0°C → 8.2°C → 9.0°C
+  ↓
+Frost protection DEACTIVATES at 8.1°C (8.0 + 0.1)
+  ↓
+Returns to normal auto mode behavior (target 12°C)
+```
+
+**Safety Notes:**
+- Frost protection is a safety override, not a comfort feature
+- Intentional overshoot (9-10°C) provides thermal buffer
+- Alert notification sent on activation (one per activation, rate-limited)
+- CSV logs include frost_protection column for post-analysis
 
 ### Asymmetric Hysteresis (Call-for-Heat Decision)
 

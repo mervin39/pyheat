@@ -91,6 +91,7 @@ class StatusPublisher:
         """Format human-readable status text for a room.
         
         Implements STATUS_FORMAT_SPEC.md formats:
+        - Frost Protection (highest priority): "FROST PROTECTION: T° -> TT°"
         - Load Sharing (priority): "Pre-warming for HH:MM" or "Fallback heating P{N}"
         - Auto: "Auto: T° until HH:MM on $DAY (S°)" or "Auto: T° forever"
         - Override: "Override: T° (ΔD°) until HH:MM" - delta calculated on-the-fly
@@ -107,7 +108,13 @@ class StatusPublisher:
         """
         mode = data.get('mode', 'off')
         
-        # Check load sharing FIRST (takes priority over override)
+        # Check frost protection FIRST (highest priority)
+        if data.get('frost_protection', False):
+            temp = data.get('temp', 0)
+            target = data.get('target', 0)
+            return f"FROST PROTECTION: {temp:.1f}C -> {target:.1f}C (emergency heating)"
+        
+        # Check load sharing SECOND (takes priority over override)
         if hasattr(self.ad, 'load_sharing') and self.ad.load_sharing:
             load_sharing_context = self.ad.load_sharing.context
             if load_sharing_context and load_sharing_context.active_rooms:
@@ -306,6 +313,7 @@ class StatusPublisher:
                 'calling_for_heat': data.get('calling', False),
                 'valve_percent': data.get('valve_percent', 0),
                 'is_stale': data.get('is_stale', True),
+                'frost_protection': data.get('frost_protection', False),
             }
             
             # Add estimated capacity if load monitoring enabled
@@ -408,11 +416,13 @@ class StatusPublisher:
         attributes = {
             'friendly_name': f"{room_name} State",
             'mode': data['mode'],
+            'operating_mode': data.get('operating_mode', 'off'),
             'temperature': round(data['temp'], precision) if data['temp'] is not None else None,
             'target': round(data['target'], precision) if data['target'] is not None else None,
             'calling_for_heat': data.get('calling', False),
             'valve_percent': data.get('valve_percent', 0),
             'is_stale': data.get('is_stale', False),
+            'frost_protection': data.get('frost_protection', False),
             'manual_setpoint': data.get('manual_setpoint'),
             'formatted_status': formatted_status,  # Human-readable status
             'scheduled_temp': round(scheduled_temp, precision) if scheduled_temp is not None else None,

@@ -39,6 +39,8 @@ class RoomController:
         self.room_current_band = {}  # {room_id: band_index}
         self.room_last_valve = {}  # {room_id: percent}
         self.room_last_target = {}  # {room_id: float} - tracks previous target to detect changes
+        self.room_frost_protection_active = {}  # {room_id: bool} - frost protection state
+        self.room_frost_protection_alerted = {}  # {room_id: bool} - alert sent (rate limiting)
         
     def initialize_from_ha(self) -> None:
         """Initialize room state from Home Assistant.
@@ -163,6 +165,55 @@ class RoomController:
         
         # Get temperature (smoothed for consistent control and display)
         temp, is_stale = self.sensors.get_room_temperature_smoothed(room_id, now)
+        
+        # Check if master enable is on (required for frost protection)
+        master_enabled = True
+        if self.ad.entity_exists(C.HELPER_MASTER_ENABLE):
+            master_enabled = self.ad.get_state(C.HELPER_MASTER_ENABLE) == "on"
+        
+        # FROST PROTECTION CHECK (HIGHEST PRIORITY - checked before mode logic)
+        # Activates when room drops below safety threshold
+        # Only for modes other than "off" and only when master_enable is on
+        if room_mode != C.MODE_OFF and master_enabled and temp is not None and not is_stale:
+            frost_temp = self.config.system_config.get('frost_protection_temp_c', C.FROST_PROTECTION_TEMP_C_DEFAULT)
+            hysteresis = self.config.rooms[room_id]['hysteresis']
+            on_delta = hysteresis['on_delta_c']
+            off_delta = hysteresis['off_delta_c']
+            
+            # Check if frost protection should activate/continue
+            in_frost_protection = self.room_frost_protection_active.get(room_id, False)
+            
+            if not in_frost_protection and temp < (frost_temp - on_delta):
+                # Activate frost protection
+                self.room_frost_protection_active[room_id] = True
+                self.ad.log(
+                    f"FROST PROTECTION ACTIVATED: {room_id} at {temp:.1f}C "
+                    f"(threshold: {frost_temp:.1f}C)",
+                    level="WARNING"
+                )
+                
+                # Send alert notification (rate limited - only once per activation)
+                if not self.room_frost_protection_alerted.get(room_id, False):
+                    room_name = self.config.rooms[room_id].get('name', room_id.capitalize())
+                    # Import alert_manager from app if available (passed through app.py)
+                    # For now, just log - we'll add alert in app.py integration
+                    self.room_frost_protection_alerted[room_id] = True
+                
+                return self._frost_protection_heating(room_id, temp, frost_temp, room_mode)
+            
+            elif in_frost_protection and temp > (frost_temp + off_delta):
+                # Deactivate frost protection (recovered)
+                self.room_frost_protection_active[room_id] = False
+                self.room_frost_protection_alerted[room_id] = False  # Reset alert flag
+                self.ad.log(
+                    f"FROST PROTECTION DEACTIVATED: {room_id} recovered to {temp:.1f}C",
+                    level="INFO"
+                )
+                # Continue to normal mode logic below
+            
+            elif in_frost_protection:
+                # Continue frost protection heating
+                return self._frost_protection_heating(room_id, temp, frost_temp, room_mode)
         
         # Get target info (dict with target, mode, valve_percent)
         target_info = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
@@ -515,6 +566,50 @@ class RoomController:
         
         # Convert back to 'max' if needed
         return new_num if new_num < max_band_num else 'max'
+    
+    def _frost_protection_heating(self, room_id: str, temp: float, frost_temp: float, room_mode: str) -> Dict:
+        """Generate heating command for frost protection mode.
+        
+        Frost protection uses emergency heating to rapidly recover room temperature
+        when it drops below the safety threshold. This overrides all normal heating
+        logic and forces maximum heating regardless of room mode or configuration.
+        
+        Args:
+            room_id: Room identifier
+            temp: Current temperature (C)
+            frost_temp: Frost protection threshold temperature (C)
+            room_mode: Room's configured mode (for display only)
+            
+        Returns:
+            Dictionary with frost protection heating state:
+            {
+                'temp': float,
+                'target': float,  # Frost protection temperature
+                'is_stale': bool,  # False (temp is valid)
+                'mode': str,  # Room's actual mode (auto/manual/passive)
+                'operating_mode': str,  # 'frost_protection'
+                'calling': bool,  # True (emergency heating)
+                'valve_percent': int,  # 100 (maximum heating)
+                'error': float,  # frost_temp - temp
+                'frost_protection': bool,  # True (flag for status display)
+            }
+        """
+        # Update internal state for frost protection
+        self.room_call_for_heat[room_id] = True  # Calling for heat
+        self.room_current_band[room_id] = 'max'  # Maximum band
+        self.room_last_valve[room_id] = 100  # 100% valve
+        
+        return {
+            'temp': temp,
+            'target': frost_temp,
+            'is_stale': False,  # Temp is valid (checked before calling)
+            'mode': room_mode,  # Actual room mode (for display)
+            'operating_mode': 'frost_protection',  # Special operating mode
+            'calling': True,  # CALL FOR HEAT (emergency)
+            'valve_percent': 100,  # MAXIMUM HEATING (override user settings)
+            'error': frost_temp - temp,
+            'frost_protection': True,  # Flag for status display and logging
+        }
     
     def get_room_state(self, room_id: str) -> Dict:
         """Get current state for a room.

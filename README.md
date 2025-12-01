@@ -15,6 +15,7 @@ PyHeat provides multi-room heating control with:
 - **Passive mode** - opportunistic heating without calling for heat (valves open when other rooms heating)
 - **Override** functionality with flexible parameters (absolute/delta temp, duration/end time)
 - **Holiday mode** for energy savings
+- **Frost protection** - automatic emergency heating when rooms drop below safety threshold
 
 ## Architecture
 
@@ -283,6 +284,42 @@ See [docs/load_sharing_proposal.md](docs/load_sharing_proposal.md) for complete 
 ### Holiday Mode
 
 Enable `input_boolean.pyheat_holiday_mode` to set all rooms to a low temperature (12°C default).
+
+### Frost Protection
+
+PyHeat includes automatic frost protection to prevent rooms from getting dangerously cold.
+
+**How it works:**
+- Global safety threshold (default 8°C) configured in `config/boiler.yaml`
+- Activates automatically when room temperature drops below threshold
+- Uses emergency heating (100% valve opening) for rapid recovery
+- Returns to normal behavior once room is safe
+
+**Important notes:**
+- ⚠️ **Frost protection does NOT activate for rooms in "off" mode** - use "off" only when you are certain the room can safely remain unheated
+- Frost protection is disabled when `master_enable` is off (system-wide kill switch)
+- You will receive a log warning when frost protection activates
+
+**Configuration:**
+```yaml
+# config/boiler.yaml
+system:
+  frost_protection_temp_c: 8.0  # Adjust if needed (5-15°C range)
+```
+
+**Recommended settings:**
+- **6-7°C**: Pipes-only protection (minimal intervention)
+- **8-10°C**: Balanced approach (standard UK/EU frost protection)
+- **11-15°C**: Conservative (earlier activation for peace of mind)
+
+**What happens during frost protection:**
+1. Room drops below threshold (e.g., 7.7°C with default settings)
+2. System overrides normal mode and calls for heat
+3. Valve opens to 100% for maximum heating
+4. Heating continues until temp recovers above threshold (e.g., 8.1°C)
+5. System returns to normal mode behavior
+
+**Status display:** When active, room status shows `"FROST PROTECTION: 7.5C -> 8.0C (emergency heating)"`
 
 ### Master Enable/Disable
 

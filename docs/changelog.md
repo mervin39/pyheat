@@ -1,6 +1,115 @@
 
 # PyHeat Changelog
 
+## 2025-12-01: System-Wide Frost Protection
+
+**Summary:**
+Implemented automatic frost protection to prevent rooms from getting dangerously cold. When room temperature drops below the configured safety threshold (default 8°C), the system automatically activates emergency heating regardless of the room's normal mode or schedule. This prevents frozen pipes, property damage, and safety hazards during extreme cold conditions.
+
+**Changes:**
+
+### Configuration
+- **`config/boiler.yaml`:**
+  - Added new `system:` section with `frost_protection_temp_c: 8.0` setting
+  - Default 8°C is standard UK/EU frost protection temperature
+  - Configurable range: 5-15°C (validated at load time)
+
+### Core Implementation
+- **`core/constants.py`:**
+  - Added `FROST_PROTECTION_TEMP_C_DEFAULT = 8.0`
+  - Added `FROST_PROTECTION_TEMP_MIN_C = 5.0`
+  - Added `FROST_PROTECTION_TEMP_MAX_C = 15.0`
+
+- **`core/config_loader.py`:**
+  - Added `system_config` dict to store system-wide settings
+  - Loads `system:` section from boiler.yaml
+  - Validates frost protection temperature is within safe range (5-15°C)
+  - Applies default if not specified in config
+
+### Heating Logic
+- **`controllers/room_controller.py`:**
+  - Added `room_frost_protection_active` and `room_frost_protection_alerted` state dicts
+  - Implemented frost protection check BEFORE normal mode logic (highest priority)
+  - Activation condition: `temp < (frost_temp - on_delta)` for non-off modes when master_enable is on
+  - Deactivation condition: `temp > (frost_temp + off_delta)` (uses existing hysteresis)
+  - Added `_frost_protection_heating()` helper method that returns:
+    - `calling = True` (calls for heat)
+    - `valve_percent = 100` (maximum heating for rapid recovery)
+    - `operating_mode = 'frost_protection'` (special state)
+    - `target = frost_temp` (8°C default)
+  - Logs WARNING on activation, INFO on deactivation
+
+### Status & Monitoring
+- **`services/status_publisher.py`:**
+  - Added frost protection check at top of `_format_status_text()` (highest priority)
+  - Displays: `"FROST PROTECTION: 7.5C -> 8.0C (emergency heating)"`
+  - Added `frost_protection` attribute to room entities and system status
+  - Added `operating_mode` attribute to per-room state entities
+
+- **`services/heating_logger.py`:**
+  - Added `{room_id}_frost_protection` column to CSV logs
+  - Added frost protection state to change detection in `should_log()`
+  - Logs frost protection activation/deactivation events for analysis
+
+### Documentation
+- **`README.md`:**
+  - Added frost protection to feature list
+  - Added comprehensive "Frost Protection" section with:
+    - How it works
+    - Configuration options (6-7°C, 8-10°C, 11-15°C)
+    - Important warnings about "off" mode and master_enable
+    - Example scenario walkthrough
+    - Status display format
+
+- **`docs/ARCHITECTURE.md`:**
+  - Added frost protection to `compute_room()` processing steps (step 4)
+  - Added `frost_protection` field to return value dict
+  - Added comprehensive "Frost Protection" section with:
+    - Configuration details
+    - Activation/deactivation conditions
+    - Behavior during frost protection
+    - Mode interactions
+    - Example scenario with timeline
+    - Safety notes
+
+- **`docs/frost_protection_proposal.md`:**
+  - Created comprehensive design document with implementation details
+
+**Behavior:**
+
+Frost protection activates when:
+1. Room mode is NOT "off" (respects explicit user disable)
+2. `master_enable` is ON (respects system-wide kill switch)
+3. Temperature sensor is valid (not stale)
+4. `temp < (frost_protection_temp_c - on_delta)`
+
+When active:
+- Room calls for heat (boiler turns on if not already running)
+- Valve opens to 100% (ignores normal bands and passive settings)
+- Heating continues until `temp > (frost_protection_temp_c + off_delta)`
+- Returns to normal mode behavior after recovery
+- Intentional overshoot (9-10°C) provides thermal buffer
+
+**Mode Interactions:**
+- **Off mode**: NO frost protection (user explicitly disabled room)
+- **Auto/Manual/Passive**: Frost protection activates if temp drops below threshold
+- **Holiday mode**: Frost protection activates if holiday target fails to prevent drop
+
+**Safety:**
+- Uses existing per-room hysteresis to prevent oscillation
+- Respects master_enable (disabled when system is off)
+- Only activates with valid temperature sensors
+- Emergency heating is aggressive (100% valve) for rapid recovery
+- System logs clearly indicate activation and deactivation
+
+**Testing:**
+- System loaded successfully with new configuration
+- No errors in AppDaemon logs
+- Frost protection temperature validated: 8.0°C
+- Ready for real-world testing during cold weather
+
+---
+
 ## 2025-11-30: Local File-Based Persistence Migration
 
 **Branch:** `feature/passive-mode`

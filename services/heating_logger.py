@@ -119,6 +119,8 @@ class HeatingLogger:
         for room_id in self.room_ids:
             headers.append(f'{room_id}_operating_mode')
         for room_id in self.room_ids:
+            headers.append(f'{room_id}_frost_protection')
+        for room_id in self.room_ids:
             headers.append(f'{room_id}_override')
         for room_id in self.room_ids:
             headers.append(f'{room_id}_estimated_dump_capacity')
@@ -281,6 +283,10 @@ class HeatingLogger:
                 self.ad.log(f"HeatingLogger: should_log=True ({room_id} operating_mode: {prev_room.get('operating_mode')} -> {room.get('operating_mode')})", level="DEBUG")
                 return True
             
+            if room.get('frost_protection', False) != prev_room.get('frost_protection', False):
+                self.ad.log(f"HeatingLogger: should_log=True ({room_id} frost_protection: {prev_room.get('frost_protection')} -> {room.get('frost_protection')})", level="DEBUG")
+                return True
+            
             if room.get('override') != prev_room.get('override'):
                 self.ad.log(f"HeatingLogger: should_log=True ({room_id} override: {prev_room.get('override')} -> {room.get('override')})", level="DEBUG")
                 return True
@@ -427,6 +433,7 @@ class HeatingLogger:
             row[f'{room_id}_valve_cmd'] = room.get('valve_cmd', '')
             row[f'{room_id}_mode'] = room.get('mode', '')
             row[f'{room_id}_operating_mode'] = room.get('operating_mode', '')
+            row[f'{room_id}_frost_protection'] = room.get('frost_protection', False)
             row[f'{room_id}_override'] = room.get('override', '')
             row[f'{room_id}_estimated_dump_capacity'] = round(load_data.get('estimated_capacities', {}).get(room_id, 0), 0) if load_data else 0
         
@@ -447,6 +454,7 @@ class HeatingLogger:
                     'valve_fb': room.get('valve_fb'),
                     'mode': room.get('mode'),
                     'operating_mode': room.get('operating_mode'),
+                    'frost_protection': room.get('frost_protection', False),
                     'override': room.get('override'),
                 }
                 for room_id, room in room_data.items()

@@ -51,6 +51,18 @@ PRECISION_ALLOWED = {0, 1, 2}
 TIMEOUT_MIN_M = 1
 
 # ============================================================================
+# Frost Protection
+# ============================================================================
+
+# Default frost protection temperature (°C) if not specified in config
+# Standard UK/EU frost protection setting (above pipe freezing risk)
+FROST_PROTECTION_TEMP_C_DEFAULT = 8.0
+
+# Validation range for frost protection temperature
+FROST_PROTECTION_TEMP_MIN_C = 5.0   # Below this risks frozen pipes
+FROST_PROTECTION_TEMP_MAX_C = 15.0  # Above this is comfort heating, not frost protection
+
+# ============================================================================
 # Room Modes
 # ============================================================================
 

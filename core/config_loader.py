@@ -28,6 +28,7 @@ class ConfigLoader:
         self.rooms = {}  # Room registry: {room_id: room_data}
         self.schedules = {}  # Schedules: {room_id: schedule_data}
         self.boiler_config = {}  # Boiler configuration
+        self.system_config = {}  # System-wide configuration
         self.config_file_mtimes = {}  # {filepath: mtime} for change detection
         
     def load_all(self) -> None:
@@ -58,6 +59,8 @@ class ConfigLoader:
             boiler_yaml = yaml.safe_load(f) or {}
             # Extract the 'boiler' key from the YAML structure
             self.boiler_config = boiler_yaml.get('boiler', {})
+            # Extract the 'system' key for system-wide configuration
+            self.system_config = boiler_yaml.get('system', {})
         
         # Process rooms
         for room in rooms_data.get('rooms', []):
@@ -188,6 +191,21 @@ class ConfigLoader:
             )
         
         self.ad.log(f"Loaded boiler config: entity_id={bc['entity_id']}")
+        
+        # Validate and apply defaults for system config
+        sc = self.system_config
+        
+        # Frost protection temperature (with default)
+        frost_temp = sc.get('frost_protection_temp_c', C.FROST_PROTECTION_TEMP_C_DEFAULT)
+        if not (C.FROST_PROTECTION_TEMP_MIN_C <= frost_temp <= C.FROST_PROTECTION_TEMP_MAX_C):
+            raise ValueError(
+                f"System configuration error: frost_protection_temp_c must be between "
+                f"{C.FROST_PROTECTION_TEMP_MIN_C}C and {C.FROST_PROTECTION_TEMP_MAX_C}C, "
+                f"got {frost_temp}C"
+            )
+        sc['frost_protection_temp_c'] = frost_temp
+        
+        self.ad.log(f"Loaded system config: frost_protection_temp_c={frost_temp}C")
     
     def _load_valve_bands(self, room_id: str, bands_config: dict) -> dict:
         """Load and validate valve band configuration with cascading defaults.
@@ -341,5 +359,6 @@ class ConfigLoader:
         self.rooms.clear()
         self.schedules.clear()
         self.boiler_config.clear()
+        self.system_config.clear()
         self.load_all()
         self.ad.log("Configuration reloaded successfully")
