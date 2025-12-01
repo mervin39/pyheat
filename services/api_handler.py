@@ -57,6 +57,7 @@ class APIHandler:
         self.ad.register_endpoint(self.api_override, "pyheat_override")
         self.ad.register_endpoint(self.api_cancel_override, "pyheat_cancel_override")
         self.ad.register_endpoint(self.api_set_mode, "pyheat_set_mode")
+        self.ad.register_endpoint(self.api_set_passive_settings, "pyheat_set_passive_settings")
         self.ad.register_endpoint(self.api_set_default_target, "pyheat_set_default_target")
         self.ad.register_endpoint(self.api_reload_config, "pyheat_reload_config")
         self.ad.register_endpoint(self.api_get_schedules, "pyheat_get_schedules")
@@ -138,11 +139,26 @@ class APIHandler:
         
         Request body: {
             "room": str,
-            "mode": str  # "auto", "manual", or "off"
+            "mode": str  # "auto", "manual", "passive", or "off"
         }
         """
         request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_set_mode, request_body)
+    
+    def api_set_passive_settings(self, namespace, data: Dict[str, Any]) -> tuple:
+        """API endpoint: POST /api/appdaemon/pyheat_set_passive_settings
+        
+        Sets all passive mode settings for a room (batched update).
+        
+        Request body: {
+            "room": str,
+            "max_temp": float,      # 10-30°C
+            "valve_percent": int,   # 0-100%
+            "min_temp": float       # 8-20°C
+        }
+        """
+        request_body = namespace if isinstance(namespace, dict) else {}
+        return self._handle_request(self.service_handler.svc_set_passive_settings, request_body)
     
     def api_set_default_target(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_set_default_target

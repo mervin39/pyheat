@@ -1,6 +1,36 @@
 
 # PyHeat Changelog
 
+## 2025-12-01: Fix Missing API Endpoint for Passive Settings
+
+**Summary:**
+Fixed bug where `pyheat_set_passive_settings` API endpoint was never registered, causing pyheat-web passive mode changes to fail with 404 errors. The service was implemented but not exposed via HTTP API.
+
+**Problem:**
+- Service `pyheat.set_passive_settings` was fully implemented in service_handler.py
+- But API endpoint registration was missing in api_handler.py
+- Pyheat-web would attempt to set passive settings before changing mode
+- API call would fail with 404, preventing mode change from succeeding
+- User would see mode briefly change to passive, then revert to manual
+
+**Changes:**
+
+- **`services/api_handler.py`:**
+  - Added `api_set_passive_settings()` endpoint handler
+  - Registered `pyheat_set_passive_settings` endpoint in `register_all()`
+  - Endpoint accepts: room, max_temp (10-30°C), valve_percent (0-100%), min_temp (8-20°C)
+  - Validates and calls existing `svc_set_passive_settings()` service
+
+**Testing:**
+- Verified endpoint now responds instead of 404
+- Pyheat-web passive mode changes should now work correctly
+
+**Related:**
+- Service implementation added 2025-01-20 (but API endpoint was missing)
+- Fixes pyheat-web passive mode UI (added 2025-01-20)
+
+---
+
 ## 2025-01-20: Add Batched Passive Settings Service
 
 **Summary:**
