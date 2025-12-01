@@ -1,6 +1,31 @@
 
 # PyHeat Changelog
 
+## 2025-01-20: Add Batched Passive Settings Service
+
+**Summary:**
+Added `pyheat.set_passive_settings` service for atomic batch updates of all passive mode parameters (max_temp, valve_percent, min_temp) in a single service call.
+
+**Key Changes:**
+
+- **`services/service_handler.py`:**
+  - Added `svc_set_passive_settings()` service handler
+  - Validates all 3 parameters: max_temp (10-30°C), valve_percent (0-100%), min_temp (8-20°C)
+  - Ensures min_temp < max_temp (min must be at least 1°C lower)
+  - Calls 3 Home Assistant `input_number.set_value` services atomically
+  - Triggers recompute callback after updates complete
+  - Updated mode validation to include 'passive' in `svc_set_mode()`
+
+**Benefits:**
+- Prevents race conditions from multiple sequential service calls
+- Ensures consistency - all 3 parameters updated together or none
+- Better UX for web interface - single Apply button updates all settings
+- Reduces network overhead and AppDaemon processing
+
+**Related:**
+- Part of passive mode UI visibility project for pyheat-web
+- Complements existing passive mode infrastructure (passive_max_temp, passive_min_temp, passive_valve_percent entities)
+
 ## 2025-12-01: Passive Rooms in Load Sharing (Bug #13 Fix + Enhancement)
 
 **Summary:**
