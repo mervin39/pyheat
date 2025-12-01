@@ -1,6 +1,28 @@
 
 # PyHeat Changelog
 
+## 2025-12-01: Alert Manager Integration for Frost Protection
+
+**Summary:**
+Enhanced frost protection with Home Assistant persistent notification alerts. Users now receive notifications when frost protection activates, providing additional visibility beyond log messages and status entities.
+
+**Changes:**
+- **`controllers/room_controller.py`:**
+  - Added `alert_manager.report_error()` call on frost protection activation
+  - Alert severity: WARNING (not critical - system is responding correctly)
+  - Alert message includes room name, current temp, and threshold
+  - Rate limited: one alert per activation (prevents spam)
+  - Added `alert_manager.clear_error()` call on frost protection deactivation
+  - Alerts auto-clear when room temperature recovers
+
+**Benefits:**
+- Users receive HA notifications when frost protection activates
+- Complements existing WARNING log messages
+- Provides visibility into emergency heating events
+- Auto-clear prevents stale notifications
+
+---
+
 ## 2025-12-01: System-Wide Frost Protection
 
 **Summary:**
@@ -38,6 +60,7 @@ Implemented automatic frost protection to prevent rooms from getting dangerously
     - `operating_mode = 'frost_protection'` (special state)
     - `target = frost_temp` (8°C default)
   - Logs WARNING on activation, INFO on deactivation
+  - Integrated with AlertManager for HA persistent notifications (added 2025-12-01)
 
 ### Status & Monitoring
 - **`services/status_publisher.py`:**
