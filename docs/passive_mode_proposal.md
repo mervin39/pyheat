@@ -301,34 +301,34 @@ CSV logs should include min_target column for analysis:
 
 ### Configuration Files
 
-1. `config/boiler.yaml` - add global `frost_protection_temp_c` setting
-2. `config/ha_yaml/pyheat_package.yaml` - add 6 `passive_min_temp` entities
-3. `config/schedules.yaml` - support optional `min_target` in passive blocks
+1. ✅ `config/boiler.yaml` - global `frost_protection_temp_c` setting **ALREADY IMPLEMENTED**
+2. `config/ha_yaml/pyheat_package.yaml` - add 6 `passive_min_temp` entities (NEW)
+3. `config/schedules.yaml` - support optional `min_target` in passive blocks (NEW)
 
 ### Code Changes
 
-1. `core/constants.py` - add helper template and default constant
+1. `core/constants.py` - add passive min temp helper template (if needed)
 2. `core/scheduler.py` - return min_target with passive mode dict
-3. `controllers/room_controller.py` - implement dual-mode passive logic
-4. `services/status_publisher.py` - display min_target in attributes
-5. `services/heating_logger.py` - log min_target column
+3. `controllers/room_controller.py` - implement comfort mode logic for passive rooms
+4. `services/status_publisher.py` - display comfort mode status and min_target in attributes
+5. `services/heating_logger.py` - log `passive_min_temp` column
 6. `app.py` - add state listeners for min_temp entity changes
 7. `docs/` - document new behavior (README, ARCHITECTURE, changelog)
 
-**Estimated:** ~7 files modified, ~150 lines of new code
+**Estimated:** ~6-7 files modified, ~150 lines of new code (smaller scope - frost protection already exists)
 
 ### Testing Requirements
 
-1. Normal passive operation (temp between min and max)
-2. Safety mode trigger (temp drops below min_temp)
-3. Safety mode exit (temp recovers above min_temp + off_delta)
+1. Normal passive operation (temp between min and max) - valve at configured %
+2. Comfort mode trigger (temp drops below min_temp - on_delta)
+3. Comfort mode exit (temp recovers above min_temp + off_delta)
 4. Hysteresis at boundaries (no oscillation)
-5. Scheduled min_target override
+5. Scheduled min_target override (schedule value takes precedence)
 6. Manual min_temp entity override
-7. Global frost protection fallback
-8. Status display correctness
-9. CSV logging correctness
-10. Load sharing exclusion (verify no regression)
+7. ✅ Global frost protection fallback - **ALREADY TESTED** (implemented 2025-12-01)
+8. Status display correctness (shows "Comfort heating" when active)
+9. CSV logging correctness (`passive_min_temp` column)
+10. Load sharing exclusion (verify comfort mode doesn't break existing logic)
 
 ---
 
@@ -363,220 +363,183 @@ CSV logs should include min_target column for analysis:
 
 ### 1. Default Comfort Floor Temperature
 
-**Question:** What should the default passive comfort floor be?
+**Answer:** ✅ **Equal to frost_protection_temp_c (8°C)** - no separate comfort floor by default
 
-**Options:**
-- None (no default) - users must explicitly configure if desired
-- 10°C - minimal comfort floor (2°C above frost protection)
-- 12°C - balanced approach (4°C above frost protection)
-- Equal to frost_protection_temp_c (8°C) - effectively disables comfort mode
-
-**Recommendation:** **None (no default)** - make comfort floor optional
+**Rationale:**
 - Global frost protection (8°C) already provides safety
 - Users who want comfort floor can configure per-room or per-schedule
 - Simpler default behavior (passive mode stays truly passive)
 - More explicit configuration (users know what they've set)
+- When min_temp equals frost_protection_temp_c, comfort mode effectively disabled (frost protection handles everything)
 
 ---
 
 ### 2. Should Comfort Mode Use Different Hysteresis?
 
-**Question:** Should comfort mode use wider hysteresis than normal passive?
+**Answer:** ✅ **Use same on_delta/off_delta as normal passive and frost protection**
 
-**Current proposal:** Use same on_delta/off_delta as normal passive and frost protection
-- Example: on_delta=0.3°C, off_delta=0.1°C
-
-**Alternative:** Use wider hysteresis for comfort mode
-- Example: Enter at min_temp - 0.5°C, exit at min_temp + 0.5°C
-- Prevents rapid re-triggering if room barely recovers
-
-**Considerations:**
-- Wider hysteresis = more overshoot (might reach 13-14°C from 12°C target)
-- Overshoot is arguably desirable in comfort mode (thermal buffer)
-- But too much overshoot might waste energy
-- Current hysteresis values are well-tuned for active mode and frost protection
-
-**Recommendation:** **Use existing hysteresis** for consistency across all modes
+**Rationale:**
+- Consistency across all heating modes (active, passive, frost protection, comfort)
+- Existing values are well-tuned (on_delta=0.3°C, off_delta=0.1°C)
+- Simpler implementation - no special cases
+- Overshoot is still desirable for thermal buffer
+- If needed, users can adjust per-room hysteresis values (applies to all modes for that room)
 
 ---
 
 ### 3. Validation: Min Temp Must Be >= Frost Protection Temp
 
-**Question:** How strictly should we enforce min_temp >= frost_protection_temp_c?
+**Answer:** ✅ **Strict validation** - reject config if min_temp < frost_protection_temp_c
 
-**Options:**
-- **Strict validation** - reject config if min_temp < frost_protection_temp_c
-- **Warning only** - log warning but allow (system will use frost protection as floor anyway)
-- **Silent override** - silently use max(min_temp, frost_protection_temp_c)
+**Rationale:**
+- Prevents user confusion about which threshold takes precedence
+- Makes system behavior explicit and predictable
+- Forces users to understand the two-tier protection model (safety floor + optional comfort floor)
+- Clear error messages help users learn the system
 
-**Considerations:**
-- Frost protection is the safety floor (8°C)
-- Setting min_temp < frost_protection_temp_c makes no sense (frost protection would activate first)
-- Clear error messages help users understand the system
-
-**Recommendation:** **Strict validation** with clear error message
-- Prevents user confusion
-- Makes system behavior explicit
-- Forces users to understand the two-tier protection model
+**Implementation:**
+- Validate `input_number.min` value >= frost_protection_temp_c in HA entity config
+- Log ERROR and skip room control if scheduled `min_target` < frost_protection_temp_c
+- Error message: "Room {room}: min_target ({value}°C) must be >= frost_protection_temp_c ({frost_temp}°C)"
 
 ---
 
 ### 4. Entity Initial Value Strategy
 
-**Question:** How to handle `input_number` entities without overwriting user values?
+**Answer:** ✅ **Option A: Omit initial value** - preserves user settings across HA restarts
 
-**Problem:** HA `input_number` with `initial:` value overwrites user settings on every HA restart
-
-**Options:**
-
-**Option A: Omit initial value**
+**Implementation:**
 ```yaml
 input_number:
   pyheat_games_passive_min_temp:
     name: "Dining Room Passive Min Temp"
-    min: 5
+    min: 8     # Must match frost_protection_temp_c
     max: 20
-    # NO initial - entity created with value 5 (min) on first creation
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:thermometer-low
+    # NO initial value - preserves user settings across HA restarts
 ```
-- First creation: Entity starts at 5°C (min value)
-- User must set to desired value (e.g., 10°C)
-- Future restarts: Preserves user value
 
-**Option B: Use restore state**
-- HA has `restore_state: true` for some entity types
-- Not available for `input_number` entities
-- Not an option
+**Behavior:**
+- First creation: Entity starts at 8°C (min value = frost_protection_temp_c)
+- User sets to desired value (e.g., 12°C for comfort floor)
+- Future restarts: Preserves user value (HA stores state)
+- If user wants no comfort floor: leave at 8°C (equivalent to frost protection only)
 
-**Option C: Initialize via automation**
-- Create entities without initial value
-- Add automation to set to 10°C only if entity is at min value (5°C)
-- Preserves user changes (if set to 10.5°C or 12°C, automation won't touch it)
-- Complexity: Requires additional automation configuration
-
-**Option D: Document that users must set values**
-- Entities created at 5°C (min)
-- Documentation explicitly states: "Set each room's passive_min_temp to 10.0°C or desired value"
-- Relies on user action
-
-**Recommendation needed:** Which approach balances usability vs. simplicity?
+**Rationale:**
+- Simple implementation - no automations needed
+- Preserves user intent across restarts
+- Clear default (min value = frost protection temperature)
+- Self-documenting: min value enforces >= frost_protection_temp_c constraint
 
 ---
 
 ### 5. Alert/Notification When Comfort Mode Activates?
 
-**Question:** Should system send alerts when passive comfort mode activates?
+**Answer:** ✅ **No alerts** - frost protection already handles critical alerts, not needed for comfort mode
 
-**Comparison with frost protection:**
-- Frost protection: Sends HA persistent notification (already implemented ✅)
-- Comfort mode: Should it also send notification?
+**Rationale:**
+- Comfort mode is less urgent than frost protection (comfort vs. safety)
+- User explicitly set the comfort floor - activation is expected behavior
+- Frost protection alerts already cover safety-critical events
+- Prevents alert fatigue from non-critical events
+- User already has visibility via:
+  - Status entities showing "Comfort heating (below 12.0°C)"
+  - CSV logs with `passive_min_temp` column
+  - INFO level log messages
 
-**Rationale for alerts:**
-- Indicates room dropped below comfort threshold
-- Might indicate heating system underperformance
-- Might indicate need to adjust passive valve percentage or max_temp
-- Provides visibility into comfort mode activation
-
-**Rationale against alerts:**
-- Less urgent than frost protection (comfort vs. safety)
-- Might be expected behavior for passive rooms
-- Could cause alert fatigue if triggers frequently
-- User already has visibility via status entities and logs
-
-**Recommendation:** **No alerts for comfort mode** (or make it optional)
-- Comfort mode is less critical than frost protection
-- Log INFO message (not WARNING like frost protection)
-- Users can monitor via status entities and CSV logs
-- If needed, add optional per-room alert enable/disable later
+**Implementation:**
+- Log INFO message on comfort mode activation (not WARNING)
+- Log INFO message on comfort mode deactivation
+- No AlertManager calls for comfort mode
+- If frost protection activates (below 8°C), that already generates alerts
 
 ---
 
 ### 6. CSV Logging Column Name
 
-**Question:** What should the CSV column be called?
+**Answer:** ✅ **`passive_min_temp`** - explicit and technical
 
-**Options:**
-- `passive_min_temp` - explicit, technical
-- `min_target` - shorter, matches yaml field
-- `frost_protection_temp` - describes purpose
-- `safety_floor` - describes purpose
+**Rationale:**
+- Explicit: Clearly indicates this is the passive mode minimum temperature
+- Technical: Matches entity naming convention (`pyheat_{room}_passive_min_temp`)
+- Distinguishes from `frost_protection` column (already exists)
+- Avoids confusion with `target` column (which is the upper bound for passive mode)
+- Self-documenting in CSV analysis
 
-**Considerations:**
-- CSV logs already have `target` column (max_temp for passive)
-- Consistency: `target` / `min_target` pairs nicely
-- Clarity: Column name should be self-explanatory
-
-**Recommendation needed:** Pick column name for consistency and clarity.
+**CSV columns after implementation:**
+- `target` - upper bound (max_temp) for passive/active modes
+- `passive_min_temp` - lower comfort bound (NEW)
+- `{room}_frost_protection` - emergency safety heating (already exists)
+- `{room}_operating_mode` - passive/active/frost_protection (already exists)
 
 ---
 
 ### 7. Load Sharing During Comfort Mode
 
-**Question:** When a passive room is in comfort mode (calling for heat), how should load sharing treat it?
+**Answer:** ✅ **No special handling needed** - existing logic already correct
 
-**Answer:** ✅ No special handling needed - existing logic already correct
+**Decision:** Keep `operating_mode='passive'` even when in comfort mode
 
-**Current behavior:**
-- Load sharing excludes passive rooms (checks operating_mode='passive')
-- When comfort mode activates, room is calling for heat but still operating_mode='passive'
-- Room is already excluded from load sharing
-- If comfort mode uses operating_mode='active', it would still be excluded (legitimately calling)
+**Rationale:**
+- Load sharing already excludes all passive rooms (checks `operating_mode='passive'`)
+- Room in comfort mode: `calling=TRUE`, `valve=100%`, `operating_mode='passive'`
+- Load sharing will not select this room for de-prioritization
+- Behavior is correct: room legitimately needs heat (below comfort floor)
+- Consistent with frost protection (which also keeps original operating_mode)
 
-**Scenarios:**
-- Games room in comfort mode: temp=11.7°C, calling=TRUE, valve=100%, operating_mode=passive
-- Pete room calling: temp=18.5°C, target=19.0°C
-- System has capacity for load sharing
-
-Load sharing correctly:
-- Excludes games (because operating_mode=passive, existing logic)
-- OR if we use operating_mode='active' in comfort mode, excludes because calling=TRUE
-
-**Recommendation:** Document that existing load sharing logic handles this correctly
+**Implementation:**
+- No changes to load sharing logic required
+- Comfort mode returns `operating_mode='passive'` (not 'active')
+- Status display shows "Comfort heating" to distinguish from normal passive behavior
 
 ---
 
 ### 8. Naming/Terminology
 
-**Question:** What should we call this feature in user-facing documentation?
+**Answer:** ✅ **"Passive mode"** - no special terminology needed
 
-**Options:**
-- "Passive mode with comfort floor"
-- "Passive mode with minimum temperature"
-- "Protected passive mode"
-- "Comfort-protected passive mode"
+**Rationale:**
+- This is just an enhancement to existing passive mode
+- Adding optional minimum temperature doesn't change the core concept
+- Users already understand "passive mode"
+- Avoid creating new terms that might confuse users
 
-**Distinction from frost protection:**
-- **Frost protection** = safety floor (8°C, prevents pipe freezing)
-- **Comfort floor** / **minimum temperature** = comfort threshold (12-15°C, prevents excessive cold)
+**Usage in documentation/UI:**
+- Feature name: "Passive mode" (with optional minimum temperature)
+- Entity names: `pyheat_{room}_passive_min_temp` (technical, explicit)
+- Status text when active: `"Comfort heating (below 12.0°C)"` (descriptive)
+- Status text when passive: `"Passive (opportunistic)"` (existing)
+- CSV column: `passive_min_temp` (technical)
+- YAML field: `min_target` (matches existing `target` field)
+- Log messages: "Room {room} comfort heating activated (temp below min_temp)"
 
-**Recommendation:** **"Passive mode minimum temperature"** or **"comfort floor"**
-- Clear distinction from "frost protection" (which is safety-focused)
-- "Minimum temperature" is most generic/flexible
-- "Comfort floor" emphasizes the purpose (comfort, not safety)
-- Avoid "frost" terminology to prevent confusion with frost protection
-
-**Usage:**
-- Documentation: "passive mode minimum temperature" or "comfort floor"
-- Entity names: `pyheat_{room}_passive_min_temp`
-- Status text: `"Comfort heating (below 12.0°C)"`
-- CSV columns: `min_target` (matches yaml field)
-- Log messages: "Passive comfort mode activated"
+**Distinction preserved:**
+- **Frost protection** = system-wide safety floor (8°C, emergency heating)
+- **Passive min temp** = optional per-room comfort floor (12-15°C, normal heating)
 
 ---
 
 ## Next Steps
 
-1. **Review updated proposal** - confirm approach with global frost protection as foundation
-2. **Answer remaining open questions** - make decisions on:
-   - Default comfort floor temperature (recommendation: none/optional)
-   - Hysteresis strategy (recommendation: use existing)
-   - Validation strictness (recommendation: strict validation)
-   - Alert strategy (recommendation: no alerts or optional)
-   - Terminology (recommendation: "comfort floor" or "minimum temperature")
-3. **Create implementation plan** - break into phases/commits
-4. **Implement** - write code with tests (smaller scope now that frost protection exists)
-5. **Document** - update README, ARCHITECTURE, changelog
-6. **Test in production** - validate comfort floor behavior
-7. **Iterate** - adjust based on real-world usage
+1. ✅ **Review updated proposal** - confirmed approach with global frost protection as foundation
+2. ✅ **Answer open questions** - all decisions made (see sections 1-8 above)
+3. **Ready for implementation** - all design decisions finalized:
+   - Default: min_temp = frost_protection_temp_c (8°C) - no separate comfort floor unless configured
+   - Hysteresis: use existing on_delta/off_delta values
+   - Validation: strict (reject if min_temp < frost_protection_temp_c)
+   - Entity strategy: omit initial value (preserves user settings)
+   - Alerts: no alerts for comfort mode (INFO logs only)
+   - CSV column: `passive_min_temp`
+   - Load sharing: no changes needed
+   - Terminology: "passive mode" (no special name)
+4. **Create implementation plan** - break into phases/commits
+5. **Implement** - write code with tests
+6. **Document** - update README, ARCHITECTURE, changelog
+7. **Test in production** - validate comfort floor behavior
+8. **Iterate** - adjust based on real-world usage
 
 ---
 
