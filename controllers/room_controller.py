@@ -195,8 +195,14 @@ class RoomController:
                 # Send alert notification (rate limited - only once per activation)
                 if not self.room_frost_protection_alerted.get(room_id, False):
                     room_name = self.config.rooms[room_id].get('name', room_id.capitalize())
-                    # Import alert_manager from app if available (passed through app.py)
-                    # For now, just log - we'll add alert in app.py integration
+                    if hasattr(self.ad, 'alerts'):
+                        self.ad.alerts.report_error(
+                            alert_id=f"frost_protection_{room_id}",
+                            severity=self.ad.alerts.SEVERITY_WARNING,
+                            message=f"Frost protection activated in {room_name}: {temp:.1f}°C (threshold: {frost_temp:.1f}°C). Emergency heating active.",
+                            room_id=room_id,
+                            auto_clear=True
+                        )
                     self.room_frost_protection_alerted[room_id] = True
                 
                 return self._frost_protection_heating(room_id, temp, frost_temp, room_mode)
@@ -205,6 +211,8 @@ class RoomController:
                 # Deactivate frost protection (recovered)
                 self.room_frost_protection_active[room_id] = False
                 self.room_frost_protection_alerted[room_id] = False  # Reset alert flag
+                if hasattr(self.ad, 'alerts'):
+                    self.ad.alerts.clear_error(f"frost_protection_{room_id}")
                 self.ad.log(
                     f"FROST PROTECTION DEACTIVATED: {room_id} recovered to {temp:.1f}C",
                     level="INFO"
