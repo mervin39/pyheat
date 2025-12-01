@@ -94,7 +94,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    5. Schedule block    → block target for current time/day                  │
 │    6. Default           → default_target (outside schedule blocks)           │
 │    7. Holiday mode      → 15.0°C (energy saving)                             │
-│  Return: {target, mode: 'active'|'passive', valve_percent}                   │
+│  Return: {target, mode: 'active'|'passive', valve_percent, min_target}       │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
                        ▼
@@ -103,8 +103,9 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  For each room:                                                               │
 │    ├─ Calculate error = target - current_temp                                │
-│    ├─ PASSIVE MODE: Threshold control with hysteresis                        │
-│    │    • Never calls for heat (calling = False)                             │
+│    ├─ PASSIVE MODE: Threshold control with comfort floor                     │
+│    │    • Comfort mode (temp < min_temp): Calls for heat, 100% valve         │
+│    │    • Normal passive (temp >= min_temp): No heat call, opportunistic     │
 │    │    • Valve opens if error > on_delta (temp < max_temp - on_delta)       │
 │    │    • Valve closes if error < -off_delta (temp > max_temp + off_delta)   │
 │    │    • Dead band maintains previous valve state (prevents cycling)        │
@@ -118,7 +119,8 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    │    • Band 2 (70%): 0.30°C ≤ error < 0.80°C  (moderate)                  │
 │    │    • Band Max (100%): error ≥ 0.80°C  (maximum heating)                 │
 │    │    • Band transitions require step_hysteresis (0.05°C) crossing         │
-│    └─ Return: {temp, target, calling, valve_percent, error, mode, operating_mode} │
+│    └─ Return: {temp, target, calling, valve_percent, error, mode, operating_mode, │
+│                passive_min_temp, comfort_mode, frost_protection}             │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │
                        ▼
@@ -877,14 +879,27 @@ Priority (highest to lowest):
 - **Stale sensors** prevent heating EXCEPT in manual mode
 
 **Passive Mode Details:**
-- Passive mode never calls for heat (calling = False)
-- Uses same hysteresis deltas (on_delta/off_delta) as active mode for consistency
-- Valve opens to configured percentage when temp < max_temp - on_delta
-- Valve closes when temp > max_temp + off_delta
-- Dead band between thresholds maintains previous valve state (prevents cycling)
-- No PID control (fixed valve percentage, not proportional to error)
-- Useful for opportunistic heating when other rooms call for heat
-- Excluded from load sharing (user has manual valve control)
+- Passive mode has two sub-modes: normal passive and comfort mode
+- **Normal passive mode** (temp ≥ min_temp):
+  - Never calls for heat (calling = False)
+  - Uses same hysteresis deltas (on_delta/off_delta) as active mode for consistency
+  - Valve opens to configured percentage when temp < max_temp - on_delta
+  - Valve closes when temp > max_temp + off_delta
+  - Dead band between thresholds maintains previous valve state (prevents cycling)
+  - No PID control (fixed valve percentage, not proportional to error)
+  - Useful for opportunistic heating when other rooms call for heat
+  - Excluded from load sharing (user has manual valve control)
+- **Comfort mode** (frost_temp < temp < min_temp):
+  - Activated when temp drops below passive_min_temp (comfort floor)
+  - Calls for heat (calling = True) with 100% valve for rapid recovery
+  - Uses same hysteresis as normal modes for consistency
+  - Returns to normal passive mode when temp > min_temp + off_delta
+  - Prevents passive rooms from getting uncomfortably cold
+  - Default min_temp is 8°C (equals frost_protection_temp_c)
+  - Users can configure higher comfort floor (e.g., 12-15°C) via entities or schedules
+- **Frost protection** (temp < frost_temp):
+  - Emergency heating applies to all modes (see Frost Protection section)
+  - Provides safety floor below comfort mode
 
 ### Schedule Resolution Algorithm
 

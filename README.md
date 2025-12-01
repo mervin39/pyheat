@@ -183,6 +183,20 @@ When in Manual mode, set temperature via:
 **Configuration:**
 - `input_number.pyheat_{room}_passive_max_temp` - Maximum temperature (10-30°C, default 18°C)
 - `input_number.pyheat_{room}_passive_valve_percent` - Valve opening percentage (0-100%, default 30%)
+- `input_number.pyheat_{room}_passive_min_temp` - Minimum temperature/comfort floor (8-20°C, default 8°C)
+
+**Comfort Floor (Minimum Temperature):**
+Optionally configure a comfort floor to prevent passive rooms from getting too cold:
+- When temp drops below `passive_min_temp`, room automatically switches to comfort mode
+- Comfort mode: Calls for heat with 100% valve for rapid recovery
+- Returns to normal passive behavior when temp recovers above min_temp
+- Default is 8°C (equals frost protection) - set higher (e.g., 12-15°C) for comfort
+- Uses same hysteresis as other modes (on_delta, off_delta)
+
+**Three temperature zones:**
+1. **Normal passive** (temp ≥ min_temp): No heat call, valve opens opportunistically
+2. **Comfort mode** (frost_temp < temp < min_temp): Calls for heat, 100% valve
+3. **Frost protection** (temp < frost_temp): Emergency heating (applies to all modes)
 
 **Scheduled Passive Mode:**
 Schedules can specify passive periods in auto mode:
@@ -193,13 +207,20 @@ rooms:
       mon:
         - start: "06:30"
           end: "08:00"
-          mode: passive      # Passive period
-          target: 18.0       # Max temp (not setpoint)
-          valve_percent: 30  # Valve opening when below max
+          mode: passive       # Passive period
+          target: 18.0        # Max temp (not setpoint)
+          valve_percent: 30   # Valve opening when below max
+          min_target: 12.0    # Optional: Comfort floor (activates heating if temp drops below)
         - start: "08:00"
           end: "22:00"
-          target: 19.0       # Active heating (mode defaults to active)
+          target: 19.0        # Active heating (mode defaults to active)
 ```
+
+**min_target** field (optional):
+- Specifies comfort floor for this passive block
+- Takes precedence over `passive_min_temp` entity
+- Must be >= frost_protection_temp_c (8°C by default)
+- Omit to use entity value or frost protection temp only
 
 **Important:**
 - Passive rooms are excluded from load sharing (user controls valve opening)
