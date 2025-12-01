@@ -355,6 +355,38 @@ class APIHandler:
                         # No feedback sensor, use commanded percent
                         actual_valve_percent = room_data.get("valve_percent", 0)
                 
+                # Get passive mode settings from number helper entities
+                passive_max_temp = None
+                passive_min_temp = None
+                passive_valve_percent = None
+                
+                passive_max_entity = f"number.{room_id}_passive_max_temp"
+                if self.ad.entity_exists(passive_max_entity):
+                    try:
+                        max_temp_str = self.ad.get_state(passive_max_entity)
+                        if max_temp_str not in [None, "unknown", "unavailable"]:
+                            passive_max_temp = float(max_temp_str)
+                    except (ValueError, TypeError):
+                        pass
+                
+                passive_min_entity = f"number.{room_id}_passive_min_temp"
+                if self.ad.entity_exists(passive_min_entity):
+                    try:
+                        min_temp_str = self.ad.get_state(passive_min_entity)
+                        if min_temp_str not in [None, "unknown", "unavailable"]:
+                            passive_min_temp = float(min_temp_str)
+                    except (ValueError, TypeError):
+                        pass
+                
+                passive_valve_entity = f"number.{room_id}_passive_valve_percent"
+                if self.ad.entity_exists(passive_valve_entity):
+                    try:
+                        valve_str = self.ad.get_state(passive_valve_entity)
+                        if valve_str not in [None, "unknown", "unavailable"]:
+                            passive_valve_percent = int(float(valve_str))
+                    except (ValueError, TypeError):
+                        pass
+                
                 # Build combined room status
                 room_status = {
                     "id": room_id,
@@ -373,7 +405,11 @@ class APIHandler:
                     # Override metadata from state entity (calculated on-the-fly)
                     "override_remaining_minutes": state_attrs.get("override_remaining_minutes"),
                     "override_target": state_attrs.get("override_target"),
-                    "scheduled_temp": state_attrs.get("scheduled_temp")
+                    "scheduled_temp": state_attrs.get("scheduled_temp"),
+                    # Passive mode settings from number helpers
+                    "passive_max_temp": passive_max_temp,
+                    "passive_min_temp": passive_min_temp,
+                    "passive_valve_percent": passive_valve_percent,
                 }
                 rooms.append(room_status)
             
