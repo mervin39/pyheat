@@ -204,10 +204,24 @@ class StatusPublisher:
         
         # Handle passive mode (not in comfort mode)
         if mode == 'passive':
-            target = data.get('target')  # This is the max_temp in passive mode
-            if target is None:
+            max_temp = data.get('target')  # This is the max_temp in passive mode
+            min_temp = data.get('passive_min_temp')
+            
+            if max_temp is None or min_temp is None:
                 return 'Passive (opportunistic)'
-            return f'Passive (opportunistic, max {target:.1f}C)'
+            
+            # Get configured passive valve percent from HA entity
+            passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
+            passive_valve_percent = C.PASSIVE_VALVE_PERCENT_DEFAULT  # default
+            if self.ad.entity_exists(passive_valve_entity):
+                try:
+                    valve_str = self.ad.get_state(passive_valve_entity)
+                    if valve_str not in [None, "unknown", "unavailable"]:
+                        passive_valve_percent = int(float(valve_str))
+                except (ValueError, TypeError):
+                    pass
+            
+            return f'Passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%'
         
         # Handle auto mode (no override)
         if mode == 'auto':

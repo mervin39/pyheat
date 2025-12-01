@@ -1,6 +1,34 @@
 
 # PyHeat Changelog
 
+## 2025-12-01: Fix Passive Mode Status Line Format
+
+**Summary:**
+Updated passive mode status line to use consistent formatting with degree symbol, show temperature range, and display the CONFIGURED passive valve percentage (not current valve position).
+
+**Problem:**
+- Passive mode status showed `Passive (opportunistic, max 15C)` using plain "C"
+- Rest of pyheat uses degree symbol (°) for consistency
+- Status didn't show the full temperature range
+- Status showed current valve position instead of configured passive valve setting
+
+**Changes:**
+
+- **`services/status_publisher.py`:**
+  - Changed passive mode status format from `Passive (opportunistic, max XC)` to `Passive: X-Y°, Z%`
+  - X = min_temp (comfort floor), Y = max_temp (opportunistic ceiling), Z = configured passive_valve_percent
+  - Reads Z from `input_number.pyheat_{room}_passive_valve_percent` entity (defaults to 30% if not available)
+  - Example: `Passive: 15-20°, 50%` means room will heat opportunistically between 15-20° with valve at 50%
+  - Maintains consistency with other status lines that use degree symbol
+
+**Note:**
+The valve percentage shown is the CONFIGURED setting (what the valve will open to when heating), not the current valve position (which may be 0% if above max_temp).
+
+**Testing:**
+- Verified status line displays correctly in pyheat-web
+
+---
+
 ## 2025-12-01: Fix Missing API Endpoint for Passive Settings
 
 **Summary:**
