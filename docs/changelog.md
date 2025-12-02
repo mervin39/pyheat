@@ -1,6 +1,29 @@
 
 # PyHeat Changelog
 
+## 2025-12-02: Show Passive Mode Details for Upcoming Passive Blocks
+
+**Summary:**
+Enhanced status text to show full passive mode details (temperature range and valve %) when the next schedule change is to a passive mode. Previously only showed a single temperature like active blocks.
+
+**Changes:**
+
+- **`services/status_publisher.py`:**
+  - When showing upcoming passive mode, display full passive details
+  - Format: `"Auto: 21.0° until 13:00 (passive 8-16°, 30%)"`
+  - Also applies to passive-to-passive transitions
+  - Works for both scheduled blocks and default passive mode
+
+**Status Display Examples:**
+```
+Active to passive:    "Auto: 17.0° until 13:00 (passive 8-16°, 30%)"
+Passive to active:    "Auto (passive): 8-16°, 30% until 15:00 (14.0°)"
+Passive to passive:   "Auto (passive): 8-16°, 30% until 20:00 (passive 10-14°, 15%)"
+Active to active:     "Auto: 21.0° until 17:00 (19.0°)"
+```
+
+---
+
 ## 2025-12-02: Fix Scheduled Passive Block Status Display
 
 **Summary:**

@@ -279,10 +279,18 @@ class StatusPublisher:
                         
                         # Get what would be scheduled at block end time
                         future_scheduled = self.scheduler_ref.get_scheduled_target(room_id, simulated_time, holiday_mode)
-                        temp_after_block = future_scheduled['target'] if future_scheduled else default_target
                         
-                        if temp_after_block is not None and min_temp is not None:
-                            return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} ({temp_after_block:.1f}°)"
+                        if future_scheduled and min_temp is not None:
+                            # Check if next mode is also passive
+                            if future_scheduled.get('mode') == 'passive':
+                                next_max = future_scheduled['target']
+                                next_min = future_scheduled.get('min_target', 8.0)
+                                next_valve = future_scheduled.get('valve_percent', 30)
+                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} (passive {next_min:.0f}-{next_max:.0f}°, {next_valve}%)"
+                            else:
+                                # Next mode is active
+                                temp_after_block = future_scheduled['target']
+                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} ({temp_after_block:.1f}°)"
                     
                     # Fallback if can't get next temperature
                     if min_temp is not None:
@@ -304,13 +312,39 @@ class StatusPublisher:
                         if next_change and min_temp is not None:
                             next_time, next_temp, day_offset = next_change
                             
+                            # Get what mode will be active at the next change
+                            next_hour, next_min = map(int, next_time.split(':'))
+                            future_time = now.replace(hour=next_hour, minute=next_min, second=0, microsecond=0)
+                            if day_offset > 0:
+                                from datetime import timedelta
+                                future_time = future_time + timedelta(days=day_offset)
+                            
+                            future_scheduled = self.scheduler_ref.get_scheduled_target(room_id, future_time, holiday_mode)
+                            
                             if day_offset == 0:
-                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} ({next_temp:.1f}°)"
+                                if future_scheduled and future_scheduled.get('mode') == 'passive':
+                                    # Next change is to another passive mode
+                                    next_max = future_scheduled['target']
+                                    next_min_temp = future_scheduled.get('min_target', 8.0)
+                                    next_valve = future_scheduled.get('valve_percent', 30)
+                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} (passive {next_min_temp:.0f}-{next_max:.0f}°, {next_valve}%)"
+                                else:
+                                    # Next change is to active mode
+                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} ({next_temp:.1f}°)"
                             else:
                                 day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
                                 future_day_idx = (now.weekday() + day_offset) % 7
                                 day_name = day_names_display[future_day_idx]
-                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} ({next_temp:.1f}°)"
+                                
+                                if future_scheduled and future_scheduled.get('mode') == 'passive':
+                                    # Next change is to another passive mode
+                                    next_max = future_scheduled['target']
+                                    next_min_temp = future_scheduled.get('min_target', 8.0)
+                                    next_valve = future_scheduled.get('valve_percent', 30)
+                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} (passive {next_min_temp:.0f}-{next_max:.0f}°, {next_valve}%)"
+                                else:
+                                    # Next change is to active mode
+                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} ({next_temp:.1f}°)"
                     
                     # Fallback for auto passive without next change info
                     if min_temp is not None:
@@ -338,16 +372,43 @@ class StatusPublisher:
                 if next_change:
                     next_time, next_temp, day_offset = next_change
                     
+                    # Get what mode will be active at the next change
+                    # Simulate the future time to check if it's passive
+                    next_hour, next_min = map(int, next_time.split(':'))
+                    future_time = now.replace(hour=next_hour, minute=next_min, second=0, microsecond=0)
+                    if day_offset > 0:
+                        from datetime import timedelta
+                        future_time = future_time + timedelta(days=day_offset)
+                    
+                    future_scheduled = self.scheduler_ref.get_scheduled_target(room_id, future_time, holiday_mode)
+                    
                     # Determine day name based on day_offset
                     if day_offset == 0:
                         # Today - no day name needed
-                        return f"Auto: {target:.1f}° until {next_time} ({next_temp:.1f}°)"
+                        if future_scheduled and future_scheduled.get('mode') == 'passive':
+                            # Next change is to passive mode
+                            next_max = future_scheduled['target']
+                            next_min = future_scheduled.get('min_target', 8.0)
+                            next_valve = future_scheduled.get('valve_percent', 30)
+                            return f"Auto: {target:.1f}° until {next_time} (passive {next_min:.0f}-{next_max:.0f}°, {next_valve}%)"
+                        else:
+                            # Next change is to active mode
+                            return f"Auto: {target:.1f}° until {next_time} ({next_temp:.1f}°)"
                     else:
                         # Future day - include day name
                         day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
                         future_day_idx = (now.weekday() + day_offset) % 7
                         day_name = day_names_display[future_day_idx]
-                        return f"Auto: {target:.1f}° until {next_time} on {day_name} ({next_temp:.1f}°)"
+                        
+                        if future_scheduled and future_scheduled.get('mode') == 'passive':
+                            # Next change is to passive mode
+                            next_max = future_scheduled['target']
+                            next_min = future_scheduled.get('min_target', 8.0)
+                            next_valve = future_scheduled.get('valve_percent', 30)
+                            return f"Auto: {target:.1f}° until {next_time} on {day_name} (passive {next_min:.0f}-{next_max:.0f}°, {next_valve}%)"
+                        else:
+                            # Next change is to active mode
+                            return f"Auto: {target:.1f}° until {next_time} on {day_name} ({next_temp:.1f}°)"
                 else:
                     # No next change found - treat as forever
                     return f"Auto: {target:.1f}° forever"
