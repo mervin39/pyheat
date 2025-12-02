@@ -66,7 +66,8 @@ class Scheduler:
                         'target': round(setpoint, precision),
                         'mode': 'active',
                         'valve_percent': None,
-                        'min_target': None
+                        'min_target': None,
+                        'is_default_mode': False  # Manual mode (not schedule-based)
                     }
                 except (ValueError, TypeError):
                     self.ad.log(f"Invalid manual setpoint for room '{room_id}'", level="WARNING")
@@ -83,7 +84,8 @@ class Scheduler:
                 'target': round(max_temp, precision),
                 'mode': 'passive',
                 'valve_percent': valve_pct,
-                'min_target': round(min_temp, precision)
+                'min_target': round(min_temp, precision),
+                'is_default_mode': False  # Passive mode (user-selected, not schedule-based)
             }
         
         # Auto mode → check for override, then schedule
@@ -98,7 +100,8 @@ class Scheduler:
                     'target': round(override_target, precision),
                     'mode': 'active',
                     'valve_percent': None,
-                    'min_target': None
+                    'min_target': None,
+                    'is_default_mode': False  # Override (temporary)
                 }
         
         # No override → get scheduled target (may be active or passive)
@@ -194,7 +197,8 @@ class Scheduler:
                 'target': C.HOLIDAY_TARGET_C,
                 'mode': 'active',
                 'valve_percent': None,
-                'min_target': None
+                'min_target': None,
+                'is_default_mode': False  # Holiday mode
             }
         
         # Get day of week (0=Monday, 6=Sunday)
@@ -241,7 +245,9 @@ class Scheduler:
                     'target': block['target'],
                     'mode': block_mode,
                     'valve_percent': valve_percent,
-                    'min_target': min_target
+                    'min_target': min_target,
+                    'is_default_mode': False,  # This is from a scheduled block
+                    'block_end_time': block.get('end', '23:59')  # When this block ends
                 }
         
         # No active block → return default target
@@ -269,14 +275,16 @@ class Scheduler:
                 'target': default_target,
                 'mode': 'passive',
                 'valve_percent': valve_percent,
-                'min_target': min_temp
+                'min_target': min_temp,
+                'is_default_mode': True  # This is from default_mode
             }
         else:
             return {
                 'target': schedule.get('default_target'),
                 'mode': 'active',
                 'valve_percent': None,
-                'min_target': None
+                'min_target': None,
+                'is_default_mode': True  # This is from default_target
             }
     
     def get_next_schedule_change(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[tuple[str, float, int]]:

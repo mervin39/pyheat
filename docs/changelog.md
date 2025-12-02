@@ -1,6 +1,42 @@
 
 # PyHeat Changelog
 
+## 2025-12-02: Fix Scheduled Passive Block Status Display
+
+**Summary:**
+Fixed status display for scheduled passive blocks to show correct end times and use "Auto (passive)" terminology. Previously showed wrong end times (next schedule change instead of current block end) and used "Scheduled passive" label.
+
+**Problem:**
+- Scheduled passive blocks showed "until 19:30" even when block ended at 15:00
+- Used "Scheduled passive" instead of "Auto (passive)" terminology
+- Couldn't distinguish between scheduled passive blocks and default passive mode
+
+**Changes:**
+
+- **`core/scheduler.py`:**
+  - Added `is_default_mode` flag to all scheduled target returns (True = default target, False = scheduled block)
+  - Added `block_end_time` field to scheduled block returns
+  - Enables status formatter to know when current block ends vs when next block starts
+
+- **`services/status_publisher.py`:**
+  - Changed "Scheduled passive" to "Auto (passive)" for consistency
+  - Updated `_format_status_text()` to accept full `scheduled_info` dict instead of just temperature
+  - Now shows block end time for scheduled blocks: "Auto (passive): 8-16°, 30% until 15:00 (14.0°)"
+  - Shows next change time for default passive: "Auto (passive): 10-14°, 15% until 19:30 (18.0°)"
+
+**Status Display Examples:**
+```
+Scheduled block:  "Auto (passive): 8-16°, 30% until 15:00 (14.0°)"  [block ends at 15:00]
+Default passive:  "Auto (passive): 10-14°, 15% until 19:30 (18.0°)"  [next block starts at 19:30]
+User passive:     "Passive: 8-16°, 40%"
+Auto active:      "Auto: 21.0° until 17:00 (19.0°)"
+```
+
+**Testing:**
+Pete's room with passive block 13:00-15:00 now correctly shows "Auto (passive): 8-16°, 30% until 15:00 (18.0°)" at 2pm on Tuesday.
+
+---
+
 ## 2025-12-02: Display Scheduled Passive Blocks in Pyheat-Web
 
 **Summary:**

@@ -87,14 +87,14 @@ class StatusPublisher:
         
         return True
     
-    def _format_status_text(self, room_id: str, data: Dict, scheduled_temp: float = None) -> str:
+    def _format_status_text(self, room_id: str, data: Dict, scheduled_info: Dict = None) -> str:
         """Format human-readable status text for a room.
         
         Implements STATUS_FORMAT_SPEC.md formats:
         - Frost Protection (highest priority): "FROST PROTECTION: T° -> TT°"
         - Load Sharing (priority): "Pre-warming for HH:MM" or "Fallback heating P{N}"
         - Auto: "Auto: T° until HH:MM on $DAY (S°)" or "Auto: T° forever"
-        - Auto + Scheduled Passive: "Scheduled passive: X-Y°, Z% until HH:MM on $DAY (A°)"
+        - Auto + Scheduled Passive: "Auto (passive): X-Y°, Z% until HH:MM on $DAY (A°)"
         - Override: "Override: T° (ΔD°) until HH:MM" - delta calculated on-the-fly
         - Manual: "Manual: T°"
         - Passive: "Passive: X-Y°, Z%"
@@ -103,13 +103,14 @@ class StatusPublisher:
         Args:
             room_id: Room identifier
             data: Room state dictionary
-            scheduled_temp: Currently scheduled temperature from schedule (if available)
+            scheduled_info: Currently scheduled info dict from scheduler (includes target, mode, is_default_mode, block_end_time)
             
         Returns:
             Formatted status string
         """
         mode = data.get('mode', 'off')
         operating_mode = data.get('operating_mode', mode)  # Get actual operating mode
+        scheduled_temp = scheduled_info['target'] if scheduled_info else None
         
         # Check frost protection FIRST (highest priority)
         if data.get('frost_protection', False):
@@ -249,33 +250,71 @@ class StatusPublisher:
                     except (ValueError, TypeError):
                         pass
                 
-                # Get next schedule change to show "until" time
-                if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
-                    from datetime import datetime
-                    now = datetime.now()
-                    
-                    holiday_mode = False
-                    if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
-                        holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
-                    
-                    next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
-                    
-                    if next_change and min_temp is not None:
-                        next_time, next_temp, day_offset = next_change
-                        
-                        if day_offset == 0:
-                            return f"Scheduled passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} ({next_temp:.1f}°)"
-                        else:
-                            day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                            future_day_idx = (now.weekday() + day_offset) % 7
-                            day_name = day_names_display[future_day_idx]
-                            return f"Scheduled passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} ({next_temp:.1f}°)"
+                # Check if we're in a scheduled block (not default mode)
+                is_in_block = scheduled_info and not scheduled_info.get('is_default_mode', True)
                 
-                # Fallback for scheduled passive without next change info
-                if min_temp is not None:
-                    return f"Scheduled passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%"
+                if is_in_block and 'block_end_time' in scheduled_info:
+                    # In a scheduled passive block - show when THIS BLOCK ends
+                    block_end = scheduled_info['block_end_time']
+                    if block_end == '23:59':
+                        block_end = '24:00'
+                    
+                    # Get what comes next after this block
+                    if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
+                        from datetime import datetime
+                        now = datetime.now()
+                        
+                        holiday_mode = False
+                        if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+                        
+                        next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
+                        
+                        if next_change and min_temp is not None:
+                            next_time, next_temp, day_offset = next_change
+                            # For scheduled blocks, show block end time (not next change time)
+                            if day_offset == 0:
+                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} ({next_temp:.1f}°)"
+                            else:
+                                # Block ends tomorrow or later
+                                day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                                future_day_idx = (now.weekday() + day_offset) % 7
+                                day_name = day_names_display[future_day_idx]
+                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} on {day_name} ({next_temp:.1f}°)"
+                    
+                    # Fallback if can't get next change
+                    if min_temp is not None:
+                        return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end}"
+                    else:
+                        return f"Auto (passive): max {max_temp:.0f}°, {passive_valve_percent}% until {block_end}"
                 else:
-                    return f"Scheduled passive: max {max_temp:.0f}°, {passive_valve_percent}%"
+                    # In default passive mode - show when next block starts
+                    if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
+                        from datetime import datetime
+                        now = datetime.now()
+                        
+                        holiday_mode = False
+                        if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+                        
+                        next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
+                        
+                        if next_change and min_temp is not None:
+                            next_time, next_temp, day_offset = next_change
+                            
+                            if day_offset == 0:
+                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} ({next_temp:.1f}°)"
+                            else:
+                                day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                                future_day_idx = (now.weekday() + day_offset) % 7
+                                day_name = day_names_display[future_day_idx]
+                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} ({next_temp:.1f}°)"
+                    
+                    # Fallback for auto passive without next change info
+                    if min_temp is not None:
+                        return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%"
+                    else:
+                        return f"Auto (passive): max {max_temp:.0f}°, {passive_valve_percent}%"
             
             # Standard auto mode (active heating)
             # Check if schedule is forever
@@ -458,6 +497,7 @@ class StatusPublisher:
         
         # Get scheduled temperature if available from scheduler
         scheduled_temp = None
+        scheduled_info = None
         if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
             try:
                 # Get holiday mode
@@ -487,7 +527,7 @@ class StatusPublisher:
             state_str = f"heating ({data.get('valve_percent', 0)}%)"
         
         # Generate human-readable formatted status
-        formatted_status = self._format_status_text(room_id, data, scheduled_temp)
+        formatted_status = self._format_status_text(room_id, data, scheduled_info)
         
         # Build comprehensive attributes
         attributes = {
