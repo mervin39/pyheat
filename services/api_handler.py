@@ -618,14 +618,14 @@ class APIHandler:
                 if mode_history and len(mode_history) > 0:
                     for state_obj in mode_history[0]:
                         try:
-                            mode_value = state_obj["state"]
+                            mode_value = state_obj["state"].lower()  # Normalize to lowercase
                             # Only include valid modes
                             if mode_value in ("auto", "manual", "passive", "off"):
                                 mode_data.append({
                                     "time": state_obj["last_changed"],
                                     "mode": mode_value
                                 })
-                        except (KeyError, TypeError):
+                        except (KeyError, TypeError, AttributeError):
                             continue
             
             # Calling for heat - use the dedicated binary sensor for this room
