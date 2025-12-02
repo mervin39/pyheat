@@ -346,11 +346,12 @@ class StatusPublisher:
                                     # Next change is to active mode
                                     return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} ({next_temp:.1f}°)"
                     
-                    # Fallback for auto passive without next change info
+                    # Fallback for auto passive without next change info - check if forever
+                    forever_suffix = " forever" if self._check_if_forever(room_id) else ""
                     if min_temp is not None:
-                        return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%"
+                        return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%{forever_suffix}"
                     else:
-                        return f"Auto (passive): max {max_temp:.0f}°, {passive_valve_percent}%"
+                        return f"Auto (passive): max {max_temp:.0f}°, {passive_valve_percent}%{forever_suffix}"
             
             # Standard auto mode (active heating)
             # Check if schedule is forever

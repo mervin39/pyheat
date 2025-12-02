@@ -1,6 +1,25 @@
 
 # PyHeat Changelog
 
+## 2025-12-02: "Forever" Status for Default Passive Mode
+
+**Summary:**
+Fixed status text for rooms in auto mode with default passive mode and empty schedules (no blocks on any day) to show "forever" suffix, matching the behavior already present for active mode auto.
+
+**Changes:**
+
+- **`services/status_publisher.py`:**
+  - Check `_check_if_forever()` in passive mode fallback (when no next_change exists)
+  - Append " forever" suffix when schedule is empty
+
+**Example:**
+- Games room with empty schedule now shows: `Auto (passive): 8-14°, 15% forever`
+- Previously showed: `Auto (passive): 8-14°, 15%`
+
+**Note:** Active mode auto already had this feature ("Auto: 16.0° forever"), this adds parity for passive mode.
+
+---
+
 ## 2025-12-02: Show Passive Mode Details for Upcoming Passive Blocks
 
 **Summary:**
