@@ -394,6 +394,7 @@ class APIHandler:
                     "temp": room_data.get("temperature"),
                     "target": room_data.get("target"),
                     "mode": room_data.get("mode", "off"),
+                    "operating_mode": room_data.get("operating_mode", room_data.get("mode", "off")),  # Actual heating mode (may differ from user mode)
                     "calling_for_heat": room_data.get("calling_for_heat", False),
                     "valve_percent": actual_valve_percent,
                     "is_stale": room_data.get("is_stale", True),

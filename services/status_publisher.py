@@ -94,8 +94,10 @@ class StatusPublisher:
         - Frost Protection (highest priority): "FROST PROTECTION: T° -> TT°"
         - Load Sharing (priority): "Pre-warming for HH:MM" or "Fallback heating P{N}"
         - Auto: "Auto: T° until HH:MM on $DAY (S°)" or "Auto: T° forever"
+        - Auto + Scheduled Passive: "Scheduled passive: X-Y°, Z% until HH:MM on $DAY (A°)"
         - Override: "Override: T° (ΔD°) until HH:MM" - delta calculated on-the-fly
         - Manual: "Manual: T°"
+        - Passive: "Passive: X-Y°, Z%"
         - Off: "Heating Off"
         
         Args:
@@ -107,6 +109,7 @@ class StatusPublisher:
             Formatted status string
         """
         mode = data.get('mode', 'off')
+        operating_mode = data.get('operating_mode', mode)  # Get actual operating mode
         
         # Check frost protection FIRST (highest priority)
         if data.get('frost_protection', False):
@@ -230,6 +233,51 @@ class StatusPublisher:
             if target is None:
                 return 'Auto: ??°'
             
+            # Check if we're in a scheduled passive block (auto mode but operating in passive)
+            if operating_mode == 'passive':
+                max_temp = target  # In passive mode, target is the max temp
+                min_temp = data.get('passive_min_temp')
+                
+                # Get configured passive valve percent
+                passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
+                passive_valve_percent = C.PASSIVE_VALVE_PERCENT_DEFAULT
+                if self.ad.entity_exists(passive_valve_entity):
+                    try:
+                        valve_str = self.ad.get_state(passive_valve_entity)
+                        if valve_str not in [None, "unknown", "unavailable"]:
+                            passive_valve_percent = int(float(valve_str))
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Get next schedule change to show "until" time
+                if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
+                    from datetime import datetime
+                    now = datetime.now()
+                    
+                    holiday_mode = False
+                    if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                        holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+                    
+                    next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
+                    
+                    if next_change and min_temp is not None:
+                        next_time, next_temp, day_offset = next_change
+                        
+                        if day_offset == 0:
+                            return f"Scheduled passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} ({next_temp:.1f}°)"
+                        else:
+                            day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                            future_day_idx = (now.weekday() + day_offset) % 7
+                            day_name = day_names_display[future_day_idx]
+                            return f"Scheduled passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} ({next_temp:.1f}°)"
+                
+                # Fallback for scheduled passive without next change info
+                if min_temp is not None:
+                    return f"Scheduled passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%"
+                else:
+                    return f"Scheduled passive: max {max_temp:.0f}°, {passive_valve_percent}%"
+            
+            # Standard auto mode (active heating)
             # Check if schedule is forever
             if self._check_if_forever(room_id):
                 return f"Auto: {target:.1f}° forever"

@@ -1,6 +1,47 @@
 
 # PyHeat Changelog
 
+## 2025-12-02: Display Scheduled Passive Blocks in Pyheat-Web
+
+**Summary:**
+Enhanced status display to distinguish between passive mode (user-selected) and scheduled passive blocks (auto mode with a passive schedule block). Previously, pyheat-web only showed "Passive" status for both cases, making it unclear when a room was in a scheduled passive block versus user-set passive mode.
+
+**Problem:**
+- Room cards showed the same status for both passive mode and scheduled passive blocks
+- No distinction between default passive mode (`default_mode: passive`) and scheduled passive blocks
+- Status text didn't reflect that a room in auto mode could be operating in passive
+
+**Changes:**
+
+- **`services/status_publisher.py`:**
+  - Enhanced `_format_status_text()` to check `operating_mode` in addition to `mode`
+  - Added "Scheduled passive" status format when `mode='auto'` but `operating_mode='passive'`
+  - Format: "Scheduled passive: X-Y°, Z% until HH:MM on DAY (A°)"
+  - Shows temperature range, valve percentage, and next schedule change (like auto mode)
+  - Distinguishes from user-set passive mode which shows: "Passive: X-Y°, Z%"
+
+- **`services/api_handler.py`:**
+  - Added `operating_mode` field to room status API response
+  - Passes actual heating mode to frontend (may differ from user mode)
+  - Enables frontend to distinguish between mode types
+
+- **`pyheat-web/client/src/types/api.ts`:**
+  - Added `operating_mode?: RoomMode` to `RoomStatus` interface
+  - Documents that operating_mode represents actual heating behavior
+
+**Status Display Examples:**
+```
+User passive mode:     "Passive: 8-16°, 40%"
+Scheduled passive:     "Scheduled passive: 12-18°, 30% until 09:00 (21.0°)"
+Auto active:           "Auto: 21.0° until 17:00 (19.0°)"
+Override:              "Override: 23.0° (+2.0°) until 14:30"
+```
+
+**Use Case:**
+Rooms with scheduled passive blocks (e.g., office with passive schedule at night) now clearly show they're in a scheduled passive state rather than appearing to be in user-set passive mode.
+
+---
+
 ## 2025-12-02: Support Passive Mode for Default Target
 
 **Summary:**
