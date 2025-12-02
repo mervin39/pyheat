@@ -244,13 +244,28 @@ class Scheduler:
                     'min_target': min_target
                 }
         
-        # No active block → return default target with active mode
-        return {
-            'target': schedule.get('default_target'),
-            'mode': 'active',
-            'valve_percent': None,
-            'min_target': None
-        }
+        # No active block → return default target
+        # Check if default should use passive mode
+        default_mode = schedule.get('default_mode', 'active')
+        
+        if default_mode == 'passive':
+            default_target = schedule.get('default_target')
+            # Use entity values for passive settings (same as manual passive mode)
+            valve_percent = self._get_passive_valve_percent(room_id)
+            min_temp = self._get_passive_min_temp(room_id)
+            return {
+                'target': default_target,
+                'mode': 'passive',
+                'valve_percent': valve_percent,
+                'min_target': min_temp
+            }
+        else:
+            return {
+                'target': schedule.get('default_target'),
+                'mode': 'active',
+                'valve_percent': None,
+                'min_target': None
+            }
     
     def get_next_schedule_change(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[tuple[str, float, int]]:
         """Get the next schedule change time and target temperature.

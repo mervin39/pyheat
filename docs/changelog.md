@@ -1,6 +1,45 @@
 
 # PyHeat Changelog
 
+## 2025-12-02: Support Passive Mode for Default Target
+
+**Summary:**
+Added support for passive mode as the default operating mode outside scheduled blocks. Previously, the default_target always used active heating mode. Now, schedules can specify `default_mode: passive` to use opportunistic heating outside of scheduled blocks.
+
+**Changes:**
+
+- **`core/scheduler.py`:**
+  - Updated `get_scheduled_target()` to check for `default_mode` in schedule
+  - When `default_mode: passive`, returns passive mode dict with valve_percent and min_target from room's passive entities
+  - When `default_mode: active` (default), returns active mode dict as before
+  - Uses same entity-based passive settings as manual passive mode (`passive_valve_percent`, `passive_min_temp`)
+
+**Schedule Configuration:**
+```yaml
+rooms:
+- id: games
+  default_target: 16.0
+  default_mode: passive  # NEW: 'active' (default) or 'passive'
+  week:
+    mon:
+    - start: 07:00
+      target: 18.0
+      end: 09:00
+```
+
+**Behavior:**
+- When a room has `default_mode: passive` and no scheduled block is active:
+  - Room uses passive mode with `default_target` as the max temperature
+  - Valve opens opportunistically based on room's passive_valve_percent setting
+  - Comfort floor from room's passive_min_temp setting
+- When `default_mode: active` or omitted (default behavior unchanged):
+  - Room calls for heat if temperature is below default_target
+
+**Use Case:**
+Perfect for rooms like "games" or "office" that should only actively heat during specific times, but can benefit from opportunistic heating (when other rooms are calling for heat) during off-schedule periods.
+
+---
+
 ## 2025-12-05: API Enhancement - Mode History for Charts
 
 **Summary:**
