@@ -134,6 +134,9 @@ class ConfigLoader:
             
             self.schedules[room_id] = {
                 'default_target': room_schedule.get('default_target', 16.0),
+                'default_mode': room_schedule.get('default_mode', 'active'),
+                'default_valve_percent': room_schedule.get('default_valve_percent'),
+                'default_min_temp': room_schedule.get('default_min_temp'),
                 'week': room_schedule.get('week', {}),
             }
             

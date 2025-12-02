@@ -8,6 +8,10 @@ Added support for passive mode as the default operating mode outside scheduled b
 
 **Changes:**
 
+- **`core/config_loader.py`:**
+  - Fixed config loader to properly parse and load `default_mode`, `default_valve_percent`, and `default_min_temp` from schedules.yaml
+  - These fields are now available to the scheduler and API
+
 - **`core/scheduler.py`:**
   - Updated `get_scheduled_target()` to check for `default_mode` in schedule
   - When `default_mode: passive`, returns passive mode dict with valve_percent and min_target
