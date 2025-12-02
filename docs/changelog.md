@@ -1,6 +1,34 @@
 
 # PyHeat Changelog
 
+## 2025-12-05: API Enhancement - Mode History for Charts
+
+**Summary:**
+Extended the `pyheat_get_history` API endpoint to include room mode history data, enabling mode-aware coloring of setpoint lines in temperature charts.
+
+**Changes:**
+
+- **`services/api_handler.py`:**
+  - Added `mode` field to history API response
+  - Fetches mode history from `input_select.pyheat_{room}_mode` entity
+  - Returns array of `{time, mode}` objects showing mode changes over the requested period
+  - Only includes valid modes: "auto", "manual", "passive", "off"
+
+**API Response Format:**
+```json
+{
+  "temperature": [{"time": "ISO8601", "value": 19.5}, ...],
+  "setpoint": [{"time": "ISO8601", "value": 21.0}, ...],
+  "mode": [{"time": "ISO8601", "mode": "auto"}, ...],
+  "calling_for_heat": [["start_ISO8601", "end_ISO8601"], ...]
+}
+```
+
+**Purpose:**
+Enables pyheat-web temperature chart to color the setpoint line according to the active mode at each point in time, providing visual feedback about when mode changes occurred.
+
+---
+
 ## 2025-12-01: Fix Passive Mode Status Line Format
 
 **Summary:**

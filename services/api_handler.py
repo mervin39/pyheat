@@ -507,16 +507,17 @@ class APIHandler:
     def api_get_history(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_get_history
         
-        Gets historical temperature, setpoint, and boiler data for a room.
+        Gets historical temperature, setpoint, mode, and boiler data for a room.
         
         Request body: {
             "room": str,        # Room ID (e.g., "pete", "lounge")
-            "period": str       # "today" or "yesterday"
+            "period": str       # "today", "yesterday", or "recent_Xh" (X = 1-12)
         }
         
         Returns: {
             "temperature": [{"time": str, "value": float}],
             "setpoint": [{"time": str, "value": float}],
+            "mode": [{"time": str, "mode": "auto"|"manual"|"passive"|"off"}],
             "calling_for_heat": [["start_time", "end_time"]]
         }
         """
@@ -558,11 +559,13 @@ class APIHandler:
             # Build entity IDs for this room
             temp_sensor = f"sensor.pyheat_{room_id}_temperature"
             target_sensor = f"sensor.pyheat_{room_id}_target"
+            mode_select = f"input_select.pyheat_{room_id}_mode"
             
             # Fetch history using AppDaemon's get_history
             # get_history(entity_id, start_time=None, end_time=None)
             temperature_data = []
             setpoint_data = []
+            mode_data = []
             calling_ranges = []
             
             # Temperature history
@@ -604,6 +607,27 @@ class APIHandler:
                         except (ValueError, KeyError):
                             continue
             
+            # Mode history - for mode-aware setpoint coloring in charts
+            if self.ad.entity_exists(mode_select):
+                mode_history = self.ad.get_history(
+                    entity_id=mode_select,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                
+                if mode_history and len(mode_history) > 0:
+                    for state_obj in mode_history[0]:
+                        try:
+                            mode_value = state_obj["state"]
+                            # Only include valid modes
+                            if mode_value in ("auto", "manual", "passive", "off"):
+                                mode_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "mode": mode_value
+                                })
+                        except (KeyError, TypeError):
+                            continue
+            
             # Calling for heat - use the dedicated binary sensor for this room
             calling_sensor = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
             if self.ad.entity_exists(calling_sensor):
@@ -639,6 +663,7 @@ class APIHandler:
             return {
                 "temperature": temperature_data,
                 "setpoint": setpoint_data,
+                "mode": mode_data,
                 "calling_for_heat": calling_ranges
             }, 200
             
