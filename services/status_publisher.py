@@ -259,7 +259,8 @@ class StatusPublisher:
                     if block_end == '23:59':
                         block_end = '24:00'
                     
-                    # Get what comes next after this block
+                    # Get what temperature will be active when this block ends
+                    # This will be the default_target (not necessarily the next scheduled block)
                     if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
                         from datetime import datetime
                         now = datetime.now()
@@ -268,21 +269,22 @@ class StatusPublisher:
                         if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
                             holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
                         
-                        next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
+                        # Parse block end time and get schedule at that moment
+                        schedule = self.scheduler_ref.config.schedules.get(room_id)
+                        default_target = schedule.get('default_target') if schedule else None
                         
-                        if next_change and min_temp is not None:
-                            next_time, next_temp, day_offset = next_change
-                            # For scheduled blocks, show block end time (not next change time)
-                            if day_offset == 0:
-                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} ({next_temp:.1f}°)"
-                            else:
-                                # Block ends tomorrow or later
-                                day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                                future_day_idx = (now.weekday() + day_offset) % 7
-                                day_name = day_names_display[future_day_idx]
-                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} on {day_name} ({next_temp:.1f}°)"
+                        # Simulate what temperature will be at block end time
+                        end_hour, end_min = map(int, block_end.replace('24:00', '23:59').split(':'))
+                        simulated_time = now.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
+                        
+                        # Get what would be scheduled at block end time
+                        future_scheduled = self.scheduler_ref.get_scheduled_target(room_id, simulated_time, holiday_mode)
+                        temp_after_block = future_scheduled['target'] if future_scheduled else default_target
+                        
+                        if temp_after_block is not None and min_temp is not None:
+                            return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} ({temp_after_block:.1f}°)"
                     
-                    # Fallback if can't get next change
+                    # Fallback if can't get next temperature
                     if min_temp is not None:
                         return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end}"
                     else:

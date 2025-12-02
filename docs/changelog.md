@@ -26,14 +26,14 @@ Fixed status display for scheduled passive blocks to show correct end times and 
 
 **Status Display Examples:**
 ```
-Scheduled block:  "Auto (passive): 8-16°, 30% until 15:00 (14.0°)"  [block ends at 15:00]
+Scheduled block:  "Auto (passive): 8-16°, 30% until 15:00 (14.0°)"  [default target after block]
 Default passive:  "Auto (passive): 10-14°, 15% until 19:30 (18.0°)"  [next block starts at 19:30]
 User passive:     "Passive: 8-16°, 40%"
 Auto active:      "Auto: 21.0° until 17:00 (19.0°)"
 ```
 
 **Testing:**
-Pete's room with passive block 13:00-15:00 now correctly shows "Auto (passive): 8-16°, 30% until 15:00 (18.0°)" at 2pm on Tuesday.
+Pete's room with passive block 13:00-15:00 now correctly shows "Auto (passive): 8-16°, 30% until 15:00 (14.0°)" at 2pm on Tuesday, where 14.0° is the default_target that becomes active after the block ends.
 
 ---
 
