@@ -4,22 +4,25 @@
 ## 2025-12-02: Support Passive Mode for Default Target
 
 **Summary:**
-Added support for passive mode as the default operating mode outside scheduled blocks. Previously, the default_target always used active heating mode. Now, schedules can specify `default_mode: passive` to use opportunistic heating outside of scheduled blocks.
+Added support for passive mode as the default operating mode outside scheduled blocks. Schedules can now specify `default_mode: passive` along with optional `default_valve_percent` and `default_min_temp` to use opportunistic heating outside of scheduled blocks.
 
 **Changes:**
 
 - **`core/scheduler.py`:**
   - Updated `get_scheduled_target()` to check for `default_mode` in schedule
-  - When `default_mode: passive`, returns passive mode dict with valve_percent and min_target from room's passive entities
-  - When `default_mode: active` (default), returns active mode dict as before
-  - Uses same entity-based passive settings as manual passive mode (`passive_valve_percent`, `passive_min_temp`)
+  - When `default_mode: passive`, returns passive mode dict with valve_percent and min_target
+  - Supports `default_valve_percent` and `default_min_temp` in schedule (takes precedence over entity values)
+  - Falls back to room's passive entity values if schedule values not provided
+  - Validates min_temp against frost protection temperature
 
 **Schedule Configuration:**
 ```yaml
 rooms:
 - id: games
   default_target: 16.0
-  default_mode: passive  # NEW: 'active' (default) or 'passive'
+  default_mode: passive           # 'active' (default) or 'passive'
+  default_valve_percent: 40       # Optional: override room's passive valve setting
+  default_min_temp: 12.0          # Optional: override room's passive min temp setting
   week:
     mon:
     - start: 07:00
@@ -30,8 +33,8 @@ rooms:
 **Behavior:**
 - When a room has `default_mode: passive` and no scheduled block is active:
   - Room uses passive mode with `default_target` as the max temperature
-  - Valve opens opportunistically based on room's passive_valve_percent setting
-  - Comfort floor from room's passive_min_temp setting
+  - Valve opens to `default_valve_percent` (or room's passive_valve_percent entity if not specified)
+  - Comfort floor is `default_min_temp` (or room's passive_min_temp entity if not specified)
 - When `default_mode: active` or omitted (default behavior unchanged):
   - Room calls for heat if temperature is below default_target
 

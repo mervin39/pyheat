@@ -250,9 +250,21 @@ class Scheduler:
         
         if default_mode == 'passive':
             default_target = schedule.get('default_target')
-            # Use entity values for passive settings (same as manual passive mode)
-            valve_percent = self._get_passive_valve_percent(room_id)
-            min_temp = self._get_passive_min_temp(room_id)
+            # Use schedule values if provided, otherwise fall back to entity values
+            valve_percent = schedule.get('default_valve_percent')
+            if valve_percent is None:
+                valve_percent = self._get_passive_valve_percent(room_id)
+            
+            min_temp = schedule.get('default_min_temp')
+            if min_temp is None:
+                min_temp = self._get_passive_min_temp(room_id)
+            else:
+                # Validate against frost protection temp
+                frost_temp = self.config.system_config.get('frost_protection_temp_c', C.FROST_PROTECTION_TEMP_C_DEFAULT)
+                if min_temp < frost_temp:
+                    self.ad.log(f"Room '{room_id}' default_min_temp ({min_temp}C) is below frost_protection_temp_c ({frost_temp}C), using frost protection temp", level="ERROR")
+                    min_temp = frost_temp
+            
             return {
                 'target': default_target,
                 'mode': 'passive',
