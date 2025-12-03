@@ -227,8 +227,8 @@ class PyHeat(hass.Hass):
         if self.entity_exists(C.HELPER_LOAD_SHARING_ENABLE):
             self.listen_state(self.load_sharing_enable_changed, C.HELPER_LOAD_SHARING_ENABLE)
         
-        if self.entity_exists(C.HELPER_LOAD_SHARING_MODE):
-            self.listen_state(self.load_sharing_mode_changed, C.HELPER_LOAD_SHARING_MODE)
+        # Always register listener for mode selector (entity may not exist yet on HA restart)
+        self.listen_state(self.load_sharing_mode_changed, C.HELPER_LOAD_SHARING_MODE)
         
         # Per-room callbacks
         for room_id in self.config.rooms.keys():
