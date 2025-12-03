@@ -366,15 +366,17 @@ class LoadSharingManager:
         """Build concise human-readable explanation of load sharing decision.
         
         Returns single-line summary suitable for general display (80-120 chars).
+        For inactive/disabled states, returns minimal text since state is self-explanatory.
+        For active states, provides detailed explanation of trigger and room selections.
         
         Returns:
             Human-readable explanation string
         """
         if self.context.state == LoadSharingState.DISABLED:
-            return "Load sharing disabled (master switch off)"
+            return "disabled"
         
         if not self.context.is_active():
-            return "Load sharing inactive (sufficient capacity or no cycling risk)"
+            return ""
         
         # Active state - explain the activation
         trigger_rooms = ", ".join(sorted(self.context.trigger_calling_rooms))
@@ -410,13 +412,13 @@ class LoadSharingManager:
         if self.context.state == LoadSharingState.DISABLED:
             return {
                 'status': 'disabled',
-                'reason': 'Master switch (input_boolean.pyheat_load_sharing_enable) is off'
+                'reason': 'disabled'
             }
         
         if not self.context.is_active():
             return {
                 'status': 'inactive',
-                'reason': 'Load sharing not needed (sufficient capacity or no cycling risk)'
+                'reason': ''
             }
         
         # Active state - provide detailed breakdown
