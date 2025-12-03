@@ -1,6 +1,34 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix operating_mode Field Not Being Sent to pyheat-web
+
+**Summary:**
+Fixed bug where the `operating_mode` field (showing "passive", "active", "off") was not being correctly extracted and sent to pyheat-web, preventing the web interface from showing context-aware target temperature colors (purple for passive mode, orange for scheduled auto).
+
+**Problem:**
+Pyheat-web target temperatures were all showing orange instead of context-aware colors:
+- Passive mode rooms (Dining Room, Bathroom) should show purple targets
+- Override heating should show red, cooling should show blue
+- Regular scheduled auto should show orange
+
+The `operating_mode` field was always `null` in the API response despite being present in the Home Assistant state entity attributes.
+
+**Root Cause:**
+In `services/api_handler.py`, the `api_get_status()` function was trying to extract `operating_mode` from `room_data` (which comes from the status entity's rooms dict), but `operating_mode` is actually an attribute of the individual state entities (`sensor.pyheat_<room>_state`). The code already fetched `state_attrs` from the state entity, but wasn't using it for `operating_mode`.
+
+**Changes:**
+
+- **`services/api_handler.py`:**
+  - Changed `operating_mode` extraction in `api_get_status()` from `room_data.get("operating_mode")` to `state_attrs.get("operating_mode")`
+  - Now correctly reads `operating_mode` from the state entity attributes where it's actually published
+
+**Testing:**
+Verified API response now shows:
+- `"operating_mode": "passive"` for Dining Room and Bathroom
+- `"operating_mode": null` for rooms in scheduled active mode
+- Pyheat-web can now correctly display context-aware target temperature colors
+
 ## 2025-12-03: Fix Auto Mode Status Missing Default Blocks Between Scheduled Blocks
 
 **Summary:**
