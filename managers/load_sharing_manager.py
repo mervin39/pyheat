@@ -59,14 +59,16 @@ class LoadSharingManager:
         self.fallback_cooldown_s = None     # Fallback tier cooldown period
         self.high_return_delta_c = None     # Return temp delta for cycling risk detection
         
-        # Master enable switch (HA helper)
+        # Control entities (HA helpers)
         self.master_enable_entity = C.HELPER_LOAD_SHARING_ENABLE
+        self.mode_select_entity = C.HELPER_LOAD_SHARING_MODE
         
     def initialize_from_ha(self) -> None:
         """Load configuration and initial state from Home Assistant.
         
-        Load sharing is controlled solely by input_boolean.pyheat_load_sharing_enable.
-        No config file enable flag - just load thresholds and parameters.
+        Load sharing is controlled by:
+        - input_boolean.pyheat_load_sharing_enable (master on/off)
+        - input_select.pyheat_load_sharing_mode (aggressiveness level)
         """
         # Load load_sharing config from boiler.yaml (thresholds and parameters only)
         ls_config = self.config.boiler_config.get('load_sharing', {})
@@ -95,19 +97,20 @@ class LoadSharingManager:
                 "Ensure initialize_from_ha() is called before evaluate()."
             )
         
-        # Check master enable switch (single source of truth)
+        # Check master enable and mode
         master_enabled = self._is_master_enabled()
+        mode = self._get_mode()
         
-        if not master_enabled:
+        if not master_enabled or mode == C.LOAD_SHARING_MODE_OFF:
             self.context.state = LoadSharingState.DISABLED
             self.ad.log(
-                f"LoadSharingManager: DISABLED (master switch off)",
+                f"LoadSharingManager: DISABLED (master={'on' if master_enabled else 'off'}, mode={mode})",
                 level="INFO"
             )
         else:
             self.context.state = LoadSharingState.INACTIVE
             self.ad.log(
-                f"LoadSharingManager: Initialized (inactive) - "
+                f"LoadSharingManager: Initialized (inactive, mode={mode}) - "
                 f"capacity threshold={self.min_calling_capacity_w}W, "
                 f"target={self.target_capacity_w}W, "
                 f"fallback_timeout={self.fallback_timeout_s}s, "
@@ -134,6 +137,32 @@ class LoadSharingManager:
                 level="WARNING"
             )
             return False
+    
+    def _get_mode(self) -> str:
+        """Get current load sharing mode.
+        
+        Returns:
+            Mode string: 'Off', 'Conservative', 'Balanced', or 'Aggressive'
+            Falls back to 'Aggressive' if entity missing or error
+        """
+        try:
+            state = self.ad.get_state(self.mode_select_entity)
+            if state in [C.LOAD_SHARING_MODE_OFF, C.LOAD_SHARING_MODE_CONSERVATIVE,
+                        C.LOAD_SHARING_MODE_BALANCED, C.LOAD_SHARING_MODE_AGGRESSIVE]:
+                return state
+            else:
+                self.ad.log(
+                    f"LoadSharingManager: Invalid mode '{state}', defaulting to Aggressive",
+                    level="WARNING"
+                )
+                return C.LOAD_SHARING_MODE_AGGRESSIVE
+        except Exception as e:
+            self.ad.log(
+                f"LoadSharingManager: Failed to read mode (entity may not exist yet): {e}. "
+                f"Defaulting to Aggressive for backward compatibility.",
+                level="INFO"
+            )
+            return C.LOAD_SHARING_MODE_AGGRESSIVE
     
     def evaluate(self, room_states: Dict[str, Dict], boiler_state: str, cycling_protection_state: str) -> Dict[str, int]:
         """Evaluate load sharing needs and return valve commands.
@@ -189,6 +218,11 @@ class LoadSharingManager:
         the next room. Schedule-aware rooms (closest first) are preferred over
         fallback rooms (priority-based).
         
+        Mode controls which tiers are available:
+        - Conservative: Tier 1 only (schedule pre-warming)
+        - Balanced: Tier 1 + Tier 2 Phase A (passive rooms)
+        - Aggressive: All tiers (includes Phase B fallback priority)
+        
         Tier 1 (Schedule-aware): Rooms with upcoming schedule within 2x lookahead
         - Sorted by closest schedule first
         - Add one room at 50%, escalate to 100%, then add next if needed
@@ -201,6 +235,9 @@ class LoadSharingManager:
             room_states: Room state dict
             now: Current datetime
         """
+        # Get current mode
+        mode = self._get_mode()
+        
         # Initialize trigger context first
         self._initialize_trigger_context(room_states, now)
         
@@ -244,8 +281,22 @@ class LoadSharingManager:
             # Room at 100%, still need more capacity - continue to next schedule room
             self.context.state = LoadSharingState.SCHEDULE_ESCALATED
         
-        # Schedule rooms exhausted - try fallback tier
-        fallback_candidates = self._select_fallback_rooms(room_states)
+        # Conservative mode: Stop after Tier 1 (schedule tier only)
+        if mode == C.LOAD_SHARING_MODE_CONSERVATIVE:
+            if schedule_candidates:
+                self.ad.log(
+                    f"Load sharing: Conservative mode - schedule tier exhausted, no fallback allowed",
+                    level="INFO"
+                )
+            else:
+                self.ad.log(
+                    f"Load sharing: Conservative mode - no schedule tier candidates available",
+                    level="INFO"
+                )
+            return
+        
+        # Schedule rooms exhausted - try fallback tier (if mode allows)
+        fallback_candidates = self._select_fallback_rooms(room_states, mode)
         
         if fallback_candidates:
             # Process fallback rooms one at a time
@@ -654,11 +705,15 @@ class LoadSharingManager:
         
         return selections
     
-    def _select_fallback_rooms(self, room_states: Dict) -> List[Tuple[str, int, str, float]]:
+    def _select_fallback_rooms(self, room_states: Dict, mode: str) -> List[Tuple[str, int, str, float]]:
         """Select fallback rooms: Phase A (passive rooms), then Phase B (fallback priority).
         
         This is the fallback tier when schedule-aware rooms are insufficient.
         Warning-level logging indicates a schedule gap that should be addressed.
+        
+        Mode controls which phases are available:
+        - Balanced: Phase A only (passive rooms at max_temp)
+        - Aggressive: Phase A + Phase B (includes fallback priority list)
         
         PHASE A: Passive room opportunistic heating
         - Current operating_mode == 'passive' (room is passive RIGHT NOW)
@@ -668,6 +723,7 @@ class LoadSharingManager:
         
         PHASE B: Priority list fallback (only if Phase A insufficient)
         - Deterministic selection when schedules don't help
+        - Only available in Aggressive mode
         
         STRATEGY: Maximize existing rooms before adding new ones.
         - Add ONE room at a time in priority order
@@ -743,7 +799,15 @@ class LoadSharingManager:
             
             return selections
         
-        # ===== PHASE B: Fallback priority =====
+        # Balanced mode: Stop after Phase A (passive rooms only)
+        if mode == C.LOAD_SHARING_MODE_BALANCED:
+            self.ad.log(
+                f"Load sharing: Balanced mode - Phase A exhausted, Phase B not allowed",
+                level="INFO"
+            )
+            return []
+        
+        # ===== PHASE B: Fallback priority (Aggressive mode only) =====
         candidates = []
         active_room_ids = set(self.context.active_rooms.keys())
         now = datetime.now()

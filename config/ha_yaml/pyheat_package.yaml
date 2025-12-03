@@ -26,6 +26,20 @@ input_boolean:
     icon: mdi:share-variant
 
 # ---------------------------------------------------------------------------
+# Input selects (load sharing mode control)
+# ---------------------------------------------------------------------------
+input_select:
+  pyheat_load_sharing_mode:
+    name: "Load Sharing Mode"
+    options:
+      - 'Off'
+      - 'Conservative'
+      - 'Balanced'
+      - 'Aggressive'
+    initial: 'Aggressive'
+    icon: mdi:tune-variant
+
+# ---------------------------------------------------------------------------
 # Input selects (per-room modes) - used if present; app checks entity_exists()
 # ---------------------------------------------------------------------------
 input_select:

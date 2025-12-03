@@ -227,6 +227,9 @@ class PyHeat(hass.Hass):
         if self.entity_exists(C.HELPER_LOAD_SHARING_ENABLE):
             self.listen_state(self.load_sharing_enable_changed, C.HELPER_LOAD_SHARING_ENABLE)
         
+        if self.entity_exists(C.HELPER_LOAD_SHARING_MODE):
+            self.listen_state(self.load_sharing_mode_changed, C.HELPER_LOAD_SHARING_MODE)
+        
         # Per-room callbacks
         for room_id in self.config.rooms.keys():
             # Mode changes
@@ -433,6 +436,25 @@ class PyHeat(hass.Hass):
         
         # Trigger recompute to re-evaluate load sharing
         self.trigger_recompute("load_sharing_enable_changed")
+
+    def load_sharing_mode_changed(self, entity, attribute, old, new, kwargs):
+        self.log(f"Load sharing mode changed: {old} -> {new}")
+        # If mode changed to Off, treat like master disable
+        if new == C.LOAD_SHARING_MODE_OFF:
+            if self.load_sharing.context.is_active():
+                self.load_sharing._deactivate("mode changed to Off")
+            self.load_sharing.context.state = LoadSharingState.DISABLED
+            self.valve_coordinator.clear_load_sharing_overrides()
+        else:
+            # Mode changed while enabled - deactivate current load sharing and re-evaluate
+            if self.load_sharing.context.is_active():
+                self.load_sharing._deactivate(f"mode changed to {new}")
+            # Ensure state is INACTIVE (not DISABLED) so evaluation can proceed
+            if self.load_sharing.context.state == LoadSharingState.DISABLED:
+                self.load_sharing.context.state = LoadSharingState.INACTIVE
+        
+        # Trigger recompute to re-evaluate with new mode
+        self.trigger_recompute("load_sharing_mode_changed")
 
     def room_mode_changed(self, entity, attribute, old, new, kwargs):
         room_id = kwargs.get('room_id')

@@ -346,8 +346,15 @@ TEMPERATURE_SMOOTHING_ALPHA_DEFAULT = 0.3
 # Load Sharing Configuration
 # ============================================================================
 
-# Load sharing master enable switch (Home Assistant helper)
-HELPER_LOAD_SHARING_ENABLE = "input_boolean.pyheat_load_sharing_enable"
+# Load sharing controls (Home Assistant helpers)
+HELPER_LOAD_SHARING_ENABLE = "input_boolean.pyheat_load_sharing_enable"  # Master on/off
+HELPER_LOAD_SHARING_MODE = "input_select.pyheat_load_sharing_mode"       # Aggressiveness level
+
+# Load sharing mode options
+LOAD_SHARING_MODE_OFF = "Off"
+LOAD_SHARING_MODE_CONSERVATIVE = "Conservative"  # Tier 1 only (schedule pre-warming)
+LOAD_SHARING_MODE_BALANCED = "Balanced"          # Tier 1 + Tier 2 Phase A (passive rooms)
+LOAD_SHARING_MODE_AGGRESSIVE = "Aggressive"      # All tiers (includes Phase B fallback)
 
 # Load sharing capacity thresholds (watts)
 LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT = 3500  # Activation threshold

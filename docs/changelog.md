@@ -1,6 +1,62 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Load Sharing Mode Selector (Aggressiveness Control)
+
+**Summary:**
+Replaced binary on/off control with a mode selector offering granular control over load sharing aggressiveness. Users can now choose between schedule-only, balanced, or full aggressive modes.
+
+**New Entity:**
+```yaml
+input_select.pyheat_load_sharing_mode:
+  options:
+    - 'Off'          # Disabled
+    - 'Conservative' # Tier 1 only (schedule pre-warming)
+    - 'Balanced'     # Tier 1 + Tier 2 Phase A (passive rooms)
+    - 'Aggressive'   # All tiers (includes Phase B fallback)
+  initial: 'Aggressive'
+```
+
+**Mode Behavior:**
+- **Off**: Load sharing completely disabled
+- **Conservative**: Only pre-warms rooms with upcoming schedules (Tier 1)
+  - Less intrusive, good for spring/summer
+  - No emergency fallback (cycling protection reduced)
+- **Balanced**: Schedule pre-warming + passive room opportunistic heating (Tier 1 + 2A)
+  - Includes passive rooms at max_temp
+  - Excludes fallback priority list (no surprise heating)
+- **Aggressive**: Full load sharing with all tiers (Tier 1 + 2A + 2B)
+  - Maximum cycling protection
+  - Includes fallback priority list for emergencies
+  - Recommended for winter heating season
+
+**Migration:**
+- Existing `input_boolean.pyheat_load_sharing_enable` still works
+- Mode selector defaults to 'Aggressive' (preserves existing behavior)
+- If mode entity missing, falls back to Aggressive for backward compatibility
+
+**Files Modified:**
+- `core/constants.py`: Added mode constants and entity reference
+- `managers/load_sharing_manager.py`: Mode-aware tier selection logic
+- `app.py`: Added mode change listener
+- `config/ha_yaml/pyheat_package.yaml`: Added mode selector entity
+- `docs/LOAD_SHARING.md`: Updated control section with mode documentation
+- `README.md`: Added mode selector to control section
+
+**Benefits:**
+- Seasonal adjustment: Conservative in spring, Aggressive in winter
+- Testing/debugging: Isolate tier behavior
+- Privacy control: Balanced mode avoids unexpected bedroom heating
+- Simple mental model: "How aggressive should the system be?"
+
+**Implementation Details:**
+- Conservative mode: Returns empty list after Tier 1 exhausted
+- Balanced mode: Returns empty list after Phase A (passive rooms)
+- Aggressive mode: Proceeds to Phase B (fallback priority list)
+- Mode changes immediately deactivate current load sharing and re-evaluate
+
+---
+
 ## 2025-12-03: Load Sharing Phase 2B - Prioritize Passive Rooms in Fallback
 
 **Summary:**

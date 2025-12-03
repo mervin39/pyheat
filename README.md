@@ -278,6 +278,11 @@ When timer expires, room returns to scheduled target.
 
 **Control:**
 - Master switch: `input_boolean.pyheat_load_sharing_enable`
+- Mode selector: `input_select.pyheat_load_sharing_mode`
+  - **Off**: Disabled
+  - **Conservative**: Schedule pre-warming only
+  - **Balanced**: Schedule + passive rooms
+  - **Aggressive**: All tiers (recommended)
 - Status: `sensor.pyheat_load_sharing_status` (state, active rooms, reason)
 - Per-room status visible in room sensor attributes
 
