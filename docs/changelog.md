@@ -1,6 +1,27 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Log Bug #15 - Load Sharing Status Text Tier Inconsistency
+
+**Summary:**
+Documented bug where load sharing status text incorrectly shows "Pre-warming for schedule" for both tier 1 (schedule-based) and tier 2 (fallback) activations, when tier 2 should display fallback-specific text.
+
+**Issue:**
+The `_format_status_text()` method in `status_publisher.py` (line 194) checks `if activation.tier in [1, 2]` and applies schedule-aware formatting to both tiers. However:
+- **Tier 1 (TIER_SCHEDULE):** Correctly shows "Pre-warming for schedule" - rooms with upcoming schedules
+- **Tier 2 (TIER_FALLBACK):** Incorrectly shows "Pre-warming for schedule" - should show fallback text like tier 3
+
+**Evidence:**
+Office room selected via tier 2 (reason="fallback_p3", prewarming_minutes=null) displayed status "Pre-warming for schedule" when it should have shown "Fallback heating P3" or similar text indicating emergency fallback selection rather than schedule-based pre-warming.
+
+**Impact:**
+Medium - misleading UI only, no functional impact. Confuses users about why rooms are heating and makes debugging harder.
+
+**Documentation:**
+- **`docs/BUGS.md`:** Added BUG #15 with full evidence, root cause analysis, and API response data
+
+---
+
 ## 2025-12-03: Fix Load Sharing Trigger Capacity Bug and Increase Fallback Timeout
 
 **Summary:**

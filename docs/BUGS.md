@@ -4,6 +4,225 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #15: Load Sharing Status Text Shows Incorrect Tier Information
+
+**Status:** OPEN 🔴  
+**Date Discovered:** 2025-12-03  
+**Severity:** Medium - misleading UI status text, no functional impact  
+**Category:** Status Display / Load Sharing
+
+### Description
+
+The status text displayed in pyheat-web for rooms activated via load sharing incorrectly shows "Pre-warming for schedule" for **all** load sharing activations (both tier 1 and tier 2), when it should distinguish between schedule-based pre-warming (tier 1) and fallback heating (tier 2).
+
+### Observed Behavior
+
+**Incident on 2025-12-03 at 17:07:**
+
+**Room: Office**
+- Current status text: `"Pre-warming for schedule"`
+- Load sharing state from API:
+  ```json
+  {
+    "state": "fallback_escalated",
+    "active_rooms": [{
+      "room_id": "office",
+      "tier": 2,
+      "reason": "fallback_p3",
+      "valve_pct": 80.0
+    }],
+    "trigger_rooms": ["lounge"]
+  }
+  ```
+
+**Expected status text:** `"Fallback heating P3"` (or similar) to indicate this is tier 2 fallback, not schedule-based pre-warming.
+
+**What's wrong:**
+- Office was selected via **Tier 2 (fallback)** with `reason="fallback_p3"`
+- Status text shows `"Pre-warming for schedule"` which implies **Tier 1 (schedule-based)**
+- This misleads users into thinking the room is heating for an upcoming schedule block
+- Actual selection was emergency fallback due to insufficient scheduled capacity
+
+### Root Cause Analysis
+
+**Status formatting logic** (`services/status_publisher.py` lines 180-211):
+```python
+# Line 194-211: Load sharing status formatting
+if activation.tier in [1, 2]:  # ❌ BUG: Treats BOTH tiers as schedule-aware
+    prewarming_minutes = activation.prewarming_minutes
+    valve_pct = activation.valve_pct
+    
+    if prewarming_minutes is not None:
+        status = f"Pre-warming for schedule (in {prewarming_minutes}m, {valve_pct}%)"
+    else:
+        status = f"Pre-warming for schedule ({valve_pct}%)"
+else:
+    # Tier 3 fallback (priority-based)
+    valve_pct = activation.valve_pct
+    status = f"Fallback heating P{activation.priority} ({valve_pct}%)"
+```
+
+**The problem:**
+- Line 194 checks `if activation.tier in [1, 2]`
+- This treats **both** TIER_SCHEDULE (1) and TIER_FALLBACK (2) as schedule-aware
+- Tier 2 rooms get "Pre-warming for schedule" text even though they have NO schedule
+- Only tier 3 rooms show "Fallback heating P{priority}" text
+
+**Tier definitions** (`managers/load_sharing_manager.py` lines 18-19):
+```python
+TIER_SCHEDULE = 1   # Schedule-aware: rooms with upcoming schedules
+TIER_FALLBACK = 2   # Fallback: passive rooms above max_temp (Phase B)
+```
+
+**Why this is misleading:**
+- Tier 1: Rooms are genuinely pre-warming for an upcoming schedule block → "Pre-warming for schedule" is correct
+- Tier 2: Rooms are in **passive mode** with **no upcoming schedule**, selected purely for capacity → "Pre-warming for schedule" is wrong
+- Tier 3: Emergency fallback using priority alone (correct status text)
+
+### Evidence
+
+**API Response from http://localhost:8000/api/status at 17:07:**
+```json
+{
+  "rooms": [
+    {
+      "id": "office",
+      "name": "Office",
+      "formatted_status": "Pre-warming for schedule",
+      "calling_for_heat": false,
+      "valve_percent": 80.0,
+      "current_temp": 13.73,
+      "target_temp": 12.0,
+      "mode": "auto",
+      "operating_mode": "passive"
+    }
+  ],
+  "system": {
+    "load_sharing": {
+      "state": "fallback_escalated",
+      "active_rooms": [
+        {
+          "room_id": "office",
+          "tier": 2,
+          "reason": "fallback_p3",
+          "valve_pct": 80.0,
+          "prewarming_minutes": null,
+          "priority": 3
+        }
+      ],
+      "trigger_rooms": ["lounge"],
+      "min_capacity_w": 2000.0,
+      "target_capacity_w": 2500.0
+    }
+  }
+}
+```
+
+**Key inconsistencies:**
+- `formatted_status`: "Pre-warming for schedule"
+- `tier`: 2 (TIER_FALLBACK)
+- `reason`: "fallback_p3" (Phase B fallback priority 3)
+- `prewarming_minutes`: null (no schedule)
+- `operating_mode`: "passive" (no scheduled heating)
+
+**Games room (earlier selection at 17:07:26):**
+- Status: `"Auto (passive): 8-14°, 15% forever"` (correct - no longer in load sharing)
+- Previously selected via tier 2, reason "fallback_p2"
+- This was also incorrectly shown as "Pre-warming for schedule" during activation
+
+### Related Code Locations
+
+**services/status_publisher.py:**
+- Lines 180-211: `_format_status_text()` method
+- Line 194: Buggy tier check: `if activation.tier in [1, 2]`
+- Lines 195-202: Schedule-aware status formatting (applied incorrectly to tier 2)
+- Lines 203-205: Fallback status formatting (only applied to tier 3)
+
+**managers/load_sharing_manager.py:**
+- Lines 18-19: Tier constant definitions
+- Lines 700-858: Tier 1 selection (schedule-based, uses `prewarming_minutes`)
+- Lines 860-920: Tier 2 selection (fallback passive rooms, NO schedule awareness)
+- Lines 922-1010: Tier 3 selection (priority-based fallback)
+
+**Tier 2 activation context:**
+- Tier 2 rooms are **passive mode** rooms
+- Selected when Phase A (schedule-based tier 1) provides insufficient capacity
+- Intentionally allows rooms above `max_temp` (no temperature checks)
+- Sets `prewarming_minutes=None` (no schedule)
+- Sets `reason="fallback_p{priority}"` to indicate fallback selection
+
+### Impact
+
+**Medium severity because:**
+- Confuses users about why rooms are heating
+- Users may think schedule is incorrect when it's actually fallback behavior
+- Makes debugging harder - status text doesn't match actual system state
+- No functional impact - heating works correctly, only display issue
+- Users may waste time adjusting schedules when the issue is capacity, not scheduling
+
+**User experience:**
+- User sees "Pre-warming for schedule" for office
+- User checks schedule, sees office scheduled for 12°C (parking temp)
+- User confused why system is pre-warming for a 12°C target
+- User doesn't realize it's emergency fallback to prevent boiler short-cycling
+
+**Frequency:** Occurs whenever:
+- Load sharing activates via Tier 2 (fallback passive rooms)
+- Phase A (schedule-based) provides insufficient capacity
+- System escalates to Phase B (passive room fallback)
+- Common scenario when few rooms have upcoming schedules
+
+### Configuration Context
+
+**From docs/LOAD_SHARING.md - Phase B specification:**
+```
+Phase B: Fallback to Passive Rooms (Tier 2)
+- Select passive rooms by fallback_priority (lowest first)
+- NO temperature check (intentionally allows above max_temp)
+- NO schedule requirement
+- Uses prewarming_minutes=None (not schedule-aware)
+```
+
+**From config/rooms.yaml:**
+```yaml
+office:
+  fallback_priority: 3
+  mode: auto
+  # Office often in passive mode, frequently selected for Tier 2
+```
+
+### Investigation Notes
+
+Discovered while analyzing why "games" room was selected for load sharing. Initial analysis found games correctly selected via Phase B fallback (tier 2, priority 2), but when checking current status of office (also tier 2), noticed the status text claimed "Pre-warming for schedule" despite:
+- No upcoming schedule (prewarming_minutes=null)
+- Passive mode with parking temperature (12°C)
+- Selection reason explicitly "fallback_p3"
+
+Cross-referenced status_publisher.py code and found the tier check on line 194 treats tier 1 and tier 2 identically, applying schedule-aware formatting to both.
+
+### Comparison: Correct vs Incorrect Behavior
+
+**Tier 1 (Schedule) - Status text CORRECT:**
+```
+tier=1, reason="schedule", prewarming_minutes=15
+→ "Pre-warming for schedule (in 15m, 100%)" ✓
+```
+
+**Tier 2 (Fallback) - Status text INCORRECT:**
+```
+tier=2, reason="fallback_p3", prewarming_minutes=null
+→ "Pre-warming for schedule (80%)" ✗
+Should be: "Fallback heating P3 (80%)" or similar
+```
+
+**Tier 3 (Priority Fallback) - Status text CORRECT:**
+```
+tier=3, reason="tier3_p4", prewarming_minutes=null
+→ "Fallback heating P4 (50%)" ✓
+```
+
+---
+
 ## BUG #14: Load Sharing Entry Condition Ignores Passive Mode Rooms
 
 **Status:** FIXED ✅  
