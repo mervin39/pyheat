@@ -963,7 +963,7 @@ class PyHeat(hass.Hass):
         )
         
         # Check if we should log (significant changes only)
-        if force_log or self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data):
+        if force_log or self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data, self.load_sharing.get_status()):
             # Get cycling protection state for logging
             cycling_data = self.cycling.get_state_dict()
             
@@ -975,6 +975,9 @@ class PyHeat(hass.Hass):
                     'estimated_capacities': self.load_calculator.estimated_capacities.copy()
                 }
             
+            # Get load sharing data for logging
+            load_sharing_data = self.load_sharing.get_status()
+            
             self.heating_logger.log_state(
                 trigger=trigger,
                 opentherm_data=opentherm_data,
@@ -983,6 +986,7 @@ class PyHeat(hass.Hass):
                 room_data=log_room_data,
                 total_valve_pct=total_valve_pct,
                 cycling_data=cycling_data,
-                load_data=load_data
+                load_data=load_data,
+                load_sharing_data=load_sharing_data
             )
 

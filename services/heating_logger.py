@@ -40,6 +40,7 @@ class HeatingLogger:
         self.prev_heating_temp_rounded = None
         self.prev_return_temp_rounded = None
         self.prev_state = {}
+        self.prev_load_sharing_state = None  # Track load sharing state changes
         
         # Setup log directory and .gitignore
         self._setup_log_directory()
@@ -96,6 +97,13 @@ class HeatingLogger:
             'cycling_cooldown_count',
             'cycling_saved_setpoint',
             'cycling_recovery_threshold',
+            
+            # Load sharing
+            'load_sharing_state',
+            'load_sharing_active_count',
+            'load_sharing_trigger_rooms',
+            'load_sharing_trigger_capacity',
+            'load_sharing_reason',
             
             # System aggregates
             'num_rooms_calling',
@@ -168,7 +176,7 @@ class HeatingLogger:
                     self.ad.log(f"Warning: Could not set permissions on {filepath}: {e}", level="WARNING")
                 self.ad.log(f"Started new heating log: {filename}")
     
-    def should_log(self, opentherm_data: Dict, boiler_state: str, room_data: Dict) -> bool:
+    def should_log(self, opentherm_data: Dict, boiler_state: str, room_data: Dict, load_sharing_data: Dict = None) -> bool:
         """Determine if current state warrants a log entry.
         
         Checks for significant changes in:
@@ -179,11 +187,13 @@ class HeatingLogger:
         - Room calling status changes
         - Valve feedback changes
         - Mode/override changes
+        - Load sharing state changes (activation/deactivation)
         
         Args:
             opentherm_data: Current OpenTherm sensor values
             boiler_state: Current boiler FSM state
             room_data: Current room states
+            load_sharing_data: Current load sharing state (optional)
             
         Returns:
             True if state has changed significantly and should be logged
@@ -198,6 +208,13 @@ class HeatingLogger:
         if prev_boiler != boiler_state:
             self.ad.log(f"HeatingLogger: should_log=True (boiler state: {prev_boiler} -> {boiler_state})", level="DEBUG")
             return True
+        
+        # Always log on load sharing state change (activation/deactivation)
+        if load_sharing_data:
+            curr_ls_state = load_sharing_data.get('state', 'inactive')
+            if self.prev_load_sharing_state != curr_ls_state:
+                self.ad.log(f"HeatingLogger: should_log=True (load_sharing state: {self.prev_load_sharing_state} -> {curr_ls_state})", level="DEBUG")
+                return True
         
         # Check flame status change
         prev_flame = self.prev_state.get('ot_flame')
@@ -302,7 +319,8 @@ class HeatingLogger:
     
     def log_state(self, trigger: str, opentherm_data: Dict, boiler_state: str, 
                   pump_overrun_active: bool, room_data: Dict, total_valve_pct: int,
-                  cycling_data: Dict = None, load_data: Dict = None):
+                  cycling_data: Dict = None, load_data: Dict = None, 
+                  load_sharing_data: Dict = None):
         """Log current heating system state to CSV.
         
         Args:
@@ -314,6 +332,7 @@ class HeatingLogger:
             total_valve_pct: Total valve opening percentage
             cycling_data: Optional dict with cycling protection state
             load_data: Optional dict with load calculator data (total_estimated_capacity, estimated_capacities)
+            load_sharing_data: Optional dict with load sharing state from get_status()
         """
         # Check date rotation
         self._check_date_rotation()
@@ -423,6 +442,13 @@ class HeatingLogger:
             'cycling_saved_setpoint': round_temp(cycling_data.get('saved_setpoint', '')) if cycling_data else '',
             'cycling_recovery_threshold': round_temp(cycling_data.get('recovery_threshold', '')) if cycling_data else '',
             
+            # Load sharing
+            'load_sharing_state': load_sharing_data.get('state', 'inactive') if load_sharing_data else 'inactive',
+            'load_sharing_active_count': len(load_sharing_data.get('active_rooms', [])) if load_sharing_data else 0,
+            'load_sharing_trigger_rooms': ','.join(sorted(load_sharing_data.get('trigger_rooms', []))) if load_sharing_data else '',
+            'load_sharing_trigger_capacity': round(load_sharing_data.get('trigger_capacity', 0), 0) if load_sharing_data else '',
+            'load_sharing_reason': load_sharing_data.get('decision_explanation', '') if load_sharing_data else '',
+            
             # System aggregates
             'num_rooms_calling': sum(1 for r in room_data.values() if r.get('calling', False)),
             'total_valve_pct': total_valve_pct,
@@ -468,6 +494,10 @@ class HeatingLogger:
                 for room_id, room in room_data.items()
             }
         }
+        
+        # Update load sharing state cache
+        if load_sharing_data:
+            self.prev_load_sharing_state = load_sharing_data.get('state', 'inactive')
     
     def close(self):
         """Close the current log file."""

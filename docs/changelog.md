@@ -1,6 +1,41 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Add Load Sharing Event Logging to HeatingLogger
+
+**Summary:**
+Added load sharing state tracking to the CSV heating logs. This preserves the reason why load sharing activated, which was previously lost when load sharing deactivated (stored only in HA entity attributes which don't have history tracking).
+
+**Problem:**
+Load sharing reasons (trigger rooms, capacity, room selections) were stored in `sensor.pyheat_status` attributes. When load sharing deactivated, the context was reset and subsequent `get_status()` calls returned `state: 'inactive'` with no details. Since Home Assistant only tracks entity state history (not attributes), there was no way to investigate why load sharing activated after the fact.
+
+**Solution:**
+Extended the existing `HeatingLogger` CSV logging to capture load sharing state on every log entry, with automatic logging on state transitions (activation/deactivation).
+
+**New CSV Columns:**
+- `load_sharing_state`: Current state (inactive, schedule_active, schedule_escalated, fallback_active, fallback_escalated, disabled)
+- `load_sharing_active_count`: Number of rooms currently in load sharing
+- `load_sharing_trigger_rooms`: Comma-separated list of rooms that triggered activation
+- `load_sharing_trigger_capacity`: Capacity in watts that triggered activation
+- `load_sharing_reason`: Human-readable explanation (e.g., "Active: 2 room(s) calling (study, kitchen) with 3200W < 3500W threshold. Added 1 schedule room(s) to reach 4000W target.")
+
+**Changes:**
+
+- **`services/heating_logger.py`:**
+  - Added 5 new load sharing columns to CSV headers
+  - Added `prev_load_sharing_state` tracking for state change detection
+  - Updated `should_log()` to accept `load_sharing_data` parameter and trigger on state changes
+  - Updated `log_state()` to accept and write `load_sharing_data`
+  - State cache now includes load sharing state for change detection
+
+- **`app.py`:**
+  - Updated `_log_heating_state()` to pass `load_sharing.get_status()` to logger
+
+**Usage:**
+To find load sharing events in logs, filter for rows where `load_sharing_state` changes or where it's not 'inactive'. The `load_sharing_reason` column provides the full explanation that was previously only visible in real-time.
+
+---
+
 ## 2025-12-03: Fix HeatingLogger operating_mode Flip-Flop Bug
 
 **Summary:**
