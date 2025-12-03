@@ -1,6 +1,34 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix Load Sharing Trigger Capacity Bug and Increase Fallback Timeout
+
+**Summary:**
+Fixed a bug where the load sharing trigger capacity wasn't updated when additional rooms started calling during active load sharing. Also increased the fallback timeout from 3 minutes to 15 minutes.
+
+**Bug Fix - Trigger Capacity Not Updated:**
+
+When load sharing was active and additional rooms started calling (but still below threshold), the system correctly updated `trigger_calling_rooms` but failed to update `trigger_capacity`. This caused the CSV logging and status display to show incorrect capacity values.
+
+**Example:** Bathroom (394W) triggers load sharing. Pete room (1690W) starts calling. Status incorrectly shows "2 rooms with 394W" instead of "2 rooms with 2084W".
+
+**Solution:**
+Added `self.context.trigger_capacity = new_total_capacity` when updating the trigger set in Exit Trigger B.
+
+**Config Change - Fallback Timeout:**
+
+Increased `tier3_timeout_s` from 180 seconds (3 minutes) to 900 seconds (15 minutes). The 3-minute timeout was too short - it could cycle through all 5 fallback rooms in rapid succession, causing excessive valve movement.
+
+**Changes:**
+
+- **`managers/load_sharing_manager.py`:**
+  - Fixed Exit Trigger B to update `trigger_capacity` when `trigger_calling_rooms` is updated
+
+- **`config/boiler.yaml`:**
+  - Changed `tier3_timeout_s` from 180 to 900 (15 minutes)
+
+---
+
 ## 2025-12-03: Fix Pump Overrun Persistence Not Cleared After AppDaemon Restart
 
 **Summary:**

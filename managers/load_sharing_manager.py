@@ -995,6 +995,7 @@ class LoadSharingManager:
                     level="INFO"
                 )
                 self.context.trigger_calling_rooms = current_calling
+                self.context.trigger_capacity = new_total_capacity  # Fix: update capacity when trigger set changes
         
         # For ALL OTHER exit triggers, enforce minimum activation duration
         if not self.context.can_exit(now, self.min_activation_duration_s):
