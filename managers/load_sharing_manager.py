@@ -809,8 +809,9 @@ class LoadSharingManager:
                 level="DEBUG"
             )
         
-        # Sort by priority (ascending - lower number = higher priority)
-        candidates.sort(key=lambda x: x[1])
+        # Sort: passive rooms first (by priority), then non-passive rooms (by priority)
+        # This prioritizes rooms configured for opportunistic heating in emergency fallback
+        candidates.sort(key=lambda x: (not x[3], x[1]))  # (not is_passive, priority)
         
         # Return ONLY the highest priority room (will be escalated before adding more)
         # Initial valve opening: 50% (compromise between flow and energy)

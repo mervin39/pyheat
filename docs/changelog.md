@@ -1,6 +1,40 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Load Sharing Phase 2B - Prioritize Passive Rooms in Fallback
+
+**Summary:**
+Modified Tier 2 Phase B (fallback priority list) to select passive rooms before non-passive rooms, making emergency heat dumping less intrusive and better aligned with user intent.
+
+**Change:**
+Phase 2B selection order is now:
+1. Passive rooms with `fallback_priority` (sorted by priority ascending)
+2. Non-passive rooms with `fallback_priority` (sorted by priority ascending)
+
+**Before:** All rooms sorted purely by `fallback_priority` number (Lounge=1, Games=2, Office=3, Bathroom=4)
+**After:** Passive rooms go first regardless of priority number (Games=2, Bathroom=4, then Lounge=1, Office=3)
+
+**Rationale:**
+- Phase 2B is emergency "dump heat somewhere" fallback
+- Passive mode = user configured room for opportunistic heating
+- Less intrusive to heat passive bathroom to 20°C than satisfied living room from 18°C to 20°C
+- Better semantic alignment: passive rooms want heat, active rooms may not
+
+**Files Modified:**
+- `docs/LOAD_SHARING.md`: Updated Phase B spec with new selection order and rationale
+- `managers/load_sharing_manager.py`: Changed sort key from `priority` to `(not is_passive, priority)`
+
+**Behavior Example:**
+- Before: Lounge (priority 1, active) selected first
+- After: Games (priority 2, passive) selected first, then Bathroom (priority 4, passive), then Lounge
+
+**Impact:**
+- More user-friendly fallback behavior
+- Lower capacity rooms may be selected first (acceptable for emergency fallback)
+- Priority numbers still meaningful within passive/non-passive groups
+
+---
+
 ## 2025-12-03: Clean Up Load Sharing Tier Naming (Remove Legacy tier3 References)
 
 **Summary:**

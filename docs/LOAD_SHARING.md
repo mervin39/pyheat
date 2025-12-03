@@ -124,7 +124,7 @@ Tier 2 has two phases:
 
 **Rationale:** Passive rooms are already configured to accept opportunistic heating up to their max_temp.
 
-#### Phase B: Fallback Priority List (including passive rooms at comfort target)
+#### Phase B: Fallback Priority List (passive rooms prioritized)
 
 If Phase A provides no rooms or insufficient capacity:
 
@@ -139,7 +139,11 @@ If Phase A provides no rooms or insufficient capacity:
 
 **NO temperature check** - This is the ultimate fallback. Any eligible room is accepted.
 
-**Sorting:** Rooms sorted by `fallback_priority` ascending. Lower number = higher priority.
+**Selection Order:**
+1. **Passive rooms** with `fallback_priority` (sorted by priority ascending)
+2. **Non-passive rooms** with `fallback_priority` (sorted by priority ascending)
+
+**Rationale for passive-first ordering:** In Phase B (emergency heat dumping), passive mode indicates user acceptance of opportunistic heating, making these rooms less intrusive choices than active rooms that may already be satisfied. Passive rooms are heated to comfort target regardless of their current max_temp.
 
 **One-at-a-Time Escalation:** Same as schedule tier - add one room at 50%, escalate to 100% before adding another.
 
