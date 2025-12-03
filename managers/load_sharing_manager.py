@@ -496,13 +496,36 @@ class LoadSharingManager:
             # No rooms calling - no need for load sharing
             return False
         
-        # Calculate total calling capacity
+        # Calculate total system capacity: calling rooms + passive rooms with open valves
         all_capacities = self.load_calculator.get_all_estimated_capacities()
         total_capacity = 0.0
+        
+        # Add calling room capacity (full capacity)
         for room_id in calling_rooms:
             capacity = all_capacities.get(room_id)
             if capacity is not None:
                 total_capacity += capacity
+        
+        # Add passive room capacity (valve-adjusted)
+        # Passive rooms with open valves contribute to heat dissipation
+        passive_capacity = 0.0
+        for room_id, state in room_states.items():
+            if state.get('operating_mode') == 'passive' and not state.get('calling', False):
+                valve_pct = state.get('valve_percent', 0)
+                if valve_pct > 0:
+                    capacity = all_capacities.get(room_id)
+                    if capacity is not None:
+                        effective_capacity = capacity * (valve_pct / 100.0)
+                        passive_capacity += effective_capacity
+        
+        total_capacity += passive_capacity
+        
+        if passive_capacity > 0:
+            self.ad.log(
+                f"Load sharing entry check: Including {passive_capacity:.0f}W from passive rooms "
+                f"(total capacity: {total_capacity:.0f}W)",
+                level="DEBUG"
+            )
         
         # Check capacity threshold
         if total_capacity >= self.min_calling_capacity_w:
@@ -1093,10 +1116,11 @@ class LoadSharingManager:
         return False
     
     def _calculate_total_system_capacity(self, room_states: Dict) -> float:
-        """Calculate total system capacity including calling rooms and load sharing rooms.
+        """Calculate total system capacity including calling rooms, passive rooms, and load sharing rooms.
         
         Includes:
         - All naturally calling rooms at their current capacity
+        - All passive mode rooms with open valves at their effective capacity (valve adjusted)
         - All load sharing rooms at their effective capacity (valve adjusted)
         
         Args:
@@ -1108,12 +1132,23 @@ class LoadSharingManager:
         total = 0.0
         all_capacities = self.load_calculator.get_all_estimated_capacities()
         
-        # Add calling rooms
+        # Add calling rooms (full capacity)
         for room_id, state in room_states.items():
             if state.get('calling', False):
                 capacity = all_capacities.get(room_id)
                 if capacity is not None:
                     total += capacity
+        
+        # Add passive rooms with open valves (valve-adjusted capacity)
+        # These rooms contribute to heat dissipation even though they're not calling
+        for room_id, state in room_states.items():
+            if state.get('operating_mode') == 'passive' and not state.get('calling', False):
+                valve_pct = state.get('valve_percent', 0)
+                if valve_pct > 0:
+                    capacity = all_capacities.get(room_id)
+                    if capacity is not None:
+                        effective_capacity = capacity * (valve_pct / 100.0)
+                        total += effective_capacity
         
         # Add load sharing rooms (with valve adjustment)
         for room_id, activation in self.context.active_rooms.items():

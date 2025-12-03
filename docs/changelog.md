@@ -1,6 +1,35 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix Bug #14 - Include Passive Rooms in Capacity Calculation
+
+**Summary:**
+Fixed load sharing entry condition to include passive mode rooms with open valves in the capacity calculation. Previously, only calling rooms were counted, causing load sharing to activate prematurely when passive rooms were already providing sufficient heat dissipation.
+
+**Problem:**
+When evaluating whether to activate load sharing, the system only counted capacity from rooms actively calling for heat. Passive mode rooms with open valves (which contribute to heat dissipation) were ignored. This caused unnecessary load sharing activations when the actual system capacity was sufficient.
+
+**Example scenario (from 2025-11-30 at 22:36:37):**
+- Pete's room calling with 1739W capacity
+- Games room in passive mode with 20% valve open (effective 501W)
+- Old calculation: 1739W (below 2000W threshold - triggered load sharing)
+- New calculation: 2240W (above threshold - no activation needed)
+
+**Changes:**
+
+- **`managers/load_sharing_manager.py`:**
+  - `_evaluate_entry_conditions()`: Added passive room capacity calculation after calling rooms
+  - `_calculate_total_system_capacity()`: Added passive room capacity to total system capacity
+  - Both functions now use `valve_pct / 100.0` adjustment for passive rooms (same as load sharing rooms)
+  - Added DEBUG logging when passive capacity is included in entry check
+
+**Impact:**
+- Prevents unnecessary load sharing activations when passive rooms provide sufficient capacity
+- Reduces unwanted valve operations (no more bathroom valve opening unexpectedly)
+- More accurate capacity estimation throughout load sharing system
+
+---
+
 ## 2025-12-03: Load Sharing Code Cleanup
 
 **Summary:**

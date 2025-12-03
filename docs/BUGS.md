@@ -6,8 +6,9 @@ This document tracks known bugs and their resolutions.
 
 ## BUG #14: Load Sharing Entry Condition Ignores Passive Mode Rooms
 
-**Status:** OPEN 🔴  
+**Status:** FIXED ✅  
 **Date Discovered:** 2025-11-30  
+**Date Fixed:** 2025-12-03  
 **Severity:** Medium - causes unnecessary load sharing activation  
 **Category:** Load Sharing / Capacity Calculation
 
@@ -200,6 +201,55 @@ Discovered while investigating why bathroom valve changed at 22:36:37. User hear
 5. This was above the 2000W threshold - activation was unnecessary
 
 The `_calculate_total_system_capacity()` function (used during active load sharing) also doesn't count passive rooms, suggesting this is a systemic issue in capacity calculation throughout the load sharing system.
+
+### Resolution (2025-12-03)
+
+**Fix Applied:**
+Modified both capacity calculation functions to include passive mode rooms with open valves.
+
+**Changes Made:**
+
+1. **`_evaluate_entry_conditions()`** - Entry condition check now includes passive room capacity:
+   ```python
+   # Add passive room capacity (valve-adjusted)
+   # Passive rooms with open valves contribute to heat dissipation
+   passive_capacity = 0.0
+   for room_id, state in room_states.items():
+       if state.get('operating_mode') == 'passive' and not state.get('calling', False):
+           valve_pct = state.get('valve_percent', 0)
+           if valve_pct > 0:
+               capacity = all_capacities.get(room_id)
+               if capacity is not None:
+                   effective_capacity = capacity * (valve_pct / 100.0)
+                   passive_capacity += effective_capacity
+   
+   total_capacity += passive_capacity
+   ```
+
+2. **`_calculate_total_system_capacity()`** - Active capacity calculation now includes passive rooms:
+   - Added same passive room capacity calculation after calling rooms
+   - Prevents double-counting by checking `not state.get('calling', False)`
+
+**Why This Works:**
+- Passive rooms with open valves ARE contributing to heat dissipation
+- Using `valve_pct / 100.0` adjustment matches how load sharing rooms are counted
+- Only counts rooms that are actually in passive mode AND have valves open
+- Rooms in comfort mode (calling=True) are already counted at full capacity
+
+**Example Fix Effect:**
+With the fix, the incident from 2025-11-30 at 22:36:37 would calculate:
+- Pete (calling): 1739W
+- Games (passive, 20% valve): 2504W * 0.20 = 501W
+- **Total: 2240W** (above 2000W threshold)
+- Load sharing would NOT activate (correct behavior)
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: Both `_evaluate_entry_conditions()` and `_calculate_total_system_capacity()`
+
+**Testing:**
+- No errors in AppDaemon logs after changes
+- App reloaded successfully
+- Will verify effectiveness during next low-capacity + passive room scenario
 
 ---
 
