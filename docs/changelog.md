@@ -1,16 +1,21 @@
 
 # PyHeat Changelog
 
-## 2025-12-03: Load Sharing Mode Selector (Aggressiveness Control)
+## 2025-12-03: Load Sharing Mode Selector (Unified Control)
 
 **Summary:**
-Replaced binary on/off control with a mode selector offering granular control over load sharing aggressiveness. Users can now choose between schedule-only, balanced, or full aggressive modes.
+Replaced dual-control system (boolean + mode selector) with a single mode selector offering granular control over load sharing aggressiveness. The "Off" mode replaces the old boolean switch.
+
+**Removed Entity:**
+```yaml
+input_boolean.pyheat_load_sharing_enable  # REMOVED
+```
 
 **New Entity:**
 ```yaml
 input_select.pyheat_load_sharing_mode:
   options:
-    - 'Off'          # Disabled
+    - 'Off'          # Disabled (replaces old boolean switch)
     - 'Conservative' # Tier 1 only (schedule pre-warming)
     - 'Balanced'     # Tier 1 + Tier 2 Phase A (passive rooms)
     - 'Aggressive'   # All tiers (includes Phase B fallback)
@@ -31,18 +36,18 @@ input_select.pyheat_load_sharing_mode:
   - Recommended for winter heating season
 
 **Migration:**
-- Existing `input_boolean.pyheat_load_sharing_enable` still works
+- **REQUIRED**: Remove `input_boolean.pyheat_load_sharing_enable` from HA configuration
 - Mode selector defaults to 'Aggressive' (preserves existing behavior)
 - Mode selector state persists across HA restarts (stored in HA database)
 - If mode entity missing, falls back to Aggressive for backward compatibility
 
 **Files Modified:**
-- `core/constants.py`: Added mode constants and entity reference
-- `managers/load_sharing_manager.py`: Mode-aware tier selection logic
-- `app.py`: Added mode change listener
-- `config/ha_yaml/pyheat_package.yaml`: Added mode selector entity
-- `docs/LOAD_SHARING.md`: Updated control section with mode documentation
-- `README.md`: Added mode selector to control section
+- `core/constants.py`: Removed HELPER_LOAD_SHARING_ENABLE constant
+- `managers/load_sharing_manager.py`: Removed master_enable_entity and _is_master_enabled()
+- `app.py`: Removed boolean listener and callback
+- `config/ha_yaml/pyheat_package.yaml`: Removed boolean, fixed duplicate input_select sections
+- `docs/LOAD_SHARING.md`: Updated control section (removed boolean reference)
+- `README.md`: Updated control section
 
 **Benefits:**
 - Seasonal adjustment: Conservative in spring, Aggressive in winter

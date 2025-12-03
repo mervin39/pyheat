@@ -60,7 +60,6 @@ class LoadSharingManager:
         self.high_return_delta_c = None     # Return temp delta for cycling risk detection
         
         # Control entities (HA helpers)
-        self.master_enable_entity = C.HELPER_LOAD_SHARING_ENABLE
         self.mode_select_entity = C.HELPER_LOAD_SHARING_MODE
         
     def initialize_from_ha(self) -> None:
@@ -97,14 +96,13 @@ class LoadSharingManager:
                 "Ensure initialize_from_ha() is called before evaluate()."
             )
         
-        # Check master enable and mode
-        master_enabled = self._is_master_enabled()
+        # Check mode
         mode = self._get_mode()
         
-        if not master_enabled or mode == C.LOAD_SHARING_MODE_OFF:
+        if mode == C.LOAD_SHARING_MODE_OFF:
             self.context.state = LoadSharingState.DISABLED
             self.ad.log(
-                f"LoadSharingManager: DISABLED (master={'on' if master_enabled else 'off'}, mode={mode})",
+                f"LoadSharingManager: DISABLED (mode={mode})",
                 level="INFO"
             )
         else:
@@ -117,26 +115,6 @@ class LoadSharingManager:
                 f"fallback_cooldown={self.fallback_cooldown_s}s",
                 level="INFO"
             )
-    
-    def _is_master_enabled(self) -> bool:
-        """Check if master enable switch is ON.
-        
-        Returns:
-            True if input_boolean.pyheat_load_sharing_enable is 'on'
-        """
-        try:
-            state = self.ad.get_state(self.master_enable_entity)
-            self.ad.log(
-                f"LoadSharingManager: Master enable check - entity={self.master_enable_entity}, state={state}",
-                level="DEBUG"
-            )
-            return state == 'on'
-        except Exception as e:
-            self.ad.log(
-                f"LoadSharingManager: Failed to read master enable: {e}",
-                level="WARNING"
-            )
-            return False
     
     def _get_mode(self) -> str:
         """Get current load sharing mode.
@@ -187,12 +165,7 @@ class LoadSharingManager:
         if self.context.state == LoadSharingState.DISABLED:
             return {}
         
-        # Check master enable and mode (in case either was toggled)
-        if not self._is_master_enabled():
-            if self.context.is_active():
-                self._deactivate("master enable toggled off")
-            return {}
-        
+        # Check mode (in case it was toggled to Off)
         mode = self._get_mode()
         if mode == C.LOAD_SHARING_MODE_OFF:
             if self.context.is_active():
@@ -414,7 +387,7 @@ class LoadSharingManager:
             ],
             'trigger_capacity': self.context.trigger_capacity,
             'trigger_rooms': list(self.context.trigger_calling_rooms),
-            'master_enabled': self._is_master_enabled(),
+            'mode': self._get_mode(),
             'decision_explanation': self._build_decision_explanation(),
             'decision_details': self._build_decision_details()
         }

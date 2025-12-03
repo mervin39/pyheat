@@ -347,8 +347,7 @@ TEMPERATURE_SMOOTHING_ALPHA_DEFAULT = 0.3
 # ============================================================================
 
 # Load sharing controls (Home Assistant helpers)
-HELPER_LOAD_SHARING_ENABLE = "input_boolean.pyheat_load_sharing_enable"  # Master on/off
-HELPER_LOAD_SHARING_MODE = "input_select.pyheat_load_sharing_mode"       # Aggressiveness level
+HELPER_LOAD_SHARING_MODE = "input_select.pyheat_load_sharing_mode"  # Mode selector (Off/Conservative/Balanced/Aggressive)
 
 # Load sharing mode options
 LOAD_SHARING_MODE_OFF = "Off"

@@ -21,12 +21,8 @@ input_boolean:
     name: "PyHeat Holiday Mode"
     icon: mdi:airplane
 
-  pyheat_load_sharing_enable:
-    name: "PyHeat Load Sharing"
-    icon: mdi:share-variant
-
 # ---------------------------------------------------------------------------
-# Input selects (load sharing mode control)
+# Input selects (load sharing mode control + per-room modes)
 # ---------------------------------------------------------------------------
 input_select:
   pyheat_load_sharing_mode:
@@ -36,13 +32,8 @@ input_select:
       - 'Conservative'
       - 'Balanced'
       - 'Aggressive'
-    initial: 'Aggressive'
     icon: mdi:tune-variant
 
-# ---------------------------------------------------------------------------
-# Input selects (per-room modes) - used if present; app checks entity_exists()
-# ---------------------------------------------------------------------------
-input_select:
   pyheat_pete_mode:
     name: Pete's Room Heating Mode
     options:

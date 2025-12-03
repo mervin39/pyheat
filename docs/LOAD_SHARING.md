@@ -12,22 +12,14 @@ Load sharing prevents boiler short-cycling when primary calling rooms have insuf
 
 ## Control
 
-Load sharing is controlled by two Home Assistant entities:
+Load sharing is controlled by a mode selector:
 
-### Master Enable Switch
-```
-input_boolean.pyheat_load_sharing_enable
-```
-- **ON**: Load sharing system active (respects mode selection)
-- **OFF**: Load sharing completely disabled; any active load sharing immediately deactivates
-
-### Mode Selection
 ```
 input_select.pyheat_load_sharing_mode
 ```
 
 Options:
-- **Off**: Load sharing disabled (same as master switch OFF)
+- **Off**: Load sharing disabled
 - **Conservative**: Tier 1 only (schedule pre-warming for rooms with upcoming heating blocks)
 - **Balanced**: Tier 1 + Tier 2 Phase A (adds passive rooms for opportunistic heating)
 - **Aggressive**: All tiers (includes Phase B fallback priority list for emergency heat dumping)

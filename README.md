@@ -277,7 +277,6 @@ When timer expires, room returns to scheduled target.
 - Context matters: passive mode = "I want opportunistic heating", load sharing provides it effectively
 
 **Control:**
-- Master switch: `input_boolean.pyheat_load_sharing_enable`
 - Mode selector: `input_select.pyheat_load_sharing_mode`
   - **Off**: Disabled
   - **Conservative**: Schedule pre-warming only
