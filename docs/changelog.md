@@ -1,6 +1,25 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Add Load Sharing Logic Documentation
+
+**Summary:**
+Created comprehensive documentation for the load sharing system's logic and behavior.
+
+**Changes:**
+
+- **`docs/LOAD_SHARING.md`:** New file documenting:
+  - Entry conditions (low capacity AND cycling risk)
+  - Three-tier room selection cascade (schedule-aware, extended lookahead, fallback priority)
+  - Exit conditions (6 distinct triggers with different behaviors)
+  - State machine states and transitions
+  - Configuration reference
+  - Troubleshooting guide
+
+**Purpose:** Provides definitive reference for understanding and debugging load sharing behavior.
+
+---
+
 ## 2025-12-03: Add Override History to History API
 
 **Summary:**
