@@ -623,10 +623,11 @@ class PyHeat(hass.Hass):
                         'valve_fb': valve_fb if valve_fb is not None else '',
                         'valve_cmd': valve_cmd if valve_cmd is not None else '',
                         'mode': data.get('mode', 'auto'),
+                        'operating_mode': data.get('operating_mode', 'off'),
+                        'frost_protection': data.get('frost_protection', False),
+                        'passive_min_temp': data.get('passive_min_temp'),
                         'override': override_active,
                     }
-                
-                # Log immediately with force_log for setpoint/modulation/dhw (manual controls)
                 # Let should_log() filter heating_temp/return_temp (only log on whole degree changes)
                 # dhw_flow_rate will be filtered by should_log() to detect zero/nonzero transitions
                 force_log = sensor_name in ['heating_setpoint_temp', 'modulation', 'dhw']
@@ -950,6 +951,8 @@ class PyHeat(hass.Hass):
                 'valve_cmd': valve_cmd if valve_cmd is not None else '',
                 'mode': data.get('mode', 'auto'),
                 'operating_mode': data.get('operating_mode', 'off'),
+                'frost_protection': data.get('frost_protection', False),
+                'passive_min_temp': data.get('passive_min_temp'),
                 'override': override_active,
             }
         

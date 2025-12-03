@@ -1,6 +1,35 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix HeatingLogger operating_mode Flip-Flop Bug
+
+**Summary:**
+Fixed a bug causing `operating_mode` to flip-flop between "off" and the correct value ("active"/"passive") in heating logs. The issue was caused by missing field mapping in the OpenTherm sensor callback's logging dictionary.
+
+**Problem:**
+When OpenTherm sensors (heating_temp, return_temp, modulation, etc.) triggered a log entry, the code built a room data dictionary for logging but **omitted the `operating_mode` field**. This caused:
+
+1. OpenTherm trigger logs to have `operating_mode = 'off'` (default value)
+2. Periodic recompute logs to have the correct `operating_mode` (e.g., "active")
+3. The `should_log()` function detecting this as a change, triggering another log
+4. This created a feedback loop with ~2300 mode transitions per day (~30 seconds apart)
+
+**Impact:**
+- 2347 spurious `operating_mode` transitions logged in a single day
+- Inflated CSV file sizes
+- Misleading data that obscured actual heating behavior
+
+**Root Cause:**
+In `app.py`, the `opentherm_sensor_changed()` callback built a simplified room dict for logging but didn't include `operating_mode`, `frost_protection`, or `passive_min_temp` fields that `compute_room()` returns.
+
+**Changes:**
+
+- **`app.py`:**
+  - Added `operating_mode`, `frost_protection`, and `passive_min_temp` fields to the room data dict in `opentherm_sensor_changed()` callback
+  - Added same fields to `_log_heating_state()` method's `log_room_data` dict for consistency
+
+---
+
 ## 2025-12-03: Fix Bug #14 - Include Passive Rooms in Capacity Calculation
 
 **Summary:**
