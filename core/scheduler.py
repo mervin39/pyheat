@@ -352,19 +352,21 @@ class Scheduler:
                         break
                 
                 if in_block:
-                    # Check remaining blocks today after current block
+                    # FIRST: Check if there's a gap at end of current block (before checking next blocks)
+                    has_next_block = any(b['start'] == current_block_end for b in blocks)
+                    if not has_next_block and current_block_end != '24:00':
+                        # Gap exists - check if default_target is different from current block
+                        if default_target != scanning_target:
+                            return (current_block_end, default_target, 0)
+                        scanning_target = default_target
+                    
+                    # SECOND: Check remaining blocks today after current block (or after gap)
                     for block in blocks:
                         if block['start'] >= current_block_end:
                             if block['target'] != scanning_target:
                                 return (block['start'], block['target'], 0)
                             scanning_target = block['target']
                     
-                    # Check if there's a gap at end of current block
-                    has_next_block = any(b['start'] == current_block_end for b in blocks)
-                    if not has_next_block and current_block_end != '24:00':
-                        if default_target != scanning_target:
-                            return (current_block_end, default_target, 0)
-                        scanning_target = default_target
                     # If block goes to end of day, maintain its target for tomorrow
                 else:
                     # Currently in gap - check remaining blocks today

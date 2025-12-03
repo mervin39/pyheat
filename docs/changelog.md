@@ -1,6 +1,38 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix Auto Mode Status Missing Default Blocks Between Scheduled Blocks
+
+**Summary:**
+Fixed bug where auto mode status would skip over default temperature periods (gaps) between scheduled blocks, incorrectly showing the next scheduled block instead of the default temperature that takes effect when current block ends.
+
+**Problem:**
+Status line showed "Auto: 18.0° until 16:00 (18.5°)" at 08:08 when lounge schedule had:
+- 06:30-08:30: 18.0° (current block)
+- 16:00-20:30: 18.5° (next block)
+- Default: 16.0° (gap between blocks)
+
+Should have shown "Auto: 18.0° until 08:30 (16.0°)" to indicate the default temperature takes over at 08:30.
+
+**Root Cause:**
+In `get_next_schedule_change()`, when currently in a block, the code checked for the next scheduled block BEFORE checking if there was a gap at the end of the current block. This caused it to immediately return the next scheduled block (16:00) instead of detecting the default temperature period starting at 08:30.
+
+**Changes:**
+
+- **`core/scheduler.py`:**
+  - Reordered logic in `get_next_schedule_change()` when `in_block=True`
+  - Now checks for gap at end of current block FIRST (before checking remaining blocks)
+  - Only after confirming gap/default is same as current temp, then checks next scheduled blocks
+  - Ensures default temperature periods are properly detected and displayed
+
+**Testing:**
+Verified logic with lounge schedule on Wednesday at 08:08:
+- Correctly detects gap at 08:30
+- Returns (08:30, 16.0°) as next change
+- Status now shows: "Auto: 18.0° until 08:30 (16.0°)"
+
+---
+
 ## 2025-12-02: "Forever" Status for Default Passive Mode
 
 **Summary:**
