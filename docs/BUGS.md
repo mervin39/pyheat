@@ -4,7 +4,7 @@ This document tracks known bugs and their resolutions.
 
 ---
 
-## BUG #13: Load Sharing Entry Condition Ignores Passive Mode Rooms
+## BUG #14: Load Sharing Entry Condition Ignores Passive Mode Rooms
 
 **Status:** OPEN 🔴  
 **Date Discovered:** 2025-11-30  
@@ -200,6 +200,54 @@ Discovered while investigating why bathroom valve changed at 22:36:37. User hear
 5. This was above the 2000W threshold - activation was unnecessary
 
 The `_calculate_total_system_capacity()` function (used during active load sharing) also doesn't count passive rooms, suggesting this is a systemic issue in capacity calculation throughout the load sharing system.
+
+---
+
+## BUG #13: Load Sharing Selection Excluded Scheduled Passive Blocks
+
+**Status:** FIXED ✅  
+**Date Discovered:** 2025-06-02  
+**Date Fixed:** 2025-06-02  
+**Severity:** Medium - passive rooms with scheduled blocks never selected for load sharing  
+**Category:** Load Sharing / Room Selection
+
+### Description
+
+During load sharing room selection, passive mode rooms that had scheduled blocks (defined in `schedules.yaml`) were incorrectly excluded from selection, even during times when those scheduled blocks weren't active.
+
+The tier selection logic checked `operating_mode == 'passive'` to skip rooms, but this incorrectly excluded ALL passive rooms regardless of whether they had current scheduled blocks.
+
+### Root Cause
+
+The selection code for both Tier 1 (Schedule) and Tier 2 (Fallback) skipped all rooms in passive operating mode:
+
+```python
+# Old code - skipped ALL passive rooms
+if state.get('operating_mode') == 'passive':
+    continue  # Skip passive rooms entirely
+```
+
+However, passive rooms should still be eligible for load sharing if:
+1. They have no current active scheduled block, OR
+2. They have a scheduled block but it's not the current time period
+
+### Fix Applied
+
+The room selection logic was updated to check for actual scheduled passive blocks, not just operating mode:
+
+```python
+# New code - only skip rooms with ACTIVE scheduled blocks
+if schedule_info.get('schedule_block_active', False):
+    continue  # Skip only if currently in a scheduled block
+```
+
+This allows passive mode rooms to participate in load sharing when they don't have an active schedule block, while still respecting scheduled passive periods.
+
+### Impact
+
+- Passive rooms with schedules can now be selected for load sharing during unscheduled times
+- Scheduled passive blocks are still respected (rooms excluded during active schedule periods)
+- Load sharing has more rooms available for selection, improving system efficiency
 
 ---
 
