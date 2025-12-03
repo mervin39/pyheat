@@ -172,9 +172,9 @@ class ConfigLoader:
         load_cfg.setdefault('system_delta_t', C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT)
         load_cfg.setdefault('radiator_exponent', C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT)
         
-        # Load sharing defaults (Phase 0)
+        # Load sharing defaults
+        # Note: Enable/disable controlled via input_boolean.pyheat_load_sharing_enable in HA
         ls_cfg = bc.setdefault('load_sharing', {})
-        ls_cfg.setdefault('enabled', False)  # Disabled by default in Phase 0
         ls_cfg.setdefault('min_calling_capacity_w', C.LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT)
         ls_cfg.setdefault('target_capacity_w', C.LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT)
         ls_cfg.setdefault('min_activation_duration_s', C.LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT)

@@ -15,6 +15,10 @@ from typing import Dict, List, Optional, Tuple
 from load_sharing_state import LoadSharingState, RoomActivation, LoadSharingContext
 import constants as C
 
+# Tier identifiers for load sharing room selection
+TIER_SCHEDULE = 1   # Schedule-aware pre-warming
+TIER_FALLBACK = 2   # Fallback priority list
+
 
 class LoadSharingManager:
     """Manages intelligent load sharing to reduce boiler short-cycling.
@@ -468,7 +472,7 @@ class LoadSharingManager:
         }
     
     # ========================================================================
-    # Phase 1+ Methods (Stubs)
+    # Entry/Exit Condition Evaluation
     # ========================================================================
     
     def _evaluate_entry_conditions(self, room_states: Dict, cycling_protection_state: str) -> bool:
@@ -823,7 +827,7 @@ class LoadSharingManager:
     def _initialize_trigger_context(self, room_states: Dict, now: datetime) -> None:
         """Initialize the trigger context for load sharing activation.
         
-        This must be called before any tier activation (_activate_tier1/2/3).
+        This must be called before room activation methods.
         Records which rooms triggered load sharing and their capacity.
         
         Args:
@@ -858,7 +862,7 @@ class LoadSharingManager:
         """
         activation = RoomActivation(
             room_id=room_id,
-            tier=1,  # Schedule tier
+            tier=TIER_SCHEDULE,
             valve_pct=valve_pct,
             activated_at=now,
             reason=reason,
@@ -894,7 +898,7 @@ class LoadSharingManager:
         """
         activation = RoomActivation(
             room_id=room_id,
-            tier=2,  # Fallback tier
+            tier=TIER_FALLBACK,
             valve_pct=valve_pct,
             activated_at=now,
             reason=reason,
@@ -975,7 +979,7 @@ class LoadSharingManager:
         # Remove fallback rooms that have exceeded their timeout
         fallback_rooms_to_remove = []
         for room_id, activation in list(self.context.active_rooms.items()):
-            if activation.tier == 2:  # Fallback tier
+            if activation.tier == TIER_FALLBACK:
                 duration = (now - activation.activated_at).total_seconds()
                 if duration >= self.fallback_timeout_s:
                     # Record timeout event for cooldown enforcement

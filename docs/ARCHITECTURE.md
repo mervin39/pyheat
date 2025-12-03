@@ -174,16 +174,17 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    ├─ Entry conditions:                                                      │
 │    │    • Low capacity (calling capacity < 3500W)                            │
 │    │    • Cycling risk evidence (recent cooldown OR high return temp)        │
-│    ├─ Three-tier cascading selection (passive rooms excluded):               │
-│    │    • Tier 1: Schedule-aware pre-warming (60 min lookahead)              │
-│    │    • Tier 2: Extended lookahead (120 min window)                        │
-│    │    • Tier 3: Passive rooms + Fallback priority list (opportunistic/deterministic) │
+│    ├─ Two-tier cascading selection with one-room-at-a-time escalation:       │
+│    │    • Schedule tier: Rooms with upcoming schedule (2x lookahead window)  │
+│    │    • Fallback tier: Passive rooms + priority list (when schedules fail) │
 │    ├─ Exit conditions:                                                       │
 │    │    • Original calling rooms stopped (Trigger A)                         │
 │    │    • New room joined with sufficient capacity (Trigger B)               │
 │    │    • Load sharing room naturally calling (Trigger C)                    │
+│    │    • Fallback room timeout (Trigger D)                                  │
+│    │    • Room reached target temperature (Trigger E)                        │
+│    │    • Room mode changed from auto (Trigger F)                            │
 │    │    • Minimum activation: 5 minutes (prevents oscillation)               │
-│    ├─ State machine transitions (8 explicit states)                          │
 │    └─ Return: {room_id: valve_percent} for load sharing rooms                │
 └──────────────────────┬──────────────────────────────────────────────────────┘
                        │

@@ -1,6 +1,29 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Load Sharing Code Cleanup
+
+**Summary:**
+Cleaned up load sharing code to use consistent naming (Schedule/Fallback instead of Tier 1/2/3), removed dead code, and updated documentation.
+
+**Changes:**
+
+- **`managers/load_sharing_manager.py`:**
+  - Added `TIER_SCHEDULE = 1` and `TIER_FALLBACK = 2` constants for clarity
+  - Replaced magic numbers `tier=1`, `tier=2` with named constants
+  - Removed stale "Phase 1+ Methods (Stubs)" comment
+  - Updated docstring that referenced old `_activate_tier1/2/3` method names
+
+- **`core/config_loader.py`:**
+  - Removed dead `enabled: False` default for load_sharing (not used; master switch is HA input_boolean)
+  - Updated comment to clarify enable/disable is via `input_boolean.pyheat_load_sharing_enable`
+
+- **`docs/ARCHITECTURE.md`:**
+  - Updated load sharing section for two-tier architecture (Schedule + Fallback)
+  - Added all 6 exit triggers to the flow diagram
+
+---
+
 ## 2025-12-03: Merge Tier 1 + Tier 2 into Single Schedule-Aware Tier
 
 **Summary:**
