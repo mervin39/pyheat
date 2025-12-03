@@ -177,6 +177,7 @@ class ValveCoordinator:
         """Initialize valve coordinator state from persistence file.
         
         Restores pump overrun state if AppDaemon restarted during pump overrun period.
+        Only restores if the pump overrun timer is still active (not idle).
         """
         try:
             data = self.persistence.load()
@@ -190,13 +191,25 @@ class ValveCoordinator:
             }
             
             if persisted_positions:
-                # We were in pump overrun when AppDaemon restarted
-                self.pump_overrun_active = True
-                self.pump_overrun_snapshot = persisted_positions
-                self.ad.log(
-                    f"ValveCoordinator: Restored pump overrun state from persistence: {persisted_positions}",
-                    level="INFO"
-                )
+                # Check if pump overrun timer is still active
+                timer_state = self.ad.get_state(C.HELPER_PUMP_OVERRUN_TIMER)
+                if timer_state == "active":
+                    # Timer still running - restore pump overrun state
+                    self.pump_overrun_active = True
+                    self.pump_overrun_snapshot = persisted_positions
+                    self.ad.log(
+                        f"ValveCoordinator: Restored pump overrun state from persistence: {persisted_positions}",
+                        level="INFO"
+                    )
+                else:
+                    # Timer already finished - clear stale persistence and don't restore
+                    self.ad.log(
+                        f"ValveCoordinator: Pump overrun timer is {timer_state}, clearing stale persistence: {persisted_positions}",
+                        level="INFO"
+                    )
+                    self._clear_valve_positions_in_persistence()
+                    self.pump_overrun_active = False
+                    self.pump_overrun_snapshot = {}
             else:
                 # Normal initialization
                 self.pump_overrun_active = False

@@ -1,6 +1,31 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix Pump Overrun Persistence Not Cleared After AppDaemon Restart
+
+**Summary:**
+Fixed a bug where pump overrun valve positions remained stuck after AppDaemon restarted, even when the pump overrun timer had already finished.
+
+**Problem:**
+When AppDaemon restarted after the pump overrun timer had finished (but before the persistence file was cleared), the `ValveCoordinator.initialize_from_ha()` method would:
+1. Find persisted valve positions in the persistence file
+2. Assume pump overrun was still active and restore those positions
+3. Never clear the pump overrun state because the timer's `finished` event had already fired before the restart
+
+This caused valves to be stuck at their pump overrun positions indefinitely. For example, a room in passive mode that should have had 0% valve was stuck at 15%.
+
+**Solution:**
+Modified `initialize_from_ha()` to check the pump overrun timer state before restoring. If the timer is not `active` (i.e., it's `idle` or `paused`), the persisted positions are stale and should be cleared rather than restored.
+
+**Changes:**
+
+- **`controllers/valve_coordinator.py`:**
+  - `initialize_from_ha()` now checks `C.HELPER_PUMP_OVERRUN_TIMER` state before restoring pump overrun
+  - If timer is `active`: restore pump overrun state (restart happened during pump overrun)
+  - If timer is not `active`: clear stale persistence and log a message explaining why
+
+---
+
 ## 2025-12-03: Add Load Sharing Event Logging to HeatingLogger
 
 **Summary:**
