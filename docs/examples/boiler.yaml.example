@@ -43,7 +43,7 @@ boiler:
 
   # Load sharing configuration
   # Intelligent load balancing to reduce short-cycling
-  # Enable/disable via input_boolean.pyheat_load_sharing_enable in Home Assistant
+  # Mode controlled via input_select.pyheat_load_sharing_mode in Home Assistant
   # load_sharing:
   #   min_calling_capacity_w: 2000  # Activate when calling capacity below this
   #   target_capacity_w: 2500       # Target total capacity to reach

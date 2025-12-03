@@ -156,30 +156,37 @@ curl -s -H "Authorization: Bearer $HA_TOKEN" "$HA_BASE_URL/api/states/sensor.pyh
 
 ---
 
-## input_boolean.pyheat_load_sharing_enable
+## input_select.pyheat_load_sharing_mode
 
-**Base URL:** `$HA_BASE_URL/api/states/input_boolean.pyheat_load_sharing_enable`
+**Base URL:** `$HA_BASE_URL/api/states/input_select.pyheat_load_sharing_mode`
 
 ### Structure
 
 ```json
 {
-  "entity_id": "input_boolean.pyheat_load_sharing_enable",
-  "state": "on|off",
+  "entity_id": "input_select.pyheat_load_sharing_mode",
+  "state": "Off|Conservative|Balanced|Aggressive",
   "attributes": {
+    "options": ["Off", "Conservative", "Balanced", "Aggressive"],
     "editable": true,
-    "friendly_name": "PyHeat Load Sharing Enable"
+    "friendly_name": "Load Sharing Mode"
   },
   "last_changed": "ISO8601 timestamp",
   "last_updated": "ISO8601 timestamp"
 }
 ```
 
+**Mode Descriptions:**
+- **Off**: Load sharing completely disabled
+- **Conservative**: Tier 1 only (schedule pre-warming)
+- **Balanced**: Tier 1 + Tier 2 Phase A (passive rooms)
+- **Aggressive**: All tiers (includes Phase B fallback priority list)
+
 **Query Example:**
 
 ```bash
 curl -s -H "Authorization: Bearer $HA_TOKEN" \
-  "$HA_BASE_URL/api/states/input_boolean.pyheat_load_sharing_enable" \
+  "$HA_BASE_URL/api/states/input_select.pyheat_load_sharing_mode" \
   | jq -r '.state'
 ```
 

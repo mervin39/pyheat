@@ -66,8 +66,7 @@ class LoadSharingManager:
         """Load configuration and initial state from Home Assistant.
         
         Load sharing is controlled by:
-        - input_boolean.pyheat_load_sharing_enable (master on/off)
-        - input_select.pyheat_load_sharing_mode (aggressiveness level)
+        - input_select.pyheat_load_sharing_mode (Off/Conservative/Balanced/Aggressive)
         """
         # Load load_sharing config from boiler.yaml (thresholds and parameters only)
         ls_config = self.config.boiler_config.get('load_sharing', {})

@@ -2012,8 +2012,8 @@ rooms:
 ```
 
 **Master Control:**
-- `input_boolean.pyheat_load_sharing_enable` - User-facing on/off switch
-- Checked first in `evaluate()` - returns empty if disabled
+- `input_select.pyheat_load_sharing_mode` - Mode selector (Off/Conservative/Balanced/Aggressive)
+- Checked first in `evaluate()` - returns empty if mode is Off
 
 ### Capacity Calculation with Valve Adjustment
 

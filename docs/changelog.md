@@ -1,6 +1,21 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix Stale Load Sharing Entity References in Docs
+
+**Summary:**
+Updated documentation and comments that still referenced the removed `input_boolean.pyheat_load_sharing_enable` entity. All references now point to the mode selector `input_select.pyheat_load_sharing_mode`.
+
+**Files Modified:**
+- `managers/load_sharing_manager.py`: Fixed docstring in `initialize_from_ha()`
+- `core/config_loader.py`: Fixed comment about mode control
+- `docs/LOAD_SHARING.md`: Fixed troubleshooting section and key behaviors table
+- `docs/ARCHITECTURE.md`: Fixed master control section
+- `docs/HA_API_SCHEMA.md`: Replaced boolean entity section with mode selector documentation
+- `docs/examples/boiler.yaml.example`: Fixed comment
+
+---
+
 ## 2025-12-03: Load Sharing Mode Selector (Unified Control)
 
 **Summary:**

@@ -332,7 +332,7 @@ Load sharing commands are applied with this priority order:
 | Scenario | Behavior |
 |----------|----------|
 | Low capacity but no cycling risk | Load sharing does NOT activate |
-| Master enable turned OFF | Immediate deactivation |
+| Mode set to Off | Immediate deactivation |
 | Schedule room reaches schedule time | Transitions to normal control |
 | Fallback room exceeds timeout | Removed, enters cooldown |
 | All original calling rooms stop | Load sharing deactivates |
@@ -353,7 +353,7 @@ Load sharing commands are applied with this priority order:
 
 ### Load sharing not activating
 
-1. Check master enable: `input_boolean.pyheat_load_sharing_enable` must be ON
+1. Check mode: `input_select.pyheat_load_sharing_mode` must not be 'Off'
 2. Verify capacity threshold: Is calling capacity actually below `min_calling_capacity_w`?
 3. Check cycling risk: Is cycling protection in COOLDOWN or return temp high enough?
 
