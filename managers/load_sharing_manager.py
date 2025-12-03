@@ -128,6 +128,12 @@ class LoadSharingManager:
             if state in [C.LOAD_SHARING_MODE_OFF, C.LOAD_SHARING_MODE_CONSERVATIVE,
                         C.LOAD_SHARING_MODE_BALANCED, C.LOAD_SHARING_MODE_AGGRESSIVE]:
                 return state
+            elif state is None:
+                self.ad.log(
+                    f"LoadSharingManager: Mode entity does not exist yet, defaulting to Aggressive",
+                    level="INFO"
+                )
+                return C.LOAD_SHARING_MODE_AGGRESSIVE
             else:
                 self.ad.log(
                     f"LoadSharingManager: Invalid mode '{state}', defaulting to Aggressive",
@@ -136,7 +142,7 @@ class LoadSharingManager:
                 return C.LOAD_SHARING_MODE_AGGRESSIVE
         except Exception as e:
             self.ad.log(
-                f"LoadSharingManager: Failed to read mode (entity may not exist yet): {e}. "
+                f"LoadSharingManager: Failed to read mode: {e}. "
                 f"Defaulting to Aggressive for backward compatibility.",
                 level="INFO"
             )
