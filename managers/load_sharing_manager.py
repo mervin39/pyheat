@@ -187,10 +187,16 @@ class LoadSharingManager:
         if self.context.state == LoadSharingState.DISABLED:
             return {}
         
-        # Check master enable (in case it was toggled)
+        # Check master enable and mode (in case either was toggled)
         if not self._is_master_enabled():
             if self.context.is_active():
                 self._deactivate("master enable toggled off")
+            return {}
+        
+        mode = self._get_mode()
+        if mode == C.LOAD_SHARING_MODE_OFF:
+            if self.context.is_active():
+                self._deactivate("mode changed to Off")
             return {}
         
         # If currently inactive, check entry conditions

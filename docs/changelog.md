@@ -55,6 +55,8 @@ input_select.pyheat_load_sharing_mode:
 - Balanced mode: Returns empty list after Phase A (passive rooms)
 - Aggressive mode: Proceeds to Phase B (fallback priority list)
 - Mode changes immediately deactivate current load sharing and re-evaluate
+- Mode "Off" checked in evaluate() to gracefully deactivate during normal cycles
+- Listener callback triggers recompute for immediate tier re-selection
 
 ---
 
