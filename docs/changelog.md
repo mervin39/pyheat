@@ -35,7 +35,6 @@ input_select.pyheat_load_sharing_mode:
 - Mode selector defaults to 'Aggressive' (preserves existing behavior)
 - Mode selector state persists across HA restarts (stored in HA database)
 - If mode entity missing, falls back to Aggressive for backward compatibility
-- Listener registered unconditionally to handle HA restart timing issues
 
 **Files Modified:**
 - `core/constants.py`: Added mode constants and entity reference
