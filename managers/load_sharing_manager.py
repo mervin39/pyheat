@@ -82,8 +82,8 @@ class LoadSharingManager:
         self.min_calling_capacity_w = ls_config.get('min_calling_capacity_w', 3500)
         self.target_capacity_w = ls_config.get('target_capacity_w', 4000)
         self.min_activation_duration_s = ls_config.get('min_activation_duration_s', 300)
-        self.fallback_timeout_s = ls_config.get('fallback_timeout_s', ls_config.get('tier3_timeout_s', 900))
-        self.fallback_cooldown_s = ls_config.get('fallback_cooldown_s', ls_config.get('tier3_cooldown_s', 1800))
+        self.fallback_timeout_s = ls_config.get('fallback_timeout_s', 900)
+        self.fallback_cooldown_s = ls_config.get('fallback_cooldown_s', 1800)
         self.high_return_delta_c = ls_config['high_return_delta_c']
         
         # Validate all required config loaded
@@ -830,8 +830,7 @@ class LoadSharingManager:
             # Uses global comfort target (default 20C) to bypass low parking temperatures
             # This applies to BOTH passive rooms (reconsidered here) AND normal fallback rooms
             ls_config = self.config.boiler_config.get('load_sharing', {})
-            fallback_target = ls_config.get('fallback_comfort_target_c', 
-                                            ls_config.get('tier3_comfort_target_c', 20.0))
+            fallback_target = ls_config.get('fallback_comfort_target_c', 20.0)
             
             valve_pct = C.LOAD_SHARING_INITIAL_PCT
             effective_room_capacity = room_capacity * (valve_pct / 100.0)

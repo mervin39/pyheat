@@ -1,6 +1,45 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Clean Up Load Sharing Tier Naming (Remove Legacy tier3 References)
+
+**Summary:**
+Completed the transition from old 3-tier naming to new 2-tier naming throughout the codebase. Removed all legacy `tier3_*` references and aliases.
+
+**Changes:**
+
+- **`core/constants.py`:**
+  - Renamed `LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT` → `LOAD_SHARING_FALLBACK_TIMEOUT_S_DEFAULT`
+  - Renamed `LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT` → `LOAD_SHARING_FALLBACK_COOLDOWN_S_DEFAULT`
+  - Removed `LOAD_SHARING_TIER3_INITIAL_PCT` (redundant with `LOAD_SHARING_INITIAL_PCT`)
+
+- **`core/config_loader.py`:**
+  - Changed config keys from `tier3_timeout_s` → `fallback_timeout_s`
+  - Changed config keys from `tier3_cooldown_s` → `fallback_cooldown_s`
+  - Updated validation messages to use fallback naming
+
+- **`config/boiler.yaml`:**
+  - Renamed `tier3_timeout_s` → `fallback_timeout_s`
+  - Renamed `tier3_cooldown_s` → `fallback_cooldown_s`
+  - Renamed `tier3_comfort_target_c` → `fallback_comfort_target_c`
+
+- **`managers/load_sharing_manager.py`:**
+  - Removed tier3 fallbacks from config loading (now uses fallback_* keys directly)
+
+- **`managers/load_sharing_state.py`:**
+  - Removed legacy enum aliases (`TIER1_ACTIVE`, `TIER1_ESCALATED`, `TIER3_ACTIVE`)
+  - Removed legacy property aliases (`tier3_timeout_history`, `tier1_rooms`, `tier3_rooms`)
+  - Removed legacy method alias (`has_tier3_timeouts`)
+  - Removed "Phase 0" comment from docstring
+  - Updated `RoomActivation` docstring to clarify tier values (1=schedule, 2=fallback)
+
+**Rationale:**
+This is a personal app with a single running version. Legacy compatibility is unnecessary and the old naming was confusing. The new naming clearly reflects the two-tier architecture:
+- **Tier 1 (Schedule):** Schedule-aware pre-warming
+- **Tier 2 (Fallback):** Passive rooms + priority list
+
+---
+
 ## 2025-12-03: Fix Bug #15 - Load Sharing Status Text Tier Inconsistency
 
 **Status:** FIXED ✅

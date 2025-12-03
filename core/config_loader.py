@@ -178,17 +178,17 @@ class ConfigLoader:
         ls_cfg.setdefault('min_calling_capacity_w', C.LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT)
         ls_cfg.setdefault('target_capacity_w', C.LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT)
         ls_cfg.setdefault('min_activation_duration_s', C.LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT)
-        ls_cfg.setdefault('tier3_timeout_s', C.LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT)  # Legacy name
-        ls_cfg.setdefault('tier3_cooldown_s', C.LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT)  # Legacy name
+        ls_cfg.setdefault('fallback_timeout_s', C.LOAD_SHARING_FALLBACK_TIMEOUT_S_DEFAULT)
+        ls_cfg.setdefault('fallback_cooldown_s', C.LOAD_SHARING_FALLBACK_COOLDOWN_S_DEFAULT)
         
-        # Validate fallback cooldown (tier3 is legacy name)
-        if ls_cfg['tier3_cooldown_s'] < 0:
-            raise ValueError("load_sharing.tier3_cooldown_s must be >= 0")
+        # Validate fallback cooldown
+        if ls_cfg['fallback_cooldown_s'] < 0:
+            raise ValueError("load_sharing.fallback_cooldown_s must be >= 0")
         
-        if ls_cfg['tier3_cooldown_s'] < ls_cfg['tier3_timeout_s']:
+        if ls_cfg['fallback_cooldown_s'] < ls_cfg['fallback_timeout_s']:
             self.ad.log(
-                f"WARNING: tier3_cooldown_s ({ls_cfg['tier3_cooldown_s']}s) is less than "
-                f"tier3_timeout_s ({ls_cfg['tier3_timeout_s']}s). "
+                f"WARNING: fallback_cooldown_s ({ls_cfg['fallback_cooldown_s']}s) is less than "
+                f"fallback_timeout_s ({ls_cfg['fallback_timeout_s']}s). "
                 f"Rooms may be re-selected quickly after timeout.",
                 level="WARNING"
             )

@@ -7,8 +7,6 @@ Responsibilities:
 - Define data structures for room activations and context
 - Provide computed properties for tier-based queries
 - Track activation timing and exit conditions
-
-Phase 0: Infrastructure only - no behavioral logic
 """
 
 from dataclasses import dataclass, field
@@ -33,10 +31,6 @@ class LoadSharingState(Enum):
     SCHEDULE_ESCALATED = "schedule_escalated"    # Schedule rooms escalated above initial %
     FALLBACK_ACTIVE = "fallback_active"          # Fallback priority list active
     FALLBACK_ESCALATED = "fallback_escalated"    # Fallback rooms escalated above initial %
-    # Legacy aliases for compatibility
-    TIER1_ACTIVE = "schedule_active"             # Alias for SCHEDULE_ACTIVE
-    TIER1_ESCALATED = "schedule_escalated"       # Alias for SCHEDULE_ESCALATED
-    TIER3_ACTIVE = "fallback_active"             # Alias for FALLBACK_ACTIVE
 
 
 @dataclass
@@ -45,7 +39,7 @@ class RoomActivation:
     
     Attributes:
         room_id: Room identifier
-        tier: Which tier selected this room (1, 2, or 3)
+        tier: Which tier selected this room (1=schedule, 2=fallback)
         valve_pct: Current valve opening percentage
         activated_at: Timestamp when room was added to load sharing
         reason: Human-readable reason (e.g., "schedule_60m", "fallback_p1")
@@ -83,14 +77,6 @@ class LoadSharingContext:
     last_evaluation: Optional[datetime] = None
     fallback_timeout_history: Dict[str, datetime] = field(default_factory=dict)
     
-    # Legacy alias
-    @property
-    def tier3_timeout_history(self) -> Dict[str, datetime]:
-        """Legacy alias for fallback_timeout_history."""
-        return self.fallback_timeout_history
-    
-    # Computed properties
-    
     @property
     def schedule_rooms(self) -> List[RoomActivation]:
         """Get all schedule-aware (Tier 1) activated rooms."""
@@ -100,17 +86,6 @@ class LoadSharingContext:
     def fallback_rooms(self) -> List[RoomActivation]:
         """Get all fallback (Tier 2) activated rooms."""
         return [room for room in self.active_rooms.values() if room.tier == 2]
-    
-    # Legacy aliases for compatibility
-    @property
-    def tier1_rooms(self) -> List[RoomActivation]:
-        """Alias for schedule_rooms."""
-        return self.schedule_rooms
-    
-    @property
-    def tier3_rooms(self) -> List[RoomActivation]:
-        """Alias for fallback_rooms."""
-        return self.fallback_rooms
     
     def activation_duration(self, now: datetime) -> float:
         """Get duration in seconds since load sharing was activated.
@@ -159,11 +134,6 @@ class LoadSharingContext:
             if duration >= timeout_s:
                 return True
         return False
-    
-    # Legacy alias
-    def has_tier3_timeouts(self, now: datetime, timeout_s: float = 900) -> bool:
-        """Alias for has_fallback_timeouts."""
-        return self.has_fallback_timeouts(now, timeout_s)
     
     def is_active(self) -> bool:
         """Check if load sharing is currently active (any tier)."""

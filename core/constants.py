@@ -355,13 +355,12 @@ LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT = 4000       # Target capacity to reach
 
 # Load sharing timing constraints (seconds)
 LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT = 300  # 5 minutes minimum
-LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT = 900           # 15 minutes max for Tier 2 fallback (legacy name)
-LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT = 1800         # 30 minutes before re-eligible (legacy name)
+LOAD_SHARING_FALLBACK_TIMEOUT_S_DEFAULT = 900         # 15 minutes max for fallback rooms
+LOAD_SHARING_FALLBACK_COOLDOWN_S_DEFAULT = 1800       # 30 minutes before re-eligible
 
 # Load sharing valve opening defaults (percent)
 # All tiers start at 50% and escalate by 10% to 100% before adding next room
 LOAD_SHARING_INITIAL_PCT = 50         # All tiers start here
-LOAD_SHARING_TIER3_INITIAL_PCT = 50   # Fallback rooms (legacy, kept for compatibility)
 
 # Load sharing schedule lookahead defaults (minutes)
 # Effective lookahead = configured value × 2 (so default 60 → 120 min)
