@@ -630,8 +630,10 @@ class APIHandler:
                             continue
             
             # Operating mode history - tracks actual heating behavior (e.g., auto mode in passive schedule)
-            # This is stored as an attribute on the state entity
+            # Also extracts override info for chart coloring (red for heating override, blue for cooling)
+            # This is stored as attributes on the state entity
             operating_mode_data = []
+            override_data = []  # Tracks override periods with type (heating/cooling)
             state_entity = f"sensor.pyheat_{room_id}_state"
             if self.ad.entity_exists(state_entity):
                 state_history = self.ad.get_history(
@@ -644,12 +646,49 @@ class APIHandler:
                     for state_obj in state_history[0]:
                         try:
                             attrs = state_obj.get("attributes", {})
+                            timestamp = state_obj["last_changed"]
+                            
+                            # Extract operating mode
                             op_mode = attrs.get("operating_mode", "").lower()
                             # Only include valid operating modes
                             if op_mode in ("auto", "manual", "passive", "off"):
                                 operating_mode_data.append({
-                                    "time": state_obj["last_changed"],
+                                    "time": timestamp,
                                     "operating_mode": op_mode
+                                })
+                            
+                            # Extract override info
+                            # override_target exists only when override is active
+                            override_target = attrs.get("override_target")
+                            scheduled_temp = attrs.get("scheduled_temp")
+                            
+                            if override_target is not None:
+                                # Override is active - determine if heating (positive) or cooling (negative)
+                                override_type = "none"
+                                if scheduled_temp is not None:
+                                    if override_target > scheduled_temp:
+                                        override_type = "heating"  # Red - boosting above schedule
+                                    elif override_target < scheduled_temp:
+                                        override_type = "cooling"  # Blue - reducing below schedule
+                                    else:
+                                        override_type = "neutral"  # Same as schedule (rare edge case)
+                                else:
+                                    # No scheduled_temp available, just mark as active override
+                                    override_type = "active"
+                                
+                                override_data.append({
+                                    "time": timestamp,
+                                    "override_type": override_type,
+                                    "override_target": override_target,
+                                    "scheduled_temp": scheduled_temp
+                                })
+                            else:
+                                # No override active
+                                override_data.append({
+                                    "time": timestamp,
+                                    "override_type": "none",
+                                    "override_target": None,
+                                    "scheduled_temp": scheduled_temp
                                 })
                         except (KeyError, TypeError, AttributeError):
                             continue
@@ -691,6 +730,7 @@ class APIHandler:
                 "setpoint": setpoint_data,
                 "mode": mode_data,
                 "operating_mode": operating_mode_data,
+                "override": override_data,
                 "calling_for_heat": calling_ranges
             }, 200
             

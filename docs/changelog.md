@@ -1,6 +1,42 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Add Override History to History API
+
+**Summary:**
+Added `override` history to the `pyheat_get_history` API endpoint to support red/blue coloring of override periods in temperature charts.
+
+**Problem:**
+The previous update added operating mode colors (purple for passive) to charts, but didn't handle overrides. Override periods still showed the mode color (orange) instead of red (heating above schedule) or blue (cooling below schedule).
+
+**Changes:**
+
+- **`services/api_handler.py`:**
+  - Added `override` history extraction from `sensor.pyheat_{room}_state` entity attributes
+  - Extracts `override_target` and `scheduled_temp` from each history point
+  - Determines override type: "heating", "cooling", "neutral", or "none"
+  - Returns array of `{time, override_type, override_target, scheduled_temp}` in history API response
+
+**API Response:**
+The `pyheat_get_history` endpoint now returns:
+```json
+{
+  "temperature": [...],
+  "setpoint": [...],
+  "mode": [...],
+  "operating_mode": [...],
+  "override": [
+    {"time": "...", "override_type": "heating", "override_target": 20.0, "scheduled_temp": 16.0},
+    {"time": "...", "override_type": "none", "override_target": null, "scheduled_temp": 18.0}
+  ],
+  "calling_for_heat": [...]
+}
+```
+
+**Impact:** Pyheat-web charts now show red setpoint lines during heating overrides and blue during cooling overrides.
+
+---
+
 ## 2025-12-03: Add operating_mode to History API
 
 **Summary:**
