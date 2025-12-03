@@ -71,13 +71,12 @@ else:
 **Tier definitions** (`managers/load_sharing_manager.py` lines 18-19):
 ```python
 TIER_SCHEDULE = 1   # Schedule-aware: rooms with upcoming schedules
-TIER_FALLBACK = 2   # Fallback: passive rooms above max_temp (Phase B)
+TIER_FALLBACK = 2   # Fallback: passive rooms + priority list (Phase A + B)
 ```
 
 **Why this is misleading:**
 - Tier 1: Rooms are genuinely pre-warming for an upcoming schedule block → "Pre-warming for schedule" is correct
-- Tier 2: Rooms are in **passive mode** with **no upcoming schedule**, selected purely for capacity → "Pre-warming for schedule" is wrong
-- Tier 3: Emergency fallback using priority alone (correct status text)
+- Tier 2: Rooms are in **passive mode** or **fallback priority list** with **no schedule**, selected purely for capacity → "Pre-warming for schedule" is wrong
 
 ### Evidence
 
@@ -133,23 +132,41 @@ TIER_FALLBACK = 2   # Fallback: passive rooms above max_temp (Phase B)
 ### Related Code Locations
 
 **services/status_publisher.py:**
-- Lines 180-211: `_format_status_text()` method
-- Line 194: Buggy tier check: `if activation.tier in [1, 2]`
-- Lines 195-202: Schedule-aware status formatting (applied incorrectly to tier 2)
-- Lines 203-205: Fallback status formatting (only applied to tier 3)
+- Lines 127-162: `_format_status_text()` method
+- Line 134: Fixed tier check from `if activation.tier in [1, 2]` to `if activation.tier == 1`
+- Lines 135-151: Schedule-aware status formatting (tier 1 only)
+- Lines 152-158: Fallback status formatting (tier 2)
 
 **managers/load_sharing_manager.py:**
-- Lines 18-19: Tier constant definitions
+- Lines 19-20: Tier constant definitions (TIER_SCHEDULE=1, TIER_FALLBACK=2)
 - Lines 700-858: Tier 1 selection (schedule-based, uses `prewarming_minutes`)
-- Lines 860-920: Tier 2 selection (fallback passive rooms, NO schedule awareness)
-- Lines 922-1010: Tier 3 selection (priority-based fallback)
+- Lines 860-920: Tier 2 selection (fallback: Phase A passive rooms, Phase B priority list, NO schedule awareness)
 
 **Tier 2 activation context:**
-- Tier 2 rooms are **passive mode** rooms
-- Selected when Phase A (schedule-based tier 1) provides insufficient capacity
-- Intentionally allows rooms above `max_temp` (no temperature checks)
+- Tier 2 rooms are **passive mode** or **fallback priority** rooms
+- Selected when Tier 1 (schedule-based) provides insufficient capacity
+- Phase A: Passive rooms (intentionally allows above max_temp)
+- Phase B: Priority list (no schedule requirement)
 - Sets `prewarming_minutes=None` (no schedule)
 - Sets `reason="fallback_p{priority}"` to indicate fallback selection
+
+### Resolution (2025-12-03)
+
+**Fix Applied:**
+Modified `services/status_publisher.py` to distinguish between tier 1 and tier 2 activations.
+
+**Changes:**
+- Line 134: Changed from `if activation.tier in [1, 2]` to `if activation.tier == 1`
+- Lines 152-158: Added `elif activation.tier == 2` block for fallback-specific status
+- Fallback status now shows: `"Fallback heating P{priority} ({valve_pct}%)"`
+
+**Why This Works:**
+- Tier 1 (TIER_SCHEDULE): Schedule-aware rooms show "Pre-warming for {time}"
+- Tier 2 (TIER_FALLBACK): Fallback rooms show "Fallback heating P{priority} (valve%)"
+- Status text now correctly reflects the selection logic that activated each room
+
+**Files Modified:**
+- `services/status_publisher.py`: Updated load sharing status formatting logic
 
 ### Impact
 
@@ -213,12 +230,6 @@ tier=1, reason="schedule", prewarming_minutes=15
 tier=2, reason="fallback_p3", prewarming_minutes=null
 → "Pre-warming for schedule (80%)" ✗
 Should be: "Fallback heating P3 (80%)" or similar
-```
-
-**Tier 3 (Priority Fallback) - Status text CORRECT:**
-```
-tier=3, reason="tier3_p4", prewarming_minutes=null
-→ "Fallback heating P4 (50%)" ✓
 ```
 
 ---

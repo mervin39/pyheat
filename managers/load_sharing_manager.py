@@ -948,7 +948,7 @@ class LoadSharingManager:
         A. Original calling room(s) stopped (none still calling)
         B. Additional room(s) started calling (recalculate capacity) - BYPASSES minimum duration
         C. Load sharing room now naturally calling (remove from load sharing)
-        D. Tier 3 rooms exceeded timeout (15 minutes max for fallback rooms)
+        D. Fallback rooms exceeded timeout (15 minutes max for tier 2 fallback)
         E. Room reached/exceeded target temperature (NEW - prevents overshoot)
         F. Room mode changed from auto (NEW - respects user mode changes)
         

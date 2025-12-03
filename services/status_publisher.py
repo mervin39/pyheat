@@ -131,14 +131,14 @@ class StatusPublisher:
                 for room_id_key, activation in load_sharing_context.active_rooms.items():
                     if activation.room_id == room_id:
                         # Room is in load sharing
-                        if activation.tier in [1, 2]:
-                            # Tier 1/2: Schedule-aware pre-warming
+                        if activation.tier == 1:
+                            # Tier 1: Schedule-aware pre-warming
                             # Get next schedule block time
                             if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
                                 try:
                                     from datetime import datetime
                                     now = datetime.now()
-                                    # Look ahead up to 2 hours for Tier 2
+                                    # Look ahead up to 2 hours
                                     next_block = self.scheduler_ref.get_next_schedule_block(
                                         room_id, now, within_minutes=120
                                     )
@@ -149,12 +149,13 @@ class StatusPublisher:
                                     self.ad.log(f"Error getting schedule for load sharing status: {e}", level="WARNING")
                             # Fallback if can't get schedule time
                             return "Pre-warming for schedule"
-                        else:
-                            # Tier 3: Fallback priority
+                        elif activation.tier == 2:
+                            # Tier 2: Fallback (passive rooms + priority list)
                             room_config = self.config.rooms.get(room_id, {})
                             load_sharing_config = room_config.get('load_sharing', {})
                             priority = load_sharing_config.get('fallback_priority', '?')
-                            return f"Fallback heating P{priority}"
+                            valve_pct = activation.valve_pct
+                            return f"Fallback heating P{priority} ({valve_pct}%)"
                         break
         
         # Check if override is active

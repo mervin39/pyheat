@@ -178,10 +178,10 @@ class ConfigLoader:
         ls_cfg.setdefault('min_calling_capacity_w', C.LOAD_SHARING_MIN_CALLING_CAPACITY_W_DEFAULT)
         ls_cfg.setdefault('target_capacity_w', C.LOAD_SHARING_TARGET_CAPACITY_W_DEFAULT)
         ls_cfg.setdefault('min_activation_duration_s', C.LOAD_SHARING_MIN_ACTIVATION_DURATION_S_DEFAULT)
-        ls_cfg.setdefault('tier3_timeout_s', C.LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT)
-        ls_cfg.setdefault('tier3_cooldown_s', C.LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT)
+        ls_cfg.setdefault('tier3_timeout_s', C.LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT)  # Legacy name
+        ls_cfg.setdefault('tier3_cooldown_s', C.LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT)  # Legacy name
         
-        # Validate tier3_cooldown_s
+        # Validate fallback cooldown (tier3 is legacy name)
         if ls_cfg['tier3_cooldown_s'] < 0:
             raise ValueError("load_sharing.tier3_cooldown_s must be >= 0")
         

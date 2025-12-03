@@ -1,6 +1,51 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Fix Bug #15 - Load Sharing Status Text Tier Inconsistency
+
+**Status:** FIXED ✅
+
+**Summary:**
+Fixed bug where load sharing status text incorrectly showed "Pre-warming for schedule" for both tier 1 (schedule-based) and tier 2 (fallback) activations. Tier 2 now correctly shows "Fallback heating P{priority} (valve%)".
+
+**Problem:**
+The `_format_status_text()` method in `status_publisher.py` checked `if activation.tier in [1, 2]` and applied schedule-aware formatting to both tiers. This was incorrect because:
+- **Tier 1 (TIER_SCHEDULE):** Schedule-aware pre-warming → "Pre-warming for schedule" is correct
+- **Tier 2 (TIER_FALLBACK):** Fallback heating (no schedule) → should show fallback-specific text
+
+**Example:**
+Office room selected via tier 2 (reason="fallback_p3", prewarming_minutes=null) displayed "Pre-warming for schedule" when it should show "Fallback heating P3 (80%)".
+
+**Changes:**
+
+- **`services/status_publisher.py`:**
+  - Line 134: Changed from `if activation.tier in [1, 2]` to `if activation.tier == 1`
+  - Lines 152-158: Added `elif activation.tier == 2` block for fallback-specific status
+  - Tier 2 now shows: "Fallback heating P{priority} ({valve_pct}%)"
+
+- **`config/rooms.yaml`:**
+  - Updated comments to reference "Tier 2 fallback" instead of "Tier 3"
+
+- **`core/constants.py`:**
+  - Added legacy comments to tier3 constants (they map to tier 2)
+
+- **`core/config_loader.py`:**
+  - Added comments clarifying tier3_* config keys are legacy names
+
+- **`managers/load_sharing_manager.py`:**
+  - Updated exit condition comment to reference tier 2
+
+- **`docs/BUGS.md`:**
+  - Marked BUG #15 as FIXED
+  - Added resolution section with implementation details
+
+**Impact:**
+- ✅ Status text now correctly reflects selection logic
+- ✅ Users can distinguish schedule-based vs fallback heating
+- ✅ Debugging is clearer with accurate status information
+
+---
+
 ## 2025-12-03: Log Bug #15 - Load Sharing Status Text Tier Inconsistency
 
 **Summary:**
