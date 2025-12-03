@@ -629,6 +629,31 @@ class APIHandler:
                         except (KeyError, TypeError, AttributeError):
                             continue
             
+            # Operating mode history - tracks actual heating behavior (e.g., auto mode in passive schedule)
+            # This is stored as an attribute on the state entity
+            operating_mode_data = []
+            state_entity = f"sensor.pyheat_{room_id}_state"
+            if self.ad.entity_exists(state_entity):
+                state_history = self.ad.get_history(
+                    entity_id=state_entity,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                
+                if state_history and len(state_history) > 0:
+                    for state_obj in state_history[0]:
+                        try:
+                            attrs = state_obj.get("attributes", {})
+                            op_mode = attrs.get("operating_mode", "").lower()
+                            # Only include valid operating modes
+                            if op_mode in ("auto", "manual", "passive", "off"):
+                                operating_mode_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "operating_mode": op_mode
+                                })
+                        except (KeyError, TypeError, AttributeError):
+                            continue
+            
             # Calling for heat - use the dedicated binary sensor for this room
             calling_sensor = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
             if self.ad.entity_exists(calling_sensor):
@@ -665,6 +690,7 @@ class APIHandler:
                 "temperature": temperature_data,
                 "setpoint": setpoint_data,
                 "mode": mode_data,
+                "operating_mode": operating_mode_data,
                 "calling_for_heat": calling_ranges
             }, 200
             

@@ -1,6 +1,37 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Add operating_mode to History API
+
+**Summary:**
+Added `operating_mode` history to the `pyheat_get_history` API endpoint to support context-aware coloring of the setpoint line in temperature charts.
+
+**Problem:**
+The pyheat-web temperature charts colored the dashed setpoint line based on user-selected mode (`input_select.pyheat_{room}_mode`), but didn't account for scheduled passive blocks. A room in auto mode with a scheduled passive block would show orange instead of purple in the chart.
+
+**Changes:**
+
+- **`services/api_handler.py`:**
+  - Added `operating_mode` history extraction from `sensor.pyheat_{room}_state` entity attributes
+  - Returns array of `{time, operating_mode}` changes in history API response
+  - Operating mode reflects actual heating behavior (e.g., "passive" during scheduled passive blocks even when user mode is "auto")
+
+**API Response:**
+The `pyheat_get_history` endpoint now returns:
+```json
+{
+  "temperature": [...],
+  "setpoint": [...],
+  "mode": [...],           // User-selected mode history
+  "operating_mode": [...], // Actual heating mode history
+  "calling_for_heat": [...]
+}
+```
+
+**Impact:** Pyheat-web charts can now show purple setpoint lines during scheduled passive blocks, matching the target temperature display in room cards.
+
+---
+
 ## 2025-12-03: Fix operating_mode Field Not Being Sent to pyheat-web
 
 **Summary:**
