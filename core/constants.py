@@ -359,15 +359,14 @@ LOAD_SHARING_TIER3_TIMEOUT_S_DEFAULT = 900           # 15 minutes max for Tier 3
 LOAD_SHARING_TIER3_COOLDOWN_S_DEFAULT = 1800         # 30 minutes before re-eligible
 
 # Load sharing valve opening defaults (percent)
-LOAD_SHARING_TIER1_INITIAL_PCT = 70   # Schedule-aware rooms start here
-LOAD_SHARING_TIER1_ESCALATED_PCT = 80 # Escalated if insufficient
-LOAD_SHARING_TIER2_INITIAL_PCT = 40   # Extended window rooms (gentle)
-LOAD_SHARING_TIER2_ESCALATED_PCT = 50 # Escalated if insufficient
-LOAD_SHARING_TIER3_INITIAL_PCT = 50   # Fallback rooms (compromise)
-LOAD_SHARING_TIER3_ESCALATED_PCT = 60 # Escalated if insufficient
+# All tiers start at 50% and escalate by 10% to 100% before adding next room
+LOAD_SHARING_INITIAL_PCT = 50         # All tiers start here
+LOAD_SHARING_TIER3_INITIAL_PCT = 50   # Fallback rooms (kept for compatibility)
 
 # Load sharing schedule lookahead defaults (minutes)
-LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT = 60  # Default lookahead window
+# Effective lookahead = configured value × 2 (so default 60 → 120 min)
+LOAD_SHARING_SCHEDULE_LOOKAHEAD_M_DEFAULT = 60  # Default base lookahead
+LOAD_SHARING_LOOKAHEAD_MULTIPLIER = 2           # Multiply configured value by this
 
 # ============================================================================
 # Logging

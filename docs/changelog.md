@@ -1,6 +1,52 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Merge Tier 1 + Tier 2 into Single Schedule-Aware Tier
+
+**Summary:**
+Simplified load sharing from three tiers to two tiers. The previous Tier 1 (schedule lookahead) and Tier 2 (extended lookahead 2x) are now merged into a single schedule-aware tier with one-room-at-a-time escalation.
+
+**Problem:**
+- Tier 1 and Tier 2 had minimal functional difference (both looked at schedules, just different time windows)
+- The "neediest first" sorting could leave rooms with imminent schedules waiting while distant rooms were heated
+- Adding multiple rooms at once was inefficient when fewer rooms at higher valve % would suffice
+
+**Changes:**
+
+- **`core/constants.py`:**
+  - Removed `LOAD_SHARING_TIER1_INITIAL_PCT`, `LOAD_SHARING_TIER2_INITIAL_PCT` 
+  - Added `LOAD_SHARING_INITIAL_PCT = 50` (all tiers start here)
+  - Added `LOAD_SHARING_LOOKAHEAD_MULTIPLIER = 2` (effective lookahead = config x 2)
+
+- **`managers/load_sharing_state.py`:**
+  - Simplified state enum: `SCHEDULE_ACTIVE`, `SCHEDULE_ESCALATED`, `FALLBACK_ACTIVE`, `FALLBACK_ESCALATED`
+  - Renamed tier properties: `tier1_rooms` -> `schedule_rooms`, `tier3_rooms` -> `fallback_rooms`
+  - Renamed `tier3_timeout_history` -> `fallback_timeout_history` (with legacy alias)
+  - Added legacy aliases for backward compatibility
+
+- **`managers/load_sharing_manager.py`:**
+  - Renamed `_select_tier1_rooms()` -> `_select_schedule_rooms()` with new logic:
+    - Uses `lookahead_m * LOAD_SHARING_LOOKAHEAD_MULTIPLIER` (default 120 min)
+    - Sorts by **closest schedule first** (not neediest)
+    - Returns rooms with `minutes_until` for activation logging
+  - Removed `_select_tier2_rooms()` entirely
+  - Renamed `_select_tier3_rooms()` -> `_select_fallback_rooms()`
+  - Rewrote `_activate_and_escalate()` for one-room-at-a-time processing:
+    - Add room at 50%, escalate to 100% before adding next
+    - Check capacity at each step, stop when target reached
+  - Removed `_activate_tier1()`, `_activate_tier2()` - replaced with `_activate_schedule_room()`, `_activate_fallback_room()`
+  - Removed `_escalate_tier1_rooms()`, `_escalate_tier2_rooms()` - escalation now inline
+  - Renamed config variables: `tier3_timeout_s` -> `fallback_timeout_s`, `tier3_cooldown_s` -> `fallback_cooldown_s` (with backward compatibility for old config keys)
+
+- **`docs/LOAD_SHARING.md`:**
+  - Rewrote for two-tier architecture
+  - Documented one-room-at-a-time escalation strategy
+  - Updated configuration reference with new naming
+
+**Rationale:** Simpler is better. The merged tier uses 2x lookahead by default (was split across Tier 1/2), and sorting by closest schedule ensures rooms that need heat soonest are served first. One-room-at-a-time escalation minimizes the number of rooms heated while still achieving target capacity.
+
+---
+
 ## 2025-12-03: Improve Load Sharing Escalation Logic
 
 **Summary:**

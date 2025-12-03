@@ -21,17 +21,22 @@ class LoadSharingState(Enum):
     """Load sharing state machine states.
     
     State progression:
-    DISABLED → (never activates)
-    INACTIVE → TIER1_ACTIVE → [TIER1_ESCALATED] → TIER2_ACTIVE → [TIER2_ESCALATED] → TIER3_ACTIVE → [TIER3_ESCALATED] → INACTIVE
+    DISABLED -> (never activates)
+    INACTIVE -> SCHEDULE_ACTIVE -> SCHEDULE_ESCALATED -> FALLBACK_ACTIVE -> FALLBACK_ESCALATED -> INACTIVE
+    
+    Tier 1 (Schedule-aware): Rooms with upcoming schedules, sorted by closest first
+    Tier 2 (Fallback): Passive rooms + priority list when schedules don't help
     """
-    DISABLED = "disabled"                    # Feature disabled via config or master switch
-    INACTIVE = "inactive"                    # Monitoring but not active
-    TIER1_ACTIVE = "tier1_active"           # Schedule-aware pre-warming active
-    TIER1_ESCALATED = "tier1_escalated"     # Tier 1 rooms escalated to higher valve %
-    TIER2_ACTIVE = "tier2_active"           # Extended lookahead active
-    TIER2_ESCALATED = "tier2_escalated"     # Tier 2 rooms escalated to higher valve %
-    TIER3_ACTIVE = "tier3_active"           # Fallback priority list active
-    TIER3_ESCALATED = "tier3_escalated"     # Tier 3 rooms escalated to higher valve %
+    DISABLED = "disabled"                        # Feature disabled via config or master switch
+    INACTIVE = "inactive"                        # Monitoring but not active
+    SCHEDULE_ACTIVE = "schedule_active"          # Schedule-aware pre-warming active
+    SCHEDULE_ESCALATED = "schedule_escalated"    # Schedule rooms escalated above initial %
+    FALLBACK_ACTIVE = "fallback_active"          # Fallback priority list active
+    FALLBACK_ESCALATED = "fallback_escalated"    # Fallback rooms escalated above initial %
+    # Legacy aliases for compatibility
+    TIER1_ACTIVE = "schedule_active"             # Alias for SCHEDULE_ACTIVE
+    TIER1_ESCALATED = "schedule_escalated"       # Alias for SCHEDULE_ESCALATED
+    TIER3_ACTIVE = "fallback_active"             # Alias for FALLBACK_ACTIVE
 
 
 @dataclass
@@ -68,7 +73,7 @@ class LoadSharingContext:
         trigger_timestamp: When load sharing was activated
         active_rooms: Dictionary of currently active load sharing rooms
         last_evaluation: Timestamp of last evaluation (for debugging)
-        tier3_timeout_history: Dict of room_id -> timeout timestamp for cooldown enforcement
+        fallback_timeout_history: Dict of room_id -> timeout timestamp for cooldown enforcement
     """
     state: LoadSharingState = LoadSharingState.DISABLED
     trigger_calling_rooms: Set[str] = field(default_factory=set)
@@ -76,24 +81,36 @@ class LoadSharingContext:
     trigger_timestamp: Optional[datetime] = None
     active_rooms: Dict[str, RoomActivation] = field(default_factory=dict)
     last_evaluation: Optional[datetime] = None
-    tier3_timeout_history: Dict[str, datetime] = field(default_factory=dict)
+    fallback_timeout_history: Dict[str, datetime] = field(default_factory=dict)
+    
+    # Legacy alias
+    @property
+    def tier3_timeout_history(self) -> Dict[str, datetime]:
+        """Legacy alias for fallback_timeout_history."""
+        return self.fallback_timeout_history
     
     # Computed properties
     
     @property
-    def tier1_rooms(self) -> List[RoomActivation]:
-        """Get all Tier 1 (schedule-aware) activated rooms."""
+    def schedule_rooms(self) -> List[RoomActivation]:
+        """Get all schedule-aware (Tier 1) activated rooms."""
         return [room for room in self.active_rooms.values() if room.tier == 1]
     
     @property
-    def tier2_rooms(self) -> List[RoomActivation]:
-        """Get all Tier 2 (extended lookahead) activated rooms."""
+    def fallback_rooms(self) -> List[RoomActivation]:
+        """Get all fallback (Tier 2) activated rooms."""
         return [room for room in self.active_rooms.values() if room.tier == 2]
+    
+    # Legacy aliases for compatibility
+    @property
+    def tier1_rooms(self) -> List[RoomActivation]:
+        """Alias for schedule_rooms."""
+        return self.schedule_rooms
     
     @property
     def tier3_rooms(self) -> List[RoomActivation]:
-        """Get all Tier 3 (fallback priority) activated rooms."""
-        return [room for room in self.active_rooms.values() if room.tier == 3]
+        """Alias for fallback_rooms."""
+        return self.fallback_rooms
     
     def activation_duration(self, now: datetime) -> float:
         """Get duration in seconds since load sharing was activated.
@@ -124,24 +141,29 @@ class LoadSharingContext:
             return True
         return self.activation_duration(now) >= min_duration_s
     
-    def has_tier3_timeouts(self, now: datetime, timeout_s: float = 900) -> bool:
-        """Check if any Tier 3 rooms have exceeded their timeout.
+    def has_fallback_timeouts(self, now: datetime, timeout_s: float = 900) -> bool:
+        """Check if any fallback rooms have exceeded their timeout.
         
-        Tier 3 fallback rooms have a maximum activation duration to prevent
+        Fallback rooms have a maximum activation duration to prevent
         long-term unwanted heating.
         
         Args:
             now: Current timestamp
-            timeout_s: Maximum Tier 3 duration (default 900s = 15 minutes)
+            timeout_s: Maximum fallback duration (default 900s = 15 minutes)
             
         Returns:
-            True if any Tier 3 room has exceeded timeout
+            True if any fallback room has exceeded timeout
         """
-        for room in self.tier3_rooms:
+        for room in self.fallback_rooms:
             duration = (now - room.activated_at).total_seconds()
             if duration >= timeout_s:
                 return True
         return False
+    
+    # Legacy alias
+    def has_tier3_timeouts(self, now: datetime, timeout_s: float = 900) -> bool:
+        """Alias for has_fallback_timeouts."""
+        return self.has_fallback_timeouts(now, timeout_s)
     
     def is_active(self) -> bool:
         """Check if load sharing is currently active (any tier)."""
@@ -150,7 +172,7 @@ class LoadSharingContext:
     def reset(self) -> None:
         """Reset context to inactive state (clear all activations).
         
-        NOTE: tier3_timeout_history is NOT cleared - persists across
+        NOTE: fallback_timeout_history is NOT cleared - persists across
         activation cycles to prevent oscillation.
         """
         self.state = LoadSharingState.INACTIVE
@@ -158,4 +180,4 @@ class LoadSharingContext:
         self.trigger_capacity = 0.0
         self.trigger_timestamp = None
         self.active_rooms.clear()
-        # tier3_timeout_history intentionally NOT cleared
+        # fallback_timeout_history intentionally NOT cleared
