@@ -1,6 +1,35 @@
 
 # PyHeat Changelog
 
+## 2025-12-03: Improve Load Sharing Escalation Logic
+
+**Summary:**
+Enhanced load sharing to fully escalate Tier 1 and Tier 2 rooms to 100% before moving to the next tier, and allow passive rooms to be reconsidered in Tier 3 Phase B at `tier3_comfort_target_c`.
+
+**Problem:**
+1. Tier 1 only escalated to 80%, Tier 2 to 50% before moving to next tier
+2. Rooms that will want heat soon (schedule-aware) are better candidates than fallback rooms
+3. Passive rooms in Tier 3 Phase A were limited to their max_temp; Phase B didn't reconsider them at a higher comfort target
+
+**Changes:**
+
+- **`managers/load_sharing_manager.py`:**
+  - Refactored `evaluate()` to use cleaner `_activate_and_escalate()` helper
+  - `_escalate_tier1_rooms()` now returns bool and escalates by 10% increments up to 100%
+  - `_escalate_tier2_rooms()` now returns bool and escalates by 10% increments up to 100%
+  - Tier 3 Phase B now includes passive rooms with `fallback_priority` configured
+  - All Tier 3 Phase B rooms (including passive) use `tier3_comfort_target_c` as target
+
+- **`docs/LOAD_SHARING.md`:**
+  - Updated valve percentage table to show 100% max for all tiers
+  - Documented that Tier 1+2 fully exhaust before next tier
+  - Clarified passive room handling in Tier 3 Phase A vs Phase B
+  - Added note that passive rooms can be reconsidered at comfort target
+
+**Rationale:** A room that will want heat soon at 100% valve is better than opening a fallback room that doesn't want heat. Passive rooms reconsidered at `tier3_comfort_target_c` (e.g., 20C) provide more heat sink capacity than their typical low max_temp.
+
+---
+
 ## 2025-12-03: Add Load Sharing Logic Documentation
 
 **Summary:**

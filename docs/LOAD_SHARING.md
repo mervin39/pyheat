@@ -82,38 +82,41 @@ The system aims to reach `target_capacity_w` (default: 2500W) of total system ca
 - Room has a scheduled heating block within `schedule_lookahead_m` minutes (default: 60)
 - The scheduled target temperature is higher than current room temperature
 - Block must have `target > default_target` (indicates heating is needed)
+- **Both active and passive schedule blocks are considered** - any upcoming block that needs heat is eligible
 
 **Sorting:** Rooms sorted by need (scheduled_target - current_temp) descending. Neediest rooms selected first.
 
 **Initial Valve:** 70%
 
-**Escalation:** If Tier 1 capacity is insufficient, rooms escalate to 80% before adding Tier 2.
+**Escalation:** Tier 1 rooms escalate by 10% increments **up to 100%** before moving to Tier 2. A room with an upcoming schedule at 100% is preferred over adding Tier 2/3 rooms.
 
 **Schedule Block Detection:**
 ```python
 next_block = scheduler.get_next_schedule_block(room_id, now, within_minutes=60)
 # Returns: (start_time, end_time, target_temp, block_mode) or None
+# block_mode is 'active' or 'passive' - both are eligible for pre-warming
 ```
 
 ### Tier 2: Extended Lookahead (Secondary)
 
-Only evaluated if Tier 1 (including escalation) is insufficient.
+Only evaluated if Tier 1 (including **full escalation to 100%**) is insufficient.
 
 **Selection Criteria:** Same as Tier 1, but with 2x the lookahead window:
 - If room's `schedule_lookahead_m` is 60, searches within 120 minutes
 - If room's `schedule_lookahead_m` is 90, searches within 180 minutes
+- **Both active and passive schedule blocks are considered**
 
 **Initial Valve:** 40% (gentler pre-warming for more distant schedules)
 
-**Escalation:** If Tier 2 capacity is insufficient, rooms escalate to 50% before adding Tier 3.
+**Escalation:** Tier 2 rooms escalate by 10% increments **up to 100%** before moving to Tier 3.
 
 ### Tier 3: Fallback Priority (Tertiary)
 
-Only evaluated if Tier 1+2 (including escalations) are insufficient.
+Only evaluated if Tier 1+2 (including **full escalation to 100%**) are insufficient.
 
 Tier 3 has two phases:
 
-#### Phase A: Passive Rooms
+#### Phase A: Passive Rooms (at max_temp)
 
 **Selection Criteria:**
 - Room's current `operating_mode == 'passive'` (actively in passive mode right now)
@@ -122,19 +125,22 @@ Tier 3 has two phases:
 
 **Initial Valve:** 50%
 
+**Target Temperature:** Room's current max_temp
+
 **Rationale:** Passive rooms are already configured to accept opportunistic heating up to their max_temp.
 
-#### Phase B: Fallback Priority List
+#### Phase B: Fallback Priority List (including passive rooms at comfort target)
 
 If Phase A provides no rooms or insufficient capacity:
 
 **Selection Criteria - ALL must be true:**
 - Room is in `auto` mode
-- Room is NOT in passive operating mode (handled by Phase A)
 - Room is NOT currently calling for heat
 - Room is NOT already in Tier 1 or Tier 2
 - Room has `fallback_priority` configured in rooms.yaml
 - Room is NOT in timeout cooldown (see Tier 3 Timeout below)
+
+**Includes passive rooms:** Passive rooms with `fallback_priority` configured are **re-considered** in Phase B. This allows passive rooms to be heated to `tier3_comfort_target_c` (e.g., 20°C) which may be significantly higher than their normal max_temp. This provides more heat sink capacity when needed.
 
 **NO temperature check** - This is the ultimate fallback. Any eligible room is accepted regardless of whether it's above target temperature.
 
@@ -145,17 +151,19 @@ If Phase A provides no rooms or insufficient capacity:
 2. Escalate that room (50% -> 60% -> 70% -> 80% -> 90% -> 100%) before adding another
 3. Only add next priority room when current room is at 100%
 
-**Target Temperature:** Uses `tier3_comfort_target_c` (default: 20°C) to bypass low parking temperatures.
+**Target Temperature:** Uses `tier3_comfort_target_c` (default: 20°C) for **all Phase B rooms** (including passive rooms reconsidered here). This bypasses low parking temperatures and passive max_temps.
 
 ---
 
 ## Valve Percentages Summary
 
-| Tier | Initial | Escalated | Notes |
-|------|---------|-----------|-------|
-| Tier 1 | 70% | 80% | Schedule-aware pre-warming |
-| Tier 2 | 40% | 50% | Extended lookahead (gentle) |
-| Tier 3 | 50% | 60-100% | Escalates in 10% increments |
+| Tier | Initial | Max | Escalation | Notes |
+|------|---------|-----|------------|-------|
+| Tier 1 | 70% | 100% | +10% per step | Schedule-aware pre-warming, fully exhaust before Tier 2 |
+| Tier 2 | 40% | 100% | +10% per step | Extended lookahead (gentle), fully exhaust before Tier 3 |
+| Tier 3 | 50% | 100% | +10% per step | Escalate existing rooms before adding new ones |
+
+**Key principle:** A room that will want heat soon (Tier 1/2) at 100% valve is better than opening a room that doesn't want heat (Tier 3). Exhaust each tier completely before moving to the next.
 
 ---
 
