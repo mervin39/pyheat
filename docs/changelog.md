@@ -1,6 +1,32 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Add System-Wide Calling for Heat Binary Sensor
+
+**Summary:**
+Added `binary_sensor.pyheat_calling_for_heat` that indicates when any room is calling for heat. Also fixed `sensor.pyheat_status` to use `replace=True` to ensure all attributes are properly set.
+
+**New Entity:**
+```yaml
+binary_sensor.pyheat_calling_for_heat:
+  device_class: heat
+  attributes:
+    active_rooms: [list of room IDs currently calling]
+    room_count: number of rooms calling
+```
+
+**Behavior:**
+- `on` when any room is calling for heat
+- `off` when no rooms are calling
+- `active_rooms` attribute lists which rooms are actively calling
+- Updated every recompute cycle (60 seconds)
+
+**Files Modified:**
+- `core/constants.py`: Added `CALLING_FOR_HEAT_ENTITY` constant
+- `services/status_publisher.py`: Added binary sensor publishing, added `replace=True` to status entity
+
+---
+
 ## 2025-12-04: Rename passive mode entities for clarity
 
 **Summary:**

@@ -531,8 +531,21 @@ class StatusPublisher:
             if self.load_calculator_ref.enabled:
                 attrs['total_estimated_dump_capacity'] = round(self.load_calculator_ref.get_total_estimated_capacity(), 0)
         
-        # Set state
-        self.ad.set_state(C.STATUS_ENTITY, state=state, attributes=attrs)
+        # Set state (replace=True ensures all attributes are set fresh, not merged)
+        self.ad.set_state(C.STATUS_ENTITY, state=state, attributes=attrs, replace=True)
+        
+        # Publish system-wide calling for heat binary sensor
+        self.ad.set_state(
+            C.CALLING_FOR_HEAT_ENTITY,
+            state="on" if any_calling else "off",
+            attributes={
+                'friendly_name': 'PyHeat Calling for Heat',
+                'device_class': 'heat',
+                'active_rooms': active_rooms,
+                'room_count': len(active_rooms)
+            },
+            replace=True
+        )
         
     def publish_room_entities(self, room_id: str, data: Dict, now: datetime) -> None:
         """Publish per-room entities.
