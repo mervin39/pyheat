@@ -534,18 +534,23 @@ class APIHandler:
 
     def api_get_history(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_get_history
-        
+
         Gets historical temperature, setpoint, mode, and boiler data for a room.
-        
+
         Request body: {
             "room": str,        # Room ID (e.g., "pete", "lounge")
             "period": str       # "today", "yesterday", or "recent_Xh" (X = 1-12)
         }
-        
+
         Returns: {
             "temperature": [{"time": str, "value": float}],
             "setpoint": [{"time": str, "value": float}],
             "mode": [{"time": str, "mode": "auto"|"manual"|"passive"|"off"}],
+            "operating_mode": [{"time": str, "operating_mode": "auto"|"manual"|"passive"|"off"}],
+            "override": [{"time": str, "override_type": str, "override_target": float, "scheduled_temp": float}],
+            "passive": [{"time": str, "passive_active": bool, "valve_percent": int}],
+            "valve": [{"time": str, "valve_percent": int}],
+            "load_sharing": [{"time": str, "load_sharing_active": bool, "tier": int, "valve_pct": int, "reason": str}],
             "calling_for_heat": [["start_time", "end_time"]]
         }
         """
@@ -658,9 +663,12 @@ class APIHandler:
             
             # Operating mode history - tracks actual heating behavior (e.g., auto mode in passive schedule)
             # Also extracts override info for chart coloring (red for heating override, blue for cooling)
+            # Also extracts passive state and valve position for passive room shading
             # This is stored as attributes on the state entity
             operating_mode_data = []
             override_data = []  # Tracks override periods with type (heating/cooling)
+            passive_data = []  # Tracks passive state (operating_mode='passive' AND valve > 0)
+            valve_data = []  # Tracks valve position for all modes
             state_entity = f"sensor.pyheat_{room_id}_state"
             if self.ad.entity_exists(state_entity):
                 state_history = self.ad.get_history(
@@ -668,13 +676,13 @@ class APIHandler:
                     start_time=start_time,
                     end_time=end_time
                 )
-                
+
                 if state_history and len(state_history) > 0:
                     for state_obj in state_history[0]:
                         try:
                             attrs = state_obj.get("attributes", {})
                             timestamp = state_obj["last_changed"]
-                            
+
                             # Extract operating mode
                             op_mode = attrs.get("operating_mode", "").lower()
                             # Only include valid operating modes
@@ -683,12 +691,36 @@ class APIHandler:
                                     "time": timestamp,
                                     "operating_mode": op_mode
                                 })
-                            
+
+                            # Extract valve position
+                            valve_percent = attrs.get("valve_percent")
+                            if valve_percent is not None:
+                                valve_data.append({
+                                    "time": timestamp,
+                                    "valve_percent": valve_percent
+                                })
+
+                            # Extract passive state (when operating_mode is passive AND valve is open)
+                            # This indicates the room is passively receiving heat
+                            if op_mode == "passive" and valve_percent is not None and valve_percent > 0:
+                                passive_data.append({
+                                    "time": timestamp,
+                                    "passive_active": True,
+                                    "valve_percent": valve_percent
+                                })
+                            elif op_mode == "passive":
+                                # Passive mode but valve closed
+                                passive_data.append({
+                                    "time": timestamp,
+                                    "passive_active": False,
+                                    "valve_percent": 0
+                                })
+
                             # Extract override info
                             # override_target exists only when override is active
                             override_target = attrs.get("override_target")
                             scheduled_temp = attrs.get("scheduled_temp")
-                            
+
                             if override_target is not None:
                                 # Override is active - determine if heating (positive) or cooling (negative)
                                 override_type = "none"
@@ -702,7 +734,7 @@ class APIHandler:
                                 else:
                                     # No scheduled_temp available, just mark as active override
                                     override_type = "active"
-                                
+
                                 override_data.append({
                                     "time": timestamp,
                                     "override_type": override_type,
@@ -728,16 +760,16 @@ class APIHandler:
                     start_time=start_time,
                     end_time=end_time
                 )
-                
+
                 if calling_history and len(calling_history) > 0:
                     calling_start = None
-                    
+
                     for state_obj in calling_history[0]:
                         try:
                             # Binary sensor states are "on" or "off"
                             is_calling = state_obj.get("state") == "on"
                             timestamp = state_obj["last_changed"]
-                            
+
                             if is_calling and calling_start is None:
                                 # Start of a calling period
                                 calling_start = timestamp
@@ -747,10 +779,56 @@ class APIHandler:
                                 calling_start = None
                         except (KeyError, TypeError):
                             continue
-                    
+
                     # If still calling at end of period
                     if calling_start is not None:
                         calling_ranges.append([calling_start, end_time.isoformat()])
+
+            # Load-sharing history - extract from system status entity
+            # Load-sharing state is tracked in sensor.pyheat_status attributes
+            load_sharing_data = []
+            status_entity = C.STATUS_ENTITY  # sensor.pyheat_status
+            if self.ad.entity_exists(status_entity):
+                status_history = self.ad.get_history(
+                    entity_id=status_entity,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if status_history and len(status_history) > 0:
+                    for state_obj in status_history[0]:
+                        try:
+                            attrs = state_obj.get("attributes", {})
+                            timestamp = state_obj["last_changed"]
+
+                            # Extract load_sharing status
+                            load_sharing = attrs.get("load_sharing")
+                            if load_sharing and isinstance(load_sharing, dict):
+                                active_rooms = load_sharing.get("active_rooms", [])
+
+                                # Check if this room is in load-sharing
+                                for active_room in active_rooms:
+                                    if active_room.get("room_id") == room_id:
+                                        # Room is in load-sharing - record the state
+                                        load_sharing_data.append({
+                                            "time": timestamp,
+                                            "load_sharing_active": True,
+                                            "tier": active_room.get("tier"),
+                                            "valve_pct": active_room.get("valve_pct"),
+                                            "reason": active_room.get("reason", "")
+                                        })
+                                        break
+                                else:
+                                    # Room not in active load-sharing
+                                    load_sharing_data.append({
+                                        "time": timestamp,
+                                        "load_sharing_active": False,
+                                        "tier": None,
+                                        "valve_pct": 0,
+                                        "reason": ""
+                                    })
+                        except (KeyError, TypeError, AttributeError):
+                            continue
             
             return {
                 "temperature": temperature_data,
@@ -758,6 +836,9 @@ class APIHandler:
                 "mode": mode_data,
                 "operating_mode": operating_mode_data,
                 "override": override_data,
+                "passive": passive_data,
+                "valve": valve_data,
+                "load_sharing": load_sharing_data,
                 "calling_for_heat": calling_ranges
             }, 200
             

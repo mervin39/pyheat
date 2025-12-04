@@ -1,6 +1,85 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Add Graph Shading for Passive Rooms and Load-Sharing
+
+**Summary:**
+Added visual graph shading in pyheat-web to show when passive rooms are receiving heat and when rooms have valves open due to load-sharing. This provides better visibility into opportunistic heating behavior.
+
+**Problem:**
+Room temperature graphs only showed orange shading when rooms were actively calling for heat. However, rooms can also receive heat through:
+- Passive mode: Room in passive mode with valve open while another room is heating
+- Load-sharing: Room has valve opened by the load-sharing system (pre-warming or fallback)
+
+Users couldn't see when these opportunistic heating events occurred on the graphs.
+
+**Solution:**
+Implemented color-coded graph shading:
+- **Purple shading**: Passive rooms receiving heat (passive mode + valve open + system heating)
+- **Cyan shading**: Load-sharing pre-warming (Tier 1/2, excluding rooms calling for heat)
+- **Red shading**: Load-sharing fallback heating (Tier 3, excluding rooms calling for heat)
+
+**Technical Details:**
+
+1. **Backend API Enhancement** (`services/api_handler.py`):
+   - Added `passive` history field: tracks when `operating_mode='passive'` AND `valve_percent > 0`
+   - Added `valve` history field: tracks valve position for all modes
+   - Added `load_sharing` history field: extracts load-sharing state from system status entity
+   - Data sources:
+     - Passive/valve: `sensor.pyheat_{room_id}_state` attributes
+     - Load-sharing: `sensor.pyheat_status` attributes → `load_sharing.active_rooms[]`
+
+2. **Frontend Chart Component** (`client/src/components/TemperatureChart.tsx`):
+   - Added TypeScript interfaces: `PassivePoint`, `ValvePoint`, `LoadSharingPoint`
+   - Process passive/load-sharing data into time ranges
+   - Logic for passive shading: passive mode + valve open + system heating (any room calling)
+   - Logic for load-sharing shading: active in load-sharing + NOT calling for heat
+   - Added three `<Area>` components with 15% opacity:
+     - `passiveHeating`: Purple (`MODE_COLORS.passive`)
+     - Load-sharing Tier 1/2: Cyan (`LOAD_SHARING_COLORS.preWarm`)
+     - Load-sharing Tier 3: Red (`LOAD_SHARING_COLORS.fallback`)
+
+3. **Color Constants** (`client/src/lib/utils.ts`):
+   - Added `LOAD_SHARING_COLORS` constant with `preWarm` (cyan) and `fallback` (red)
+   - Consistent with room card border colors
+
+**Shading Conditions:**
+
+*Passive shading shows when ALL true:*
+- Room is in passive mode (operating_mode='passive')
+- Room temperature < passive max_temp (valve is open)
+- Heating is on (some other room calling for heat)
+
+*Load-sharing shading shows when:*
+- Room has valve open due to load-sharing
+- Room is NOT calling for heat (calling rooms use orange shading)
+- Color depends on tier: cyan for Tier 1/2, red for Tier 3
+
+**API Response Enhancement:**
+```json
+{
+  "passive": [
+    {"time": "2025-12-04T10:00:00Z", "passive_active": true, "valve_percent": 30}
+  ],
+  "valve": [
+    {"time": "2025-12-04T10:00:00Z", "valve_percent": 30}
+  ],
+  "load_sharing": [
+    {"time": "2025-12-04T10:00:00Z", "load_sharing_active": true, "tier": 1, "valve_pct": 25, "reason": "schedule_30m"}
+  ]
+}
+```
+
+**Files Modified:**
+- Backend: `services/api_handler.py`
+- Frontend: `client/src/components/TemperatureChart.tsx`, `client/src/lib/utils.ts`
+
+**Deployment:**
+- Backend: AppDaemon auto-reload (no restart needed)
+- Frontend: Requires `docker compose up -d --build` in `/opt/appdata/pyheat-web`
+
+---
+
 ## 2025-12-04: Display All Heating Rooms in Boiler Status
 
 **Summary:**
