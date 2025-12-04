@@ -25,15 +25,18 @@ Implemented color-coded graph shading:
    - Added `passive` history field: tracks when `operating_mode='passive'` AND `valve_percent > 0`
    - Added `valve` history field: tracks valve position for all modes
    - Added `load_sharing` history field: extracts load-sharing state from system status entity
+   - Added `system_heating` history field: tracks system-wide heating state (`any_call_for_heat`)
    - Data sources:
      - Passive/valve: `sensor.pyheat_{room_id}_state` attributes
-     - Load-sharing: `sensor.pyheat_status` attributes → `load_sharing.active_rooms[]`
+     - Load-sharing/system_heating: `sensor.pyheat_status` attributes (`load_sharing.active_rooms[]`, `any_call_for_heat`)
 
 2. **Frontend Chart Component** (`client/src/components/TemperatureChart.tsx`):
-   - Added TypeScript interfaces: `PassivePoint`, `ValvePoint`, `LoadSharingPoint`
-   - Process passive/load-sharing data into time ranges
-   - Logic for passive shading: passive mode + valve open + system heating (any room calling)
+   - Added TypeScript interfaces: `PassivePoint`, `ValvePoint`, `LoadSharingPoint`, `SystemHeatingPoint`
+   - Process passive/load-sharing/system-heating data into time ranges
+   - Fixed passive shading: now uses system-wide heating state instead of room-specific calling state
+   - Logic for passive shading: passive mode + valve open + system heating (ANY room calling)
    - Logic for load-sharing shading: active in load-sharing + NOT calling for heat
+   - Added safety check: clear load-sharing shading when room is calling (prevents overlap)
    - Added three `<Area>` components with 15% opacity:
      - `passiveHeating`: Purple (`MODE_COLORS.passive`)
      - Load-sharing Tier 1/2: Cyan (`LOAD_SHARING_COLORS.preWarm`)
@@ -66,9 +69,16 @@ Implemented color-coded graph shading:
   ],
   "load_sharing": [
     {"time": "2025-12-04T10:00:00Z", "load_sharing_active": true, "tier": 1, "valve_pct": 25, "reason": "schedule_30m"}
+  ],
+  "system_heating": [
+    {"time": "2025-12-04T10:00:00Z", "system_heating": true}
   ]
 }
 ```
+
+**Bug Fixes:**
+- Fixed passive room shading not showing: was checking room-specific calling state instead of system-wide heating
+- Fixed load-sharing shading showing through calling shading: added explicit clearing when room is calling
 
 **Files Modified:**
 - Backend: `services/api_handler.py`

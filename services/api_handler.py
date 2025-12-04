@@ -551,6 +551,7 @@ class APIHandler:
             "passive": [{"time": str, "passive_active": bool, "valve_percent": int}],
             "valve": [{"time": str, "valve_percent": int}],
             "load_sharing": [{"time": str, "load_sharing_active": bool, "tier": int, "valve_pct": int, "reason": str}],
+            "system_heating": [{"time": str, "system_heating": bool}],
             "calling_for_heat": [["start_time", "end_time"]]
         }
         """
@@ -784,9 +785,10 @@ class APIHandler:
                     if calling_start is not None:
                         calling_ranges.append([calling_start, end_time.isoformat()])
 
-            # Load-sharing history - extract from system status entity
-            # Load-sharing state is tracked in sensor.pyheat_status attributes
+            # System heating and load-sharing history - extract from system status entity
+            # Both tracked in sensor.pyheat_status attributes
             load_sharing_data = []
+            system_heating_data = []
             status_entity = C.STATUS_ENTITY  # sensor.pyheat_status
             if self.ad.entity_exists(status_entity):
                 status_history = self.ad.get_history(
@@ -800,6 +802,13 @@ class APIHandler:
                         try:
                             attrs = state_obj.get("attributes", {})
                             timestamp = state_obj["last_changed"]
+
+                            # Extract system-wide heating state (any_call_for_heat)
+                            any_call_for_heat = attrs.get("any_call_for_heat", False)
+                            system_heating_data.append({
+                                "time": timestamp,
+                                "system_heating": any_call_for_heat
+                            })
 
                             # Extract load_sharing status
                             load_sharing = attrs.get("load_sharing")
@@ -839,6 +848,7 @@ class APIHandler:
                 "passive": passive_data,
                 "valve": valve_data,
                 "load_sharing": load_sharing_data,
+                "system_heating": system_heating_data,
                 "calling_for_heat": calling_ranges
             }, 200
             
