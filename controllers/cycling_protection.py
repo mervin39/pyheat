@@ -19,6 +19,69 @@ import constants as C
 from persistence import PersistenceManager
 
 
+def _ensure_cooldowns_sensor(ad) -> None:
+    """Ensure the cooldowns counter sensor exists in Home Assistant.
+    
+    Creates sensor.pyheat_cooldowns if it doesn't exist, starting at 0.
+    This is a total_increasing sensor that tracks cumulative cooldown events.
+    
+    Args:
+        ad: AppDaemon API reference
+    """
+    # Check if sensor already exists
+    current_state = ad.get_state(C.COOLDOWNS_ENTITY)
+    if current_state not in [None, 'unknown', 'unavailable']:
+        # Sensor exists with valid state, don't overwrite
+        return
+    
+    # Create sensor with initial state of 0
+    ad.set_state(
+        C.COOLDOWNS_ENTITY,
+        state=0,
+        attributes={
+            'friendly_name': 'PyHeat Cooldowns',
+            'state_class': 'total_increasing',
+            'icon': 'mdi:snowflake-thermometer'
+        }
+    )
+    ad.log(f"Created {C.COOLDOWNS_ENTITY} sensor", level="INFO")
+
+
+def _increment_cooldowns_sensor(ad) -> None:
+    """Increment the cooldowns counter sensor by 1.
+    
+    Args:
+        ad: AppDaemon API reference
+    """
+    try:
+        current_state = ad.get_state(C.COOLDOWNS_ENTITY)
+        if current_state in [None, 'unknown', 'unavailable']:
+            # Sensor doesn't exist or invalid, create with value 1
+            ad.set_state(
+                C.COOLDOWNS_ENTITY,
+                state=1,
+                attributes={
+                    'friendly_name': 'PyHeat Cooldowns',
+                    'state_class': 'total_increasing',
+                    'icon': 'mdi:snowflake-thermometer'
+                }
+            )
+        else:
+            # Increment existing value
+            new_count = int(float(current_state)) + 1
+            ad.set_state(
+                C.COOLDOWNS_ENTITY,
+                state=new_count,
+                attributes={
+                    'friendly_name': 'PyHeat Cooldowns',
+                    'state_class': 'total_increasing',
+                    'icon': 'mdi:snowflake-thermometer'
+                }
+            )
+    except (ValueError, TypeError) as e:
+        ad.log(f"Error incrementing cooldowns sensor: {e}", level="WARNING")
+
+
 class CyclingProtection:
     """Manages short-cycling protection via proactive cooldown detection.
     
@@ -67,6 +130,9 @@ class CyclingProtection:
         
     def initialize_from_ha(self) -> None:
         """Restore state from persistence file."""
+        # Ensure cooldowns sensor exists
+        _ensure_cooldowns_sensor(self.ad)
+        
         try:
             state_dict = self.persistence.get_cycling_protection_state()
             
@@ -407,6 +473,9 @@ class CyclingProtection:
         
         # Add to history for excessive cycling detection
         self.cooldown_history.append((now, return_temp, original_setpoint))
+        
+        # Increment cooldowns counter in Home Assistant
+        _increment_cooldowns_sensor(self.ad)
         
         # Check for excessive cycling
         recent_cooldowns = [

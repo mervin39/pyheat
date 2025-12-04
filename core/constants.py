@@ -284,6 +284,9 @@ HELPER_BOILER_OFF_DELAY_TIMER = "timer.pyheat_boiler_off_delay_timer"
 # Status entity
 STATUS_ENTITY = "sensor.pyheat_status"
 
+# Cooldowns counter sensor (total_increasing for cumulative count)
+COOLDOWNS_ENTITY = "sensor.pyheat_cooldowns"
+
 # ============================================================================
 # OpenTherm Integration Sensors (Monitoring Only)
 # ============================================================================

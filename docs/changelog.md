@@ -1,6 +1,30 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Add Cooldowns Counter Sensor
+
+**Summary:**
+Added a new Home Assistant sensor `sensor.pyheat_cooldowns` that tracks the cumulative count of cycling protection cooldown events. The sensor uses `state_class: total_increasing` for proper HA statistics/history integration.
+
+**New Entity:**
+```yaml
+sensor.pyheat_cooldowns:
+  state_class: total_increasing
+  icon: mdi:snowflake-thermometer
+```
+
+**Behavior:**
+- Created automatically by pyheat on startup if it doesn't exist
+- Increments by 1 each time the boiler enters a cooldown state (high return temp detected)
+- Persists across restarts (HA maintains the state)
+- Useful for monitoring boiler cycling patterns over time
+
+**Files Modified:**
+- `core/constants.py`: Added `COOLDOWNS_ENTITY` constant
+- `controllers/cycling_protection.py`: Added helper functions to ensure sensor exists and increment it; called during initialization and cooldown entry
+
+---
+
 ## 2025-12-03: Fix Stale Load Sharing Entity References in Docs
 
 **Summary:**
