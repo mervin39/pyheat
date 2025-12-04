@@ -1,6 +1,35 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Expose Cooldown State in API
+
+**Summary:**
+Added `cooldown_active` field to API response to expose cycling protection cooldown state for web interface display.
+
+**Problem:**
+The web interface showed "Heating Active" even when the boiler was in cooldown mode (boiler on but flame off due to cycling protection). This was confusing as it appeared the system was heating when it was actually in a protective cooldown state.
+
+**Solution:**
+- Read cooldown state from PyHeat's internal cycling protection controller
+- Extract `cycling_protection.state` from `sensor.pyheat_status` attributes
+- Convert state == "COOLDOWN" to boolean `cooldown_active` field
+- Return false if cycling protection is not available
+- Added to system status in API response for pyheat-web consumption
+
+**Why This Approach:**
+- Reads from PyHeat's internal state (not HA entities) - maintains single source of truth
+- Uses existing published attributes in `sensor.pyheat_status`
+- No additional HA entity needed - direct state access from controller
+
+**Files Modified:**
+- `services/api_handler.py`: Read cycling protection state and add `cooldown_active` to system response
+
+**Integration:**
+- Enables pyheat-web to display distinct cooldown status in boiler card
+- See pyheat-web changelog for UI changes
+
+---
+
 ## 2025-12-04: Start pump overrun timer from flame-off event
 
 **Summary:**
