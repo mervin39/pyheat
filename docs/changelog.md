@@ -16,9 +16,8 @@ Users couldn't see when these opportunistic heating events occurred on the graph
 **Solution:**
 Implemented color-coded graph shading:
 - **Purple shading**: Passive rooms receiving heat (passive mode + valve open + system heating)
-- **Amber shading**: Load-sharing (all tiers, excluding rooms calling for heat)
-
-**Note:** Original implementation used cyan (Tier 1/2) and red (Tier 3), but this was changed to unified amber on 2025-12-04 to avoid confusion with override heating (red) and improve visual clarity.
+- **Cyan shading**: Load-sharing pre-warming (Tier 1/2, excluding rooms calling for heat)
+- **Red shading**: Load-sharing fallback heating (Tier 3, excluding rooms calling for heat)
 
 **Technical Details:**
 
@@ -40,12 +39,12 @@ Implemented color-coded graph shading:
    - Added safety check: clear load-sharing shading when room is calling (prevents overlap)
    - Added three `<Area>` components with 15% opacity:
      - `passiveHeating`: Purple (`MODE_COLORS.passive`)
-     - Load-sharing Tier 1/2: Amber (`LOAD_SHARING_COLORS.preWarm`)
-     - Load-sharing Tier 3: Amber (`LOAD_SHARING_COLORS.fallback`)
+     - Load-sharing Tier 1/2: Cyan (`LOAD_SHARING_COLORS.preWarm`)
+     - Load-sharing Tier 3: Red (`LOAD_SHARING_COLORS.fallback`)
 
 3. **Color Constants** (`client/src/lib/utils.ts`):
-   - Added `LOAD_SHARING_COLORS` constant with `preWarm` and `fallback` (both amber)
-   - Originally used cyan/red but changed to unified amber to avoid confusion
+   - Added `LOAD_SHARING_COLORS` constant with `preWarm` (cyan) and `fallback` (red)
+   - Consistent with room card border colors
 
 **Shading Conditions:**
 
@@ -57,7 +56,7 @@ Implemented color-coded graph shading:
 *Load-sharing shading shows when:*
 - Room has valve open due to load-sharing
 - Room is NOT calling for heat (calling rooms use orange shading)
-- Uses amber color (unified for all tiers)
+- Color depends on tier: cyan for Tier 1/2, red for Tier 3
 
 **API Response Enhancement:**
 ```json
