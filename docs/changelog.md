@@ -1,6 +1,65 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Display All Heating Rooms in Boiler Status
+
+**Summary:**
+Enhanced boiler status display to show all rooms receiving heat, including naturally calling rooms, passive rooms, and load-sharing rooms (schedule pre-warming and fallback tiers).
+
+**Problem:**
+The boiler status only showed "heating (N rooms)" where N was the count of naturally calling rooms. This didn't account for:
+- Passive rooms with open valves receiving opportunistic heating
+- Load-sharing rooms activated for cycling protection (pre-warming or fallback)
+
+This created confusion as the boiler could be running for more rooms than displayed, and users couldn't see the full picture of system activity.
+
+**Solution:**
+Implemented contextual progressive display that adapts based on what's active:
+- Only calling: `"heating (3 active)"`
+- Calling + passive: `"heating (3 active, 2 passive)"`
+- Calling + load-sharing: `"heating (3 active, +2 pre-warming)"`
+- All categories: `"heating (3 active, 2 passive, +1 pre-warming, +1 fallback)"`
+
+**Technical Details:**
+1. **Status Publisher** (`status_publisher.py`):
+   - Calculate passive rooms: `operating_mode='passive'` AND `valve_percent > 0` AND not naturally calling
+   - Extract load-sharing rooms by tier from `load_sharing.get_status()`
+   - Build progressive status text based on active categories
+   - Add new attributes: `calling_count`, `passive_count`, `load_sharing_schedule_count`, `load_sharing_fallback_count`, `total_heating_count`
+   - Include room ID lists: `passive_rooms`, `load_sharing_schedule_rooms`, `load_sharing_fallback_rooms`
+
+2. **API Handler** (`api_handler.py`):
+   - Extract room counts from status attributes
+   - Add to system object in API response for pyheat-web consumption
+
+**Backward Compatibility:**
+- Preserved `room_calling_count` field (unchanged)
+- Preserved `active_rooms` field (unchanged)
+- All new fields are additive
+
+**Files Modified:**
+- `services/status_publisher.py`: Calculate room counts and format status text
+- `services/api_handler.py`: Add counts to API response
+
+**API Response Enhancement:**
+```json
+{
+  "system": {
+    "calling_count": 3,
+    "passive_count": 2,
+    "load_sharing_schedule_count": 1,
+    "load_sharing_fallback_count": 1,
+    "total_heating_count": 7
+  }
+}
+```
+
+**Integration:**
+- Enables pyheat-web to display complete room heating breakdown
+- Frontend can show visual indicators for different room types (active, passive, pre-warming, fallback)
+
+---
+
 ## 2025-12-04: Expose Cooldown State in API
 
 **Summary:**

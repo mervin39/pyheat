@@ -438,7 +438,7 @@ class StatusPublisher:
                              room_data: Dict, boiler_state: str, boiler_reason: str,
                              now: datetime) -> None:
         """Publish main system status entity.
-        
+
         Args:
             any_calling: Whether any room is calling for heat
             active_rooms: List of calling room IDs
@@ -447,9 +447,70 @@ class StatusPublisher:
             boiler_reason: Reason for boiler state
             now: Current datetime
         """
+        # Calculate passive rooms (receiving heat when boiler is on)
+        passive_rooms = []
+        if boiler_state == C.STATE_ON:
+            for room_id, data in room_data.items():
+                # Passive room: operating_mode='passive' AND valve open AND not naturally calling
+                if (data.get('operating_mode') == 'passive' and
+                    data.get('valve_percent', 0) > 0 and
+                    room_id not in active_rooms):
+                    passive_rooms.append(room_id)
+
+        # Calculate load-sharing rooms by tier
+        load_sharing_schedule_rooms = []
+        load_sharing_fallback_rooms = []
+
+        if hasattr(self.ad, 'load_sharing') and self.ad.load_sharing:
+            ls_status = self.ad.load_sharing.get_status()
+            ls_active_rooms = ls_status.get('active_rooms', [])
+
+            for room in ls_active_rooms:
+                if room['tier'] == 1:  # TIER_SCHEDULE
+                    load_sharing_schedule_rooms.append(room['room_id'])
+                elif room['tier'] == 2:  # TIER_FALLBACK
+                    load_sharing_fallback_rooms.append(room['room_id'])
+
+        # Calculate totals
+        calling_count = len(active_rooms)
+        passive_count = len(passive_rooms)
+        schedule_count = len(load_sharing_schedule_rooms)
+        fallback_count = len(load_sharing_fallback_rooms)
+        total_heating = calling_count + passive_count + schedule_count + fallback_count
+
         # Build state string based on boiler state machine (like monolithic version)
         if boiler_state == C.STATE_ON:
-            state = f"heating ({len(active_rooms)} room{'s' if len(active_rooms) != 1 else ''})"
+            # Build progressive status text based on what's active
+            parts = []
+
+            # Always show calling count (even if 0 for edge cases)
+            if calling_count == 1:
+                parts.append("1 active")
+            else:
+                parts.append(f"{calling_count} active")
+
+            # Add passive rooms if any
+            if passive_count > 0:
+                if passive_count == 1:
+                    parts.append("1 passive")
+                else:
+                    parts.append(f"{passive_count} passive")
+
+            # Add load-sharing schedule tier if any
+            if schedule_count > 0:
+                if schedule_count == 1:
+                    parts.append("+1 pre-warming")
+                else:
+                    parts.append(f"+{schedule_count} pre-warming")
+
+            # Add load-sharing fallback tier if any
+            if fallback_count > 0:
+                if fallback_count == 1:
+                    parts.append("+1 fallback")
+                else:
+                    parts.append(f"+{fallback_count} fallback")
+
+            state = f"heating ({', '.join(parts)})"
         elif boiler_state == C.STATE_PUMP_OVERRUN:
             state = "pump overrun"
         elif boiler_state == C.STATE_PENDING_ON:
@@ -465,13 +526,22 @@ class StatusPublisher:
         attrs = {
             'any_call_for_heat': any_calling,
             'active_rooms': active_rooms,
-            'room_calling_count': len(active_rooms),
+            'room_calling_count': len(active_rooms),  # Keep for backward compatibility
             'total_rooms': len(self.config.rooms),
             'rooms': {},
             'boiler_state': boiler_state,
             'boiler_reason': boiler_reason,
             'total_valve_percent': 0,
             'last_recompute': now.isoformat(),
+            # Room heating counts
+            'calling_count': calling_count,
+            'passive_count': passive_count,
+            'load_sharing_schedule_count': schedule_count,
+            'load_sharing_fallback_count': fallback_count,
+            'total_heating_count': total_heating,
+            'passive_rooms': passive_rooms,
+            'load_sharing_schedule_rooms': load_sharing_schedule_rooms,
+            'load_sharing_fallback_rooms': load_sharing_fallback_rooms,
         }
         
         # Add cycling protection state if available

@@ -494,6 +494,13 @@ class APIHandler:
             else:
                 cooldown_active = False  # No cycling protection available, so not in cooldown
 
+            # Get room counts from status attributes
+            calling_count = status_attrs.get("calling_count", len(status_attrs.get("active_rooms", [])))
+            passive_count = status_attrs.get("passive_count", 0)
+            schedule_count = status_attrs.get("load_sharing_schedule_count", 0)
+            fallback_count = status_attrs.get("load_sharing_fallback_count", 0)
+            total_heating = status_attrs.get("total_heating_count", calling_count)
+
             system = {
                 "master_enabled": master_enabled,
                 "holiday_mode": holiday_mode,
@@ -506,6 +513,12 @@ class APIHandler:
                 "boiler_pump_overrun_end_time": boiler_pump_overrun_end_time,
                 "cooldown_active": cooldown_active,
                 "load_sharing": status_attrs.get("load_sharing"),
+                # Room heating counts
+                "calling_count": calling_count,
+                "passive_count": passive_count,
+                "load_sharing_schedule_count": schedule_count,
+                "load_sharing_fallback_count": fallback_count,
+                "total_heating_count": total_heating,
             }
             
             return {
