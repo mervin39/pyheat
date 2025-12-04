@@ -1,6 +1,29 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Start pump overrun timer from flame-off event
+
+**Summary:**
+Changed pump overrun timer to start when the boiler flame actually goes off, rather than when we command the boiler off. This aligns our pump overrun timing with the boiler's physical pump overrun cycle.
+
+**Problem:**
+Previously, we started the pump overrun timer immediately when transitioning to `STATE_PUMP_OVERRUN`. However, the boiler takes ~10-15 seconds to actually shut off after receiving the off command, and the boiler's own pump overrun doesn't start until the flame extinguishes. This meant our timer could expire before the boiler's pump stopped running, potentially allowing valves to close while the pump was still circulating.
+
+Analysis of CSV logs showed 8.23% of pump_overrun records had `ot_flame='on'` - representing this transition period.
+
+**Solution:**
+- When entering `STATE_PUMP_OVERRUN`, we now check if flame is already off
+- If flame is on, we wait for the `on_flame_off` callback to start the timer
+- If flame is already off, we start the timer immediately
+- Added `on_flame_off()` method to `BoilerController` to handle flame-off events
+- Registered flame listener in `app.py` for both cycling protection and pump overrun
+
+**Files Modified:**
+- `controllers/boiler_controller.py`: Added `_is_flame_off()` helper, `on_flame_off()` callback, modified pump overrun transitions
+- `app.py`: Added flame listener for `boiler.on_flame_off()`
+
+---
+
 ## 2025-12-04: Add Cooldown Active Binary Sensor
 
 **Summary:**

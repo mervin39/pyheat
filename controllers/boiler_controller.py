@@ -274,8 +274,9 @@ class BoilerController:
                 
                 self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
                 self._start_timer(C.HELPER_BOILER_MIN_OFF_TIMER, self._get_min_off_time())
-                self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self._get_pump_overrun())
-                reason = "Turned OFF: interlock failed"
+                # NOTE: Pump overrun timer will start when flame actually goes off
+                # (via on_flame_off callback) to match boiler's physical pump overrun
+                reason = "Turned OFF: interlock failed, waiting for flame off"
                 valves_must_stay_open = True
                 self.ad.log(
                     f"🔴 CRITICAL: Boiler interlock failed while running! Boiler turned off. "
@@ -328,11 +329,17 @@ class BoilerController:
                     
                     self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
                     self._start_timer(C.HELPER_BOILER_MIN_OFF_TIMER, self._get_min_off_time())
-                    self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self._get_pump_overrun())
+                    # NOTE: Pump overrun timer will start when flame actually goes off
+                    # (via on_flame_off callback) to match boiler's physical pump overrun
+                    # If flame is already off, start immediately
+                    if self._is_flame_off():
+                        self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self._get_pump_overrun())
+                        reason = "Pump overrun: boiler off, flame already off"
+                    else:
+                        reason = "Pump overrun: boiler commanded off, waiting for flame off"
                     
                     # Pump overrun persistence already enabled by valve coordinator
                     # (when we entered PENDING_OFF)
-                    reason = "Pump overrun: boiler commanded off"
                     valves_must_stay_open = True
                 else:
                     # Boiler is still on but min_on_time hasn't elapsed yet
@@ -779,4 +786,57 @@ class BoilerController:
     def _get_pump_overrun(self) -> int:
         """Get pump overrun time from config."""
         return self.config.boiler_config.get('pump_overrun_s', C.BOILER_PUMP_OVERRUN_DEFAULT)
+    
+    def _is_flame_off(self) -> bool:
+        """Check if the boiler flame is currently off.
+        
+        Returns:
+            True if flame is off or unavailable, False if flame is on
+        """
+        if not self.ad.entity_exists(C.OPENTHERM_FLAME):
+            return True  # Assume off if sensor doesn't exist
+        
+        flame_state = self.ad.get_state(C.OPENTHERM_FLAME)
+        return flame_state != 'on'
+    
+    def on_flame_off(self, entity, attribute, old, new, kwargs):
+        """Handle flame-off event to start pump overrun timer.
+        
+        Called when binary_sensor.opentherm_flame changes to 'off'.
+        Only starts the pump overrun timer if we're in STATE_PUMP_OVERRUN
+        and the timer hasn't already been started.
+        
+        This ensures pump overrun timing matches the boiler's physical pump
+        overrun, which starts when the flame actually extinguishes (not when
+        we command the boiler off).
+        
+        Args:
+            entity: Entity that changed
+            attribute: Attribute that changed
+            old: Previous state
+            new: New state
+            kwargs: Additional arguments
+        """
+        if new != 'off' or old != 'on':
+            return
+        
+        # Only relevant if we're in PUMP_OVERRUN state
+        if self.boiler_state != C.STATE_PUMP_OVERRUN:
+            return
+        
+        # Only start timer if not already running
+        if self._is_timer_active(C.HELPER_PUMP_OVERRUN_TIMER):
+            self.ad.log(
+                "Boiler: Flame off detected but pump overrun timer already running",
+                level="DEBUG"
+            )
+            return
+        
+        # Start the pump overrun timer now that flame is actually off
+        self._start_timer(C.HELPER_PUMP_OVERRUN_TIMER, self._get_pump_overrun())
+        self.ad.log(
+            f"Boiler: Flame off detected in PUMP_OVERRUN state - starting "
+            f"{self._get_pump_overrun()}s pump overrun timer",
+            level="INFO"
+        )
 

@@ -303,9 +303,11 @@ class PyHeat(hass.Hass):
             self.log(f"Registered {opentherm_count} OpenTherm sensors for monitoring")
         
         # Flame sensor for cycling protection (triggers cooldown detection)
+        # and boiler pump overrun (timer starts from flame off, not command off)
         if self.entity_exists(C.OPENTHERM_FLAME):
             self.listen_state(self.cycling.on_flame_off, C.OPENTHERM_FLAME)
-            self.log("Registered flame sensor for cycling protection")
+            self.listen_state(self.boiler.on_flame_off, C.OPENTHERM_FLAME)
+            self.log("Registered flame sensor for cycling protection and pump overrun")
         
         # DHW sensors for cycling protection history tracking
         dhw_sensor_count = 0
