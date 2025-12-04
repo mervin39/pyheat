@@ -1,6 +1,25 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Fix schedule default_valve_percent not reflected in status
+
+**Summary:**
+Fixed a bug where changing `default_valve_percent` in schedules.yaml (via pyheat-web schedule editor) was saved correctly but not reflected in the room status display or API response.
+
+**Root Cause:**
+The status publisher and API handler were reading `passive_valve_percent` directly from the HA `input_number.pyheat_{room}_passive_valve_percent` entity, ignoring the schedule's `default_valve_percent` value. The scheduler correctly used schedule values with entity fallback, but the display layer did not.
+
+**Fix:**
+- Added `_get_passive_valve_percent()` helper method to `StatusPublisher` that checks schedule's `default_valve_percent` first, falling back to the HA entity only if not set in schedule
+- Updated API handler to use the same logic for the `passive_valve_percent` field in status responses
+- Now consistent with scheduler behavior: schedule value takes precedence over entity value
+
+**Files Modified:**
+- `services/status_publisher.py`: Added helper method and updated two call sites
+- `services/api_handler.py`: Updated passive_valve_percent lookup to check schedule first
+
+---
+
 ## 2025-12-04: Add Cooldowns Counter Sensor
 
 **Summary:**

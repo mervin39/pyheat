@@ -27,6 +27,36 @@ class StatusPublisher:
         self.ad = ad
         self.config = config
     
+    def _get_passive_valve_percent(self, room_id: str) -> int:
+        """Get passive valve percent for a room.
+        
+        Uses schedule's default_valve_percent if set, otherwise falls back
+        to the HA input_number entity value.
+        
+        Args:
+            room_id: Room identifier
+            
+        Returns:
+            Passive valve percent (0-100)
+        """
+        # Check schedule's default_valve_percent first
+        schedule = self.config.schedules.get(room_id, {})
+        schedule_valve = schedule.get('default_valve_percent')
+        if schedule_valve is not None:
+            return int(schedule_valve)
+        
+        # Fall back to HA entity
+        passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
+        if self.ad.entity_exists(passive_valve_entity):
+            try:
+                valve_str = self.ad.get_state(passive_valve_entity)
+                if valve_str not in [None, "unknown", "unavailable"]:
+                    return int(float(valve_str))
+            except (ValueError, TypeError):
+                pass
+        
+        return C.PASSIVE_VALVE_PERCENT_DEFAULT
+    
     
     def update_room_temperature(self, room_id: str, temp: float, is_stale: bool) -> None:
         """Update just the temperature sensor entity (lightweight operation).
@@ -215,16 +245,8 @@ class StatusPublisher:
             if max_temp is None or min_temp is None:
                 return 'Passive (opportunistic)'
             
-            # Get configured passive valve percent from HA entity
-            passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
-            passive_valve_percent = C.PASSIVE_VALVE_PERCENT_DEFAULT  # default
-            if self.ad.entity_exists(passive_valve_entity):
-                try:
-                    valve_str = self.ad.get_state(passive_valve_entity)
-                    if valve_str not in [None, "unknown", "unavailable"]:
-                        passive_valve_percent = int(float(valve_str))
-                except (ValueError, TypeError):
-                    pass
+            # Get configured passive valve percent (schedule takes precedence over entity)
+            passive_valve_percent = self._get_passive_valve_percent(room_id)
             
             return f'Passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%'
         
@@ -240,16 +262,8 @@ class StatusPublisher:
                 max_temp = target  # In passive mode, target is the max temp
                 min_temp = data.get('passive_min_temp')
                 
-                # Get configured passive valve percent
-                passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
-                passive_valve_percent = C.PASSIVE_VALVE_PERCENT_DEFAULT
-                if self.ad.entity_exists(passive_valve_entity):
-                    try:
-                        valve_str = self.ad.get_state(passive_valve_entity)
-                        if valve_str not in [None, "unknown", "unavailable"]:
-                            passive_valve_percent = int(float(valve_str))
-                    except (ValueError, TypeError):
-                        pass
+                # Get configured passive valve percent (schedule takes precedence over entity)
+                passive_valve_percent = self._get_passive_valve_percent(room_id)
                 
                 # Check if we're in a scheduled block (not default mode)
                 is_in_block = scheduled_info and not scheduled_info.get('is_default_mode', True)
