@@ -487,6 +487,13 @@ class APIHandler:
                         if C.DEBUG_API_LOGGING:
                             self.ad.log(f"API: min_off finishes_at={boiler_min_off_end_time}", level="DEBUG")
             
+            # Get cooldown active state from cycling protection
+            cycling_protection = status_attrs.get("cycling_protection")
+            if cycling_protection:
+                cooldown_active = cycling_protection.get("state") == "COOLDOWN"
+            else:
+                cooldown_active = False  # No cycling protection available, so not in cooldown
+
             system = {
                 "master_enabled": master_enabled,
                 "holiday_mode": holiday_mode,
@@ -497,6 +504,7 @@ class APIHandler:
                 "boiler_min_on_end_time": boiler_min_on_end_time,
                 "boiler_min_off_end_time": boiler_min_off_end_time,
                 "boiler_pump_overrun_end_time": boiler_pump_overrun_end_time,
+                "cooldown_active": cooldown_active,
                 "load_sharing": status_attrs.get("load_sharing"),
             }
             
