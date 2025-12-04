@@ -21,6 +21,7 @@ Thumbs.db
 
 # GitHub config 
 .github/
+.claude/
 
 # Ignore actual runtime YAML configs
 config/*.yaml
