@@ -30,14 +30,18 @@ def _ensure_cooldowns_sensor(ad) -> None:
     """
     # Check if sensor already exists
     current_state = ad.get_state(C.COOLDOWNS_ENTITY)
+    ad.log(f"Checking cooldowns sensor: current_state={current_state}", level="DEBUG")
+    
     if current_state not in [None, 'unknown', 'unavailable']:
         # Sensor exists with valid state, don't overwrite
+        ad.log(f"Cooldowns sensor already exists with state {current_state}", level="DEBUG")
         return
     
     # Create sensor with initial state of 0
+    ad.log(f"Creating {C.COOLDOWNS_ENTITY} sensor...", level="INFO")
     ad.set_state(
         C.COOLDOWNS_ENTITY,
-        state=0,
+        state="0",
         attributes={
             'friendly_name': 'PyHeat Cooldowns',
             'state_class': 'total_increasing',
@@ -59,7 +63,7 @@ def _increment_cooldowns_sensor(ad) -> None:
             # Sensor doesn't exist or invalid, create with value 1
             ad.set_state(
                 C.COOLDOWNS_ENTITY,
-                state=1,
+                state="1",
                 attributes={
                     'friendly_name': 'PyHeat Cooldowns',
                     'state_class': 'total_increasing',
@@ -71,7 +75,7 @@ def _increment_cooldowns_sensor(ad) -> None:
             new_count = int(float(current_state)) + 1
             ad.set_state(
                 C.COOLDOWNS_ENTITY,
-                state=new_count,
+                state=str(new_count),
                 attributes={
                     'friendly_name': 'PyHeat Cooldowns',
                     'state_class': 'total_increasing',
@@ -165,8 +169,11 @@ class CyclingProtection:
         if self._cooldowns_sensor_initialized:
             return
         
-        _ensure_cooldowns_sensor(self.ad)
-        self._cooldowns_sensor_initialized = True
+        try:
+            _ensure_cooldowns_sensor(self.ad)
+            self._cooldowns_sensor_initialized = True
+        except Exception as e:
+            self.ad.log(f"Failed to ensure cooldowns sensor: {e}", level="ERROR")
     
     def on_dhw_state_change(self, entity, attribute, old, new, kwargs):
         """Track DHW sensor state changes for history-based detection.
