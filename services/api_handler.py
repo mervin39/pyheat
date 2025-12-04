@@ -360,7 +360,7 @@ class APIHandler:
                 passive_min_temp = None
                 passive_valve_percent = None
                 
-                passive_max_entity = f"input_number.pyheat_{room_id}_passive_max_temp"
+                passive_max_entity = C.HELPER_ROOM_PASSIVE_MAX_TEMP.format(room=room_id)
                 if self.ad.entity_exists(passive_max_entity):
                     try:
                         max_temp_str = self.ad.get_state(passive_max_entity)
@@ -369,7 +369,7 @@ class APIHandler:
                     except (ValueError, TypeError):
                         pass
                 
-                passive_min_entity = f"input_number.pyheat_{room_id}_passive_min_temp"
+                passive_min_entity = C.HELPER_ROOM_PASSIVE_MIN_TEMP.format(room=room_id)
                 if self.ad.entity_exists(passive_min_entity):
                     try:
                         min_temp_str = self.ad.get_state(passive_min_entity)
@@ -384,7 +384,7 @@ class APIHandler:
                 if schedule_valve is not None:
                     passive_valve_percent = int(schedule_valve)
                 else:
-                    passive_valve_entity = f"input_number.pyheat_{room_id}_passive_valve_percent"
+                    passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
                     if self.ad.entity_exists(passive_valve_entity):
                         try:
                             valve_str = self.ad.get_state(passive_valve_entity)

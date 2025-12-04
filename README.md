@@ -180,14 +180,16 @@ When in Manual mode, set temperature via:
 3. Valve closes when temp ≥ max_temp
 4. Room benefits from heat circulation when other rooms are actively heating
 
-**Configuration:**
-- `input_number.pyheat_{room}_passive_max_temp` - Maximum temperature (10-30°C, default 18°C)
-- `input_number.pyheat_{room}_passive_valve_percent` - Valve opening percentage (0-100%, default 30%)
-- `input_number.pyheat_{room}_passive_min_temp` - Minimum temperature/comfort floor (8-20°C, default 8°C)
+**Configuration (for manual passive mode):**
+- `input_number.pyheat_{room}_passive_mode_max_temp` - Maximum temperature (10-30°C, default 18°C)
+- `input_number.pyheat_{room}_passive_mode_valve_percent` - Valve opening percentage (0-100%, default 30%)
+- `input_number.pyheat_{room}_passive_mode_min_temp` - Minimum temperature/comfort floor (8-20°C, default 8°C)
+
+Note: These entities are only used when the room mode selector is set to "passive". For scheduled passive blocks (in auto mode), use the schedule's `default_valve_percent`, `default_min_temp`, etc.
 
 **Comfort Floor (Minimum Temperature):**
 Optionally configure a comfort floor to prevent passive rooms from getting too cold:
-- When temp drops below `passive_min_temp`, room automatically switches to comfort mode
+- When temp drops below min_temp, room automatically switches to comfort mode
 - Comfort mode: Calls for heat with 100% valve for rapid recovery
 - Returns to normal passive behavior when temp recovers above min_temp
 - Default is 8°C (equals frost protection) - set higher (e.g., 12-15°C) for comfort
@@ -218,7 +220,7 @@ rooms:
 
 **min_target** field (optional):
 - Specifies comfort floor for this passive block
-- Takes precedence over `passive_min_temp` entity
+- Takes precedence over `passive_mode_min_temp` entity when in auto mode
 - Must be >= frost_protection_temp_c (8°C by default)
 - Omit to use entity value or frost protection temp only
 

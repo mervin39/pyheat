@@ -262,9 +262,11 @@ HELPER_ROOM_MODE = "input_select.pyheat_{room}_mode"  # auto, manual, passive, o
 HELPER_ROOM_MANUAL_SETPOINT = "input_number.pyheat_{room}_manual_setpoint"
 HELPER_ROOM_OVERRIDE_TIMER = "timer.pyheat_{room}_override"
 HELPER_ROOM_OVERRIDE_TARGET = "input_number.pyheat_{room}_override_target"
-HELPER_ROOM_PASSIVE_MAX_TEMP = "input_number.pyheat_{room}_passive_max_temp"
-HELPER_ROOM_PASSIVE_VALVE_PERCENT = "input_number.pyheat_{room}_passive_valve_percent"
-HELPER_ROOM_PASSIVE_MIN_TEMP = "input_number.pyheat_{room}_passive_min_temp"
+# Passive MODE settings (used when room mode selector is set to "passive")
+# Note: These are NOT used for scheduled passive blocks - those use schedule's default_valve_percent etc.
+HELPER_ROOM_PASSIVE_MAX_TEMP = "input_number.pyheat_{room}_passive_mode_max_temp"
+HELPER_ROOM_PASSIVE_VALVE_PERCENT = "input_number.pyheat_{room}_passive_mode_valve_percent"
+HELPER_ROOM_PASSIVE_MIN_TEMP = "input_number.pyheat_{room}_passive_mode_min_temp"
 
 # Passive mode defaults
 PASSIVE_MAX_TEMP_DEFAULT = 18.0  # °C

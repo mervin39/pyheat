@@ -1,6 +1,40 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Rename passive mode entities for clarity
+
+**Summary:**
+Renamed passive mode helper entities to include `_mode` suffix to clarify they're only used when the room mode selector is set to "passive", not for scheduled passive blocks in auto mode.
+
+**Entity Name Changes:**
+| Old Name | New Name |
+|----------|----------|
+| `input_number.pyheat_{room}_passive_max_temp` | `input_number.pyheat_{room}_passive_mode_max_temp` |
+| `input_number.pyheat_{room}_passive_valve_percent` | `input_number.pyheat_{room}_passive_mode_valve_percent` |
+| `input_number.pyheat_{room}_passive_min_temp` | `input_number.pyheat_{room}_passive_mode_min_temp` |
+
+**Why:**
+The old names were ambiguous - "passive" could mean:
+1. Manual passive mode (user selected "passive" from mode dropdown)
+2. Passive operation in auto mode (schedule's `default_mode: passive` or a passive block)
+
+These entities are ONLY used for case 1. For case 2, the schedule's `default_valve_percent`, `default_min_temp`, etc. take precedence.
+
+**Migration Required:**
+After updating `pyheat_package.yaml` in Home Assistant, you'll need to:
+1. Reload the pyheat package or restart HA
+2. The old entities will become unavailable; new entities will be created
+3. Optionally delete the old entities from HA's entity registry
+
+**Files Modified:**
+- `core/constants.py`: Updated entity name templates with clarifying comments
+- `config/ha_yaml/pyheat_package.yaml`: Renamed all passive mode entities
+- `services/api_handler.py`: Now uses constants instead of hardcoded entity names
+- `README.md`: Updated entity documentation
+- `pyheat-web/server/ha_client.py`: Updated entity references
+
+---
+
 ## 2025-12-04: Fix schedule default_valve_percent not reflected in status
 
 **Summary:**

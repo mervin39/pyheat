@@ -196,9 +196,10 @@ input_number:
     mode: box
     icon: mdi:radiator
 
-  # Passive mode settings (max temp and valve percent)
-  pyheat_pete_passive_max_temp:
-    name: "Pete's Room Passive Max Temp"
+  # Passive MODE settings (used when room mode selector is set to "passive")
+  # Note: These are NOT used for scheduled passive blocks - those use schedule's default_valve_percent etc.
+  pyheat_pete_passive_mode_max_temp:
+    name: "Pete's Room Passive Mode Max Temp"
     min: 10
     max: 30
     step: 0.5
@@ -207,8 +208,8 @@ input_number:
     icon: mdi:thermometer-high
     initial: 18.0
 
-  pyheat_pete_passive_valve_percent:
-    name: "Pete's Room Passive Valve Percent"
+  pyheat_pete_passive_mode_valve_percent:
+    name: "Pete's Room Passive Mode Valve Percent"
     min: 0
     max: 100
     step: 5
@@ -217,8 +218,8 @@ input_number:
     icon: mdi:valve
     initial: 30
 
-  pyheat_abby_passive_max_temp:
-    name: "Abby's Room Passive Max Temp"
+  pyheat_abby_passive_mode_max_temp:
+    name: "Abby's Room Passive Mode Max Temp"
     min: 10
     max: 30
     step: 0.5
@@ -227,8 +228,8 @@ input_number:
     icon: mdi:thermometer-high
     initial: 18.0
 
-  pyheat_abby_passive_valve_percent:
-    name: "Abby's Room Passive Valve Percent"
+  pyheat_abby_passive_mode_valve_percent:
+    name: "Abby's Room Passive Mode Valve Percent"
     min: 0
     max: 100
     step: 5
@@ -237,8 +238,8 @@ input_number:
     icon: mdi:valve
     initial: 30
 
-  pyheat_office_passive_max_temp:
-    name: "Office Passive Max Temp"
+  pyheat_office_passive_mode_max_temp:
+    name: "Office Passive Mode Max Temp"
     min: 10
     max: 30
     step: 0.5
@@ -247,8 +248,8 @@ input_number:
     icon: mdi:thermometer-high
     initial: 18.0
 
-  pyheat_office_passive_valve_percent:
-    name: "Office Passive Valve Percent"
+  pyheat_office_passive_mode_valve_percent:
+    name: "Office Passive Mode Valve Percent"
     min: 0
     max: 100
     step: 5
@@ -257,8 +258,8 @@ input_number:
     icon: mdi:valve
     initial: 30
 
-  pyheat_lounge_passive_max_temp:
-    name: "Living Room Passive Max Temp"
+  pyheat_lounge_passive_mode_max_temp:
+    name: "Living Room Passive Mode Max Temp"
     min: 10
     max: 30
     step: 0.5
@@ -267,8 +268,8 @@ input_number:
     icon: mdi:thermometer-high
     initial: 18.0
 
-  pyheat_lounge_passive_valve_percent:
-    name: "Living Room Passive Valve Percent"
+  pyheat_lounge_passive_mode_valve_percent:
+    name: "Living Room Passive Mode Valve Percent"
     min: 0
     max: 100
     step: 5
@@ -277,8 +278,8 @@ input_number:
     icon: mdi:valve
     initial: 30
 
-  pyheat_games_passive_max_temp:
-    name: "Dining Room Passive Max Temp"
+  pyheat_games_passive_mode_max_temp:
+    name: "Dining Room Passive Mode Max Temp"
     min: 10
     max: 30
     step: 0.5
@@ -287,8 +288,8 @@ input_number:
     icon: mdi:thermometer-high
     initial: 18.0
 
-  pyheat_games_passive_valve_percent:
-    name: "Dining Room Passive Valve Percent"
+  pyheat_games_passive_mode_valve_percent:
+    name: "Dining Room Passive Mode Valve Percent"
     min: 0
     max: 100
     step: 5
@@ -297,8 +298,8 @@ input_number:
     icon: mdi:valve
     initial: 30
 
-  pyheat_bathroom_passive_max_temp:
-    name: "Bathroom Passive Max Temp"
+  pyheat_bathroom_passive_mode_max_temp:
+    name: "Bathroom Passive Mode Max Temp"
     min: 10
     max: 30
     step: 0.5
@@ -307,8 +308,8 @@ input_number:
     icon: mdi:thermometer-high
     initial: 18.0
 
-  pyheat_bathroom_passive_valve_percent:
-    name: "Bathroom Passive Valve Percent"
+  pyheat_bathroom_passive_mode_valve_percent:
+    name: "Bathroom Passive Mode Valve Percent"
     min: 0
     max: 100
     step: 5
@@ -317,9 +318,9 @@ input_number:
     icon: mdi:valve
     initial: 30
 
-  # Passive mode minimum temperatures (comfort floor)
-  pyheat_pete_passive_min_temp:
-    name: "Pete's Room Passive Min Temp"
+  # Passive MODE minimum temperatures (comfort floor)
+  pyheat_pete_passive_mode_min_temp:
+    name: "Pete's Room Passive Mode Min Temp"
     min: 8
     max: 20
     step: 0.5
@@ -327,8 +328,8 @@ input_number:
     mode: box
     icon: mdi:thermometer-low
 
-  pyheat_abby_passive_min_temp:
-    name: "Abby's Room Passive Min Temp"
+  pyheat_abby_passive_mode_min_temp:
+    name: "Abby's Room Passive Mode Min Temp"
     min: 8
     max: 20
     step: 0.5
@@ -336,8 +337,8 @@ input_number:
     mode: box
     icon: mdi:thermometer-low
 
-  pyheat_office_passive_min_temp:
-    name: "Office Passive Min Temp"
+  pyheat_office_passive_mode_min_temp:
+    name: "Office Passive Mode Min Temp"
     min: 8
     max: 20
     step: 0.5
@@ -345,8 +346,8 @@ input_number:
     mode: box
     icon: mdi:thermometer-low
 
-  pyheat_lounge_passive_min_temp:
-    name: "Living Room Passive Min Temp"
+  pyheat_lounge_passive_mode_min_temp:
+    name: "Living Room Passive Mode Min Temp"
     min: 8
     max: 20
     step: 0.5
@@ -354,8 +355,8 @@ input_number:
     mode: box
     icon: mdi:thermometer-low
 
-  pyheat_games_passive_min_temp:
-    name: "Dining Room Passive Min Temp"
+  pyheat_games_passive_mode_min_temp:
+    name: "Dining Room Passive Mode Min Temp"
     min: 8
     max: 20
     step: 0.5
@@ -363,8 +364,8 @@ input_number:
     mode: box
     icon: mdi:thermometer-low
 
-  pyheat_bathroom_passive_min_temp:
-    name: "Bathroom Passive Min Temp"
+  pyheat_bathroom_passive_mode_min_temp:
+    name: "Bathroom Passive Mode Min Temp"
     min: 8
     max: 20
     step: 0.5
