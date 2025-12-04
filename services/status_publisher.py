@@ -547,6 +547,24 @@ class StatusPublisher:
             replace=True
         )
         
+        # Publish cooldown active binary sensor
+        if hasattr(self.ad, 'cycling'):
+            cooldown_active = self.ad.cycling.state == 'COOLDOWN'
+            cooldown_attrs = {
+                'friendly_name': 'PyHeat Cooldown Active',
+                'icon': 'mdi:snowflake-alert' if cooldown_active else 'mdi:snowflake'
+            }
+            if cooldown_active:
+                cooldown_attrs['cooldown_start'] = self.ad.cycling.cooldown_entry_time.isoformat() if self.ad.cycling.cooldown_entry_time else None
+                cooldown_attrs['saved_setpoint'] = self.ad.cycling.saved_setpoint
+                cooldown_attrs['recovery_threshold'] = self.ad.cycling._get_recovery_threshold()
+            self.ad.set_state(
+                C.COOLDOWN_ACTIVE_ENTITY,
+                state="on" if cooldown_active else "off",
+                attributes=cooldown_attrs,
+                replace=True
+            )
+        
     def publish_room_entities(self, room_id: str, data: Dict, now: datetime) -> None:
         """Publish per-room entities.
         

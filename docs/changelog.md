@@ -1,6 +1,28 @@
 
 # PyHeat Changelog
 
+## 2025-12-04: Add Cooldown Active Binary Sensor
+
+**Summary:**
+Added `binary_sensor.pyheat_cooldown_active` to indicate when cycling protection cooldown is currently active.
+
+**New Entity:**
+```yaml
+binary_sensor.pyheat_cooldown_active:
+  icon: mdi:snowflake (off) / mdi:snowflake-alert (on)
+  # When active, includes additional attributes:
+  attributes:
+    cooldown_start: ISO timestamp when cooldown started
+    saved_setpoint: the setpoint that will be restored
+    recovery_threshold: temperature threshold for recovery
+```
+
+**Files Modified:**
+- `core/constants.py`: Added `COOLDOWN_ACTIVE_ENTITY` constant
+- `services/status_publisher.py`: Added binary sensor publishing
+
+---
+
 ## 2025-12-04: Add System-Wide Calling for Heat Binary Sensor
 
 **Summary:**

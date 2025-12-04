@@ -289,6 +289,9 @@ STATUS_ENTITY = "sensor.pyheat_status"
 # Cooldowns counter sensor (total_increasing for cumulative count)
 COOLDOWNS_ENTITY = "sensor.pyheat_cooldowns"
 
+# Cooldown active binary sensor
+COOLDOWN_ACTIVE_ENTITY = "binary_sensor.pyheat_cooldown_active"
+
 # System-wide calling for heat binary sensor
 CALLING_FOR_HEAT_ENTITY = "binary_sensor.pyheat_calling_for_heat"
 
