@@ -67,14 +67,15 @@ sensor.pyheat_cooldowns:
 ```
 
 **Behavior:**
-- Created automatically by pyheat on startup if it doesn't exist
+- Created automatically by pyheat on first recompute (delayed from init to avoid HA API errors)
 - Increments by 1 each time the boiler enters a cooldown state (high return temp detected)
 - Persists across restarts (HA maintains the state)
 - Useful for monitoring boiler cycling patterns over time
 
 **Files Modified:**
 - `core/constants.py`: Added `COOLDOWNS_ENTITY` constant
-- `controllers/cycling_protection.py`: Added helper functions to ensure sensor exists and increment it; called during initialization and cooldown entry
+- `controllers/cycling_protection.py`: Added helper functions to ensure sensor exists and increment it; added `ensure_cooldowns_sensor()` public method called from first recompute
+- `app.py`: Call `ensure_cooldowns_sensor()` in `initial_recompute()` after startup delay
 
 ---
 

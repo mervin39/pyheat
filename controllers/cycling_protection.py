@@ -128,10 +128,13 @@ class CyclingProtection:
         # Recovery monitoring handle
         self.recovery_handle = None
         
+        # Track if cooldowns sensor has been initialized
+        self._cooldowns_sensor_initialized = False
+        
     def initialize_from_ha(self) -> None:
         """Restore state from persistence file."""
-        # Ensure cooldowns sensor exists
-        _ensure_cooldowns_sensor(self.ad)
+        # NOTE: Cooldowns sensor is initialized later via ensure_cooldowns_sensor()
+        # to avoid HA API errors during app startup
         
         try:
             state_dict = self.persistence.get_cycling_protection_state()
@@ -152,6 +155,18 @@ class CyclingProtection:
             self.ad.log(f"Failed to restore cycling protection state: {e}", level="WARNING")
             # Default to NORMAL on error
             self._reset_to_normal()
+    
+    def ensure_cooldowns_sensor(self) -> None:
+        """Ensure the cooldowns counter sensor exists in Home Assistant.
+        
+        Should be called after app initialization is complete (e.g., from first recompute)
+        to avoid HA API errors during startup.
+        """
+        if self._cooldowns_sensor_initialized:
+            return
+        
+        _ensure_cooldowns_sensor(self.ad)
+        self._cooldowns_sensor_initialized = True
     
     def on_dhw_state_change(self, entity, attribute, old, new, kwargs):
         """Track DHW sensor state changes for history-based detection.
