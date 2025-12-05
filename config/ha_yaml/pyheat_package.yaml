@@ -206,7 +206,6 @@ input_number:
     unit_of_measurement: "°C"
     mode: box
     icon: mdi:thermometer-high
-    initial: 18.0
 
   pyheat_pete_passive_mode_valve_percent:
     name: "Pete's Room Passive Mode Valve Percent"
@@ -216,7 +215,6 @@ input_number:
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:valve
-    initial: 30
 
   pyheat_abby_passive_mode_max_temp:
     name: "Abby's Room Passive Mode Max Temp"
@@ -226,7 +224,6 @@ input_number:
     unit_of_measurement: "°C"
     mode: box
     icon: mdi:thermometer-high
-    initial: 18.0
 
   pyheat_abby_passive_mode_valve_percent:
     name: "Abby's Room Passive Mode Valve Percent"
@@ -236,7 +233,7 @@ input_number:
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:valve
-    initial: 30
+
 
   pyheat_office_passive_mode_max_temp:
     name: "Office Passive Mode Max Temp"
@@ -246,7 +243,7 @@ input_number:
     unit_of_measurement: "°C"
     mode: box
     icon: mdi:thermometer-high
-    initial: 18.0
+
 
   pyheat_office_passive_mode_valve_percent:
     name: "Office Passive Mode Valve Percent"
@@ -256,8 +253,7 @@ input_number:
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:valve
-    initial: 30
-
+    
   pyheat_lounge_passive_mode_max_temp:
     name: "Living Room Passive Mode Max Temp"
     min: 10
@@ -266,7 +262,6 @@ input_number:
     unit_of_measurement: "°C"
     mode: box
     icon: mdi:thermometer-high
-    initial: 18.0
 
   pyheat_lounge_passive_mode_valve_percent:
     name: "Living Room Passive Mode Valve Percent"
@@ -276,7 +271,7 @@ input_number:
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:valve
-    initial: 30
+
 
   pyheat_games_passive_mode_max_temp:
     name: "Dining Room Passive Mode Max Temp"
@@ -286,7 +281,7 @@ input_number:
     unit_of_measurement: "°C"
     mode: box
     icon: mdi:thermometer-high
-    initial: 18.0
+
 
   pyheat_games_passive_mode_valve_percent:
     name: "Dining Room Passive Mode Valve Percent"
@@ -296,7 +291,6 @@ input_number:
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:valve
-    initial: 30
 
   pyheat_bathroom_passive_mode_max_temp:
     name: "Bathroom Passive Mode Max Temp"
@@ -306,7 +300,6 @@ input_number:
     unit_of_measurement: "°C"
     mode: box
     icon: mdi:thermometer-high
-    initial: 18.0
 
   pyheat_bathroom_passive_mode_valve_percent:
     name: "Bathroom Passive Mode Valve Percent"
@@ -316,7 +309,6 @@ input_number:
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:valve
-    initial: 30
 
   # Passive MODE minimum temperatures (comfort floor)
   pyheat_pete_passive_mode_min_temp:
@@ -381,7 +373,6 @@ input_number:
     step: 1
     unit_of_measurement: "°C"
     mode: slider
-    initial: 70
     icon: mdi:thermometer
 
 # ---------------------------------------------------------------------------
@@ -447,30 +438,6 @@ timer:
     restore: false
     duration: "00:00:00"
     icon: mdi:pump
-
-# ---------------------------------------------------------------------------
-# Input text - DEPRECATED: Persistence migrated to local file
-# ---------------------------------------------------------------------------
-# The following entities are no longer used by PyHeat as of the persistence
-# migration. State is now persisted to /opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json
-# These entities can be safely removed from your configuration after confirming
-# PyHeat is working correctly with file-based persistence.
-#
-# input_text:
-#   pyheat_room_persistence:
-#     name: "PyHeat Room State Persistence (DEPRECATED)"
-#     initial: ""
-#     max: 255
-#
-#   pyheat_pump_overrun_valves:
-#     name: "PyHeat Pump Overrun Valve Positions (DEPRECATED)"
-#     initial: ""
-#     max: 255
-#
-#   pyheat_cycling_protection_state:
-#     name: "PyHeat Cycling Protection State (DEPRECATED)"
-#     initial: '{"mode":"NORMAL","saved_setpoint":null,"cooldown_start":null}'
-#     max: 255
 
 # ---------------------------------------------------------------------------
 # MQTT sensors (TRV feedback) - these are important for valve feedback
