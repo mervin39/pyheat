@@ -91,7 +91,12 @@ $mode, $load_sharing, $calling, $valve
   "scheduled_temp": 20.0,
   "override_target": 22.0,          // Only present during override
   "override_end_time": "ISO8601",   // Only present during override
-  "override_remaining_minutes": 45   // Only present during override
+  "override_remaining_minutes": 45,  // Only present during override
+  // Convenience attributes (added 2025-12-05)
+  "load_sharing": "off",            // "off", "T1" (schedule), "T2" (fallback)
+  "valve": 65,                      // Same as valve_percent (0-100)
+  "passive_low": 15.0,              // Minimum temp in passive mode (null if not passive)
+  "calling": false                  // Boolean version of calling_for_heat
 }
 ```
 

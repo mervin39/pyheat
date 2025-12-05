@@ -1,6 +1,50 @@
 
 # PyHeat Changelog
 
+## 2025-12-05: Enhancement - Room State Entity Convenience Attributes
+
+**Summary:**
+Added four convenience attributes to `sensor.pyheat_<room>_state` entities for easier frontend access and API queries.
+
+**New Attributes:**
+
+1. **`load_sharing`** (string):
+   - Values: `"off"`, `"T1"` (schedule tier), `"T2"` (fallback tier)
+   - Extracted from state string's load sharing component
+   - Makes load sharing status directly accessible without parsing state string
+
+2. **`valve`** (int):
+   - Values: 0-100
+   - Duplicate of `valve_percent` for convenience
+   - Matches valve component in state string
+
+3. **`passive_low`** (float or null):
+   - Minimum temperature threshold in passive mode (comfort floor)
+   - Only populated when `operating_mode == 'passive'`
+   - `null` when in active/manual/off modes
+
+4. **`calling`** (bool):
+   - Boolean version of `calling_for_heat`
+   - Convenience attribute for easier boolean checks
+
+**Rationale:**
+These attributes provide direct access to values that were previously only available by parsing the structured state string. This simplifies frontend queries and API access patterns.
+
+**Files Modified:**
+- `services/status_publisher.py` - Added four convenience attributes to room state entities
+- `docs/HA_API_SCHEMA.md` - Updated attribute documentation
+- `docs/changelog.md` - Added this entry
+
+**Testing:**
+- AppDaemon reloaded successfully without errors
+- Verified attributes present in HA API responses for lounge (active mode) and bathroom (passive mode)
+- `load_sharing`: "off" ✓
+- `valve`: matches valve_percent ✓
+- `passive_low`: 8.0 in passive mode, null in active mode ✓
+- `calling`: boolean value ✓
+
+---
+
 ## 2025-12-05: BUG #11 Fix - LoadCalculator Initialization Pattern
 
 **Summary:**

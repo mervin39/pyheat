@@ -29,13 +29,13 @@ class StatusPublisher:
     
     def _get_passive_valve_percent(self, room_id: str) -> int:
         """Get passive valve percent for a room from HA entity.
-        
+
         Always reads from the HA input_number entity (runtime value).
         Note: schedule's default_valve_percent is only for initialization.
-        
+
         Args:
             room_id: Room identifier
-            
+
         Returns:
             Passive valve percent (0-100)
         """
@@ -48,10 +48,10 @@ class StatusPublisher:
                     return int(float(valve_str))
             except (ValueError, TypeError):
                 pass
-        
+
         return C.PASSIVE_VALVE_PERCENT_DEFAULT
-    
-    
+
+
     def update_room_temperature(self, room_id: str, temp: float, is_stale: bool) -> None:
         """Update just the temperature sensor entity (lightweight operation).
         
@@ -791,6 +791,11 @@ class StatusPublisher:
             'manual_setpoint': data.get('manual_setpoint'),
             'formatted_status': formatted_status,  # Human-readable status
             'scheduled_temp': round(scheduled_temp, precision) if scheduled_temp is not None else None,
+            # Additional convenience attributes
+            'load_sharing': f"T{load_sharing_info.get('tier', 1)}" if (load_sharing_info and load_sharing_info.get('active')) else "off",
+            'valve': data.get('valve_percent', 0),
+            'passive_low': data.get('passive_min_temp') if data.get('operating_mode') == 'passive' else None,
+            'calling': data.get('calling', False),
         }
         
         # Add override details if active
