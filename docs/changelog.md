@@ -1,6 +1,39 @@
 
 # PyHeat Changelog
 
+## 2025-12-05: BUG #16 Fix - Passive Mode Valve Percent UI Sync
+
+**Summary:**
+Fixed bug where pyheat-web UI showed stale passive valve percent from schedule instead of current HA entity value.
+
+**Problem:**
+When user adjusted passive mode valve slider in pyheat-web:
+- Valve command was sent correctly (80%)
+- HA entity updated correctly (80%)
+- But UI reverted to showing schedule's `default_valve_percent` (10%)
+- Status line showed "Passive: 8-18°, 10%" instead of actual 80%
+
+**Root Cause:**
+`api_handler.py` and `status_publisher.py` were checking `schedule.get('default_valve_percent')` FIRST, only falling back to HA entity if schedule had no value. Since games room has `default_valve_percent: 10` in schedules.yaml, it always returned 10% regardless of actual HA entity value.
+
+**Key Insight:**
+The schedule's `default_valve_percent` is only for **auto mode with scheduled passive** (when `default_mode: passive`). For **user-selected passive mode**, the UI should always show the runtime HA entity value.
+
+**Fix:**
+Changed both files to read from HA entity only:
+- `services/api_handler.py` - `passive_valve_percent` now reads from HA entity
+- `services/status_publisher.py` - `_get_passive_valve_percent()` reads from HA entity
+
+**Testing:**
+After fix, all values are consistent:
+- Slider shows 80%
+- Status shows "Passive: 8-18°, 80%"
+- Valve operates at 80%
+
+See: `docs/BUGS.md` BUG #16 for full details.
+
+---
+
 ## 2025-12-05: Graph Shading Reliability Fix (State String Refactor) + Boiler Timeline Update
 
 **Summary:**

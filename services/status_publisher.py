@@ -28,10 +28,10 @@ class StatusPublisher:
         self.config = config
     
     def _get_passive_valve_percent(self, room_id: str) -> int:
-        """Get passive valve percent for a room.
+        """Get passive valve percent for a room from HA entity.
         
-        Uses schedule's default_valve_percent if set, otherwise falls back
-        to the HA input_number entity value.
+        Always reads from the HA input_number entity (runtime value).
+        Note: schedule's default_valve_percent is only for initialization.
         
         Args:
             room_id: Room identifier
@@ -39,13 +39,7 @@ class StatusPublisher:
         Returns:
             Passive valve percent (0-100)
         """
-        # Check schedule's default_valve_percent first
-        schedule = self.config.schedules.get(room_id, {})
-        schedule_valve = schedule.get('default_valve_percent')
-        if schedule_valve is not None:
-            return int(schedule_valve)
-        
-        # Fall back to HA entity
+        # Read from HA entity (runtime value)
         passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
         if self.ad.entity_exists(passive_valve_entity):
             try:
@@ -245,7 +239,7 @@ class StatusPublisher:
             if max_temp is None or min_temp is None:
                 return 'Passive (opportunistic)'
             
-            # Get configured passive valve percent (schedule takes precedence over entity)
+            # Get passive valve percent from HA entity (runtime value)
             passive_valve_percent = self._get_passive_valve_percent(room_id)
             
             return f'Passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%'
@@ -262,7 +256,7 @@ class StatusPublisher:
                 max_temp = target  # In passive mode, target is the max temp
                 min_temp = data.get('passive_min_temp')
                 
-                # Get configured passive valve percent (schedule takes precedence over entity)
+                # Get passive valve percent from HA entity (runtime value)
                 passive_valve_percent = self._get_passive_valve_percent(room_id)
                 
                 # Check if we're in a scheduled block (not default mode)

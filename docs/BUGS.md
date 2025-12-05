@@ -4,87 +4,111 @@ This document tracks known bugs and their resolutions.
 
 ---
 
-## BUG #16: Passive Mode Valve Percent Uses Inconsistent Sources
+## BUG #16: Passive Mode Valve Percent UI Shows Stale Value
 
-**Status:** OPEN 🔴  
+**Status:** FIXED ✅  
 **Date Discovered:** 2025-12-05  
-**Severity:** Medium - valve operates at wrong percentage, UI shows different value  
-**Category:** Passive Mode / Configuration
+**Date Fixed:** 2025-12-05  
+**Severity:** Medium - UI shows different value than actual valve position  
+**Category:** Passive Mode / UI Sync
 
 ### Description
 
-When a room is in user-selected passive mode, the actual valve control and the API/UI display use different sources for `passive_valve_percent`, leading to inconsistent behavior where the UI shows one value but the valve operates at a different percentage.
+When a room is in user-selected passive mode and the user adjusts the valve slider in pyheat-web, the valve command is sent correctly but the UI reverts to showing an old value (from schedule's `default_valve_percent`) instead of the newly set value.
 
 ### Observed Behavior
 
-**Incident on 2025-12-05 at 12:15 (games/dining room):**
+**Incident on 2025-12-05 at ~13:19 (games/dining room):**
 
 | Source | Value | Explanation |
 |--------|-------|-------------|
-| Room card (actual valve) | 30% | TRV valve position confirmed by Z2M feedback |
-| Modal slider (UI) | 10% | From schedule's `default_valve_percent` |
-| HA entity | 30% | Was reset to `initial: 30.0` during HA restart at 08:00:55 |
+| Room card (actual valve) | 80% | Valve physically at 80% after user moved slider |
+| Modal slider (UI) | 10% | UI showing schedule's `default_valve_percent` instead of HA entity |
+| Status line | 10% | "Passive: 8-18°, 10%" from formatted_status |
+| HA entity | 80% | Correctly set to 80% by `set_passive_settings` service |
 
-**CSV log evidence at 12:15:**
-```
-games_mode=passive, games_valve_cmd=30, games_valve_fb=30
-```
-
-The UI showed 10% (schedule value) but the valve was actually at 30% (HA entity value).
+User workflow:
+1. User opens games room modal, sees slider at some value
+2. User moves slider to 80%
+3. Service called: `pyheat.set_passive_settings: room=games, valve_percent=80%`
+4. HA entity updated to 80%, valve commanded to 80%
+5. User closes modal, opens it again
+6. Slider shows 10% (schedule's default), status shows "Passive: 8-18°, 10%"
+7. But actual valve is at 80%
 
 ### Root Cause Analysis
 
-**Two different code paths use different sources for passive_valve_percent:**
+**Two code paths were using different sources:**
 
-1. **`api_handler.py` (lines 382-393)** - Used by pyheat-web UI:
-   ```python
-   # Get passive valve percent - schedule's default_valve_percent takes precedence
-   schedule = self.service_handler.config.schedules.get(room_id, {})
-   schedule_valve = schedule.get('default_valve_percent')
-   if schedule_valve is not None:
-       passive_valve_percent = int(schedule_valve)
-   else:
-       # Fall back to HA entity
-       passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
-       ...
-   ```
+1. **`api_handler.py`** and **`status_publisher.py`** - Used for UI display:
+   - Were checking `schedule.get('default_valve_percent')` FIRST
+   - If schedule had a value (games: 10), they returned that
+   - Never reached the HA entity value (80%)
 
-2. **`scheduler.py` (lines 134-149)** - Used for actual valve control:
-   ```python
-   def _get_passive_valve_percent(self, room_id: str) -> int:
-       entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
-       if self.ad.entity_exists(entity):
-           return int(float(self.ad.get_state(entity)))
-       return C.PASSIVE_VALVE_PERCENT_DEFAULT  # 30%
-   ```
+2. **`scheduler.py`** - Used for actual valve control:
+   - Correctly read from HA entity only
+   - Valve operated correctly
 
-**The inconsistency:**
-- `api_handler.py`: schedule's `default_valve_percent` (10) → HA entity (30) → nothing
-- `scheduler.py`: HA entity (30) → `PASSIVE_VALVE_PERCENT_DEFAULT` (30)
+**Key misunderstanding in original bug report:**
+The schedule's `default_valve_percent` is ONLY for **auto mode with scheduled passive blocks** (when `default_mode: passive` in schedules.yaml). It should NOT be used for user-selected passive mode, which should ALWAYS read from the HA input_number entity.
 
-The schedule's `default_valve_percent` is completely ignored by the actual valve control logic.
+### Fix Applied
 
-### Contributing Factor
+Modified `api_handler.py` and `status_publisher.py` to always read from the HA entity:
 
-The HA `input_number` entities had `initial: 30.0` configured, causing them to reset to 30% whenever HA restarted. This was fixed in commit `33b7538` ("remove all initial values") at 08:11 on 2025-12-05, but the inconsistency between code paths remains.
+**Before (broken):**
+```python
+# Check schedule's default_valve_percent first
+schedule = self.config.schedules.get(room_id, {})
+schedule_valve = schedule.get('default_valve_percent')
+if schedule_valve is not None:
+    return int(schedule_valve)  # Always returned 10 for games!
+# Fall back to HA entity (never reached)
+```
 
-### Expected Behavior
+**After (fixed):**
+```python
+# Read from HA entity (runtime value)
+passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
+if self.ad.entity_exists(passive_valve_entity):
+    return int(float(self.ad.get_state(passive_valve_entity)))
+return C.PASSIVE_VALVE_PERCENT_DEFAULT
+```
 
-Both the UI display and actual valve control should use the same source for `passive_valve_percent`, with a consistent priority order:
-1. Schedule's `default_valve_percent` (if configured)
-2. HA entity `input_number.pyheat_{room}_passive_mode_valve_percent`
-3. Default fallback (`PASSIVE_VALVE_PERCENT_DEFAULT` = 30%)
+### Files Modified
 
-### Files Involved
+- `services/api_handler.py` - Now reads from HA entity only for `passive_valve_percent`
+- `services/status_publisher.py` - `_get_passive_valve_percent()` reads from HA entity only
 
-- `services/api_handler.py` - lines 382-393
-- `core/scheduler.py` - lines 134-149 (`_get_passive_valve_percent`)
-- `core/constants.py` - `PASSIVE_VALVE_PERCENT_DEFAULT = 30`
-- `config/schedules.yaml` - games room has `default_valve_percent: 10`
+### What About schedule's `default_valve_percent`?
 
-### Proposed Fix
+The schedule's `default_valve_percent` is STILL used - but in the correct place:
 
-Update `scheduler.py`'s `_get_passive_valve_percent()` to check schedule's `default_valve_percent` first, matching the logic in `api_handler.py`.
+**`core/scheduler.py`** `get_scheduled_target()` method:
+- When a room is in **auto mode** with `default_mode: passive` in schedule
+- During times when no scheduled block is active
+- Returns the schedule's `default_valve_percent` as part of the scheduled target
+- This is then used to SET the HA entity, which is then read by the UI
+
+**Flow for scheduled passive:**
+1. Schedule says `default_mode: passive`, `default_valve_percent: 10`
+2. `scheduler.py` returns `valve_percent: 10` in scheduled target
+3. `room_controller.py` sets HA entity to 10%
+4. UI reads HA entity → shows 10%
+5. User can override by moving slider → HA entity updates → UI shows new value
+
+### Testing
+
+After AppDaemon restart at 13:30:
+- Set games valve to 80% via UI slider
+- HA entity confirmed at 80%
+- API returns `passive_valve_percent: 80`
+- Status shows "Passive: 8-18°, 80%"
+- All values consistent ✅
+
+### Related
+
+- Commit `33b7538` removed `initial: 30.0` from HA entity definitions (separate issue where entities reset on HA restart)
 
 ---
 

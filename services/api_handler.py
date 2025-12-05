@@ -378,20 +378,16 @@ class APIHandler:
                     except (ValueError, TypeError):
                         pass
                 
-                # Get passive valve percent - schedule's default_valve_percent takes precedence
-                schedule = self.service_handler.config.schedules.get(room_id, {})
-                schedule_valve = schedule.get('default_valve_percent')
-                if schedule_valve is not None:
-                    passive_valve_percent = int(schedule_valve)
-                else:
-                    passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
-                    if self.ad.entity_exists(passive_valve_entity):
-                        try:
-                            valve_str = self.ad.get_state(passive_valve_entity)
-                            if valve_str not in [None, "unknown", "unavailable"]:
-                                passive_valve_percent = int(float(valve_str))
-                        except (ValueError, TypeError):
-                            pass
+                # Get passive valve percent from HA entity (runtime value)
+                # Note: schedule's default_valve_percent is only for initialization, not display
+                passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
+                if self.ad.entity_exists(passive_valve_entity):
+                    try:
+                        valve_str = self.ad.get_state(passive_valve_entity)
+                        if valve_str not in [None, "unknown", "unavailable"]:
+                            passive_valve_percent = int(float(valve_str))
+                    except (ValueError, TypeError):
+                        pass
                 
                 # Build combined room status
                 room_status = {
