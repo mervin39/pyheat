@@ -878,6 +878,7 @@ class APIHandler:
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
 
+
     def api_get_boiler_history(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_get_boiler_history
         
@@ -914,29 +915,29 @@ class APIHandler:
             if days_ago == 0:
                 end_time = now
             
-            # Get boiler state history from status sensor
-            status_entity = C.STATUS_ENTITY  # sensor.pyheat_status
+            # Get boiler state history from dedicated boiler state entity
+            # This provides cleaner history entries than extracting from pyheat_status attributes
+            boiler_entity = C.BOILER_STATE_ENTITY  # sensor.pyheat_boiler_state
             periods = []
             
-            if self.ad.entity_exists(status_entity):
-                status_history = self.ad.get_history(
-                    entity_id=status_entity,
+            if self.ad.entity_exists(boiler_entity):
+                boiler_history = self.ad.get_history(
+                    entity_id=boiler_entity,
                     start_time=start_time,
                     end_time=end_time
                 )
                 
-                if status_history and len(status_history) > 0:
+                if boiler_history and len(boiler_history) > 0:
                     period_start = None
                     period_state = None
                     
-                    for state_obj in status_history[0]:
+                    for state_obj in boiler_history[0]:
                         try:
-                            # Get boiler_state from attributes
-                            attrs = state_obj.get("attributes", {})
-                            boiler_state = attrs.get("boiler_state")
+                            # Get boiler state directly from entity state
+                            boiler_state = state_obj.get("state")
                             timestamp = state_obj["last_changed"]
                             
-                            if not boiler_state:
+                            if not boiler_state or boiler_state in ("unknown", "unavailable"):
                                 continue
                             
                             # Only track "on" state (actual heating)
@@ -981,5 +982,6 @@ class APIHandler:
             import traceback
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
+
 
 

@@ -1,10 +1,10 @@
 
 # PyHeat Changelog
 
-## 2025-12-05: Graph Shading Reliability Fix (State String Refactor)
+## 2025-12-05: Graph Shading Reliability Fix (State String Refactor) + Boiler Timeline Update
 
 **Summary:**
-Refactored room state entity format and added dedicated boiler state entity to fix missing/patchy graph shading issues in pyheat-web.
+Refactored room state entity format and added dedicated boiler state entity to fix missing/patchy graph shading issues in pyheat-web. Also updated boiler timeline API to use the new dedicated boiler entity.
 
 **Problem:**
 Graph shading for passive heating and load-sharing was inconsistent:
@@ -56,8 +56,9 @@ Changed to per-entity state tracking for reliable history entries:
    - Calls `publish_boiler_state()` after boiler update
 
 4. **API Handler** (`services/api_handler.py`):
-   - Load-sharing: Now parsed from room state string instead of system status attributes
-   - System heating: Now extracted from `sensor.pyheat_boiler_state` history
+   - `api_get_history()`: Load-sharing now parsed from room state string instead of system status attributes
+   - `api_get_history()`: System heating now extracted from `sensor.pyheat_boiler_state` history
+   - `api_get_boiler_history()`: Now uses dedicated `sensor.pyheat_boiler_state` entity state instead of extracting from `sensor.pyheat_status` attributes (cleaner history, more reliable)
 
 **Entity Changes:**
 - **Modified (6)**: `sensor.pyheat_{room}_state` - new state string format
