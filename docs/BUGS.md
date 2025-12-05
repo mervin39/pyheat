@@ -734,9 +734,10 @@ No code changes were necessary. The persistence system is now working reliably a
 
 ## BUG #11: Inconsistent Config Initialization Pattern Across Codebase
 
-**Status:** OPEN 🔴  
-**Date Discovered:** 2025-11-29  
-**Severity:** Low - Code quality/maintainability issue, no functional impact  
+**Status:** FIXED ✅
+**Date Discovered:** 2025-11-29
+**Date Fixed:** 2025-12-05
+**Severity:** Low - Code quality/maintainability issue, no functional impact
 **Category:** Code Architecture
 
 ### Description
@@ -806,6 +807,51 @@ if None in [self.enabled, self.system_delta_t, self.global_radiator_exponent]:
 ### Priority
 
 **Low** - This is a code quality issue, not a functional bug. Current behavior is correct, just confusing to maintain.
+
+### Resolution (2025-12-05)
+
+**Fix Applied:**
+Refactored LoadCalculator to match LoadSharingManager's initialization pattern.
+
+**Changes Made:**
+
+1. **`__init__()` method** - Changed config attributes to `None` with explicit comments:
+   ```python
+   # Configuration (loaded from boiler.yaml in initialize_from_ha)
+   self.enabled = None  # Load monitoring enable/disable flag
+   self.system_delta_t = None  # Assumed system delta-T for capacity calculations
+   self.global_radiator_exponent = None  # Default radiator exponent (EN 442 standard)
+   ```
+
+2. **`initialize_from_ha()` method** - Added validation after loading config:
+   ```python
+   # Validate all required config loaded
+   if None in [self.enabled, self.system_delta_t, self.global_radiator_exponent]:
+       raise ValueError(
+           "LoadCalculator: Configuration not properly initialized. "
+           "Ensure initialize_from_ha() is called before use."
+       )
+   ```
+
+3. **Added explicit comment** on the actual default value:
+   ```python
+   self.enabled = load_config.get('enabled', True)  # True is the actual default
+   ```
+
+**Why This Works:**
+- `None` values make it explicit that these are placeholders, not defaults
+- Validation catches initialization bugs immediately
+- Matches the pattern used by LoadSharingManager (fixed 2025-11-29)
+- Improves code maintainability and consistency
+
+**Files Modified:**
+- `managers/load_calculator.py`: Updated `__init__()` and `initialize_from_ha()` methods
+
+**Testing:**
+- AppDaemon reloaded successfully at 14:41:31
+- LoadCalculator initialized without errors
+- No errors in AppDaemon logs after changes
+- System continues to operate normally
 
 ---
 

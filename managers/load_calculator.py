@@ -51,30 +51,37 @@ class LoadCalculator:
         
         # Cached estimated capacities per room {room_id: watts}
         self.estimated_capacities = {}
-        
+
         # Last known helper setpoint (cached for unavailability)
         self.last_known_setpoint = None
-        
-        # Load monitoring configuration
-        self.enabled = False
-        self.system_delta_t = C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT
-        self.global_radiator_exponent = C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT
+
+        # Configuration (loaded from boiler.yaml in initialize_from_ha)
+        self.enabled = None  # Load monitoring enable/disable flag
+        self.system_delta_t = None  # Assumed system delta-T for capacity calculations
+        self.global_radiator_exponent = None  # Default radiator exponent (EN 442 standard)
         
     def initialize_from_ha(self) -> None:
         """Load initial state and validate configuration.
-        
+
         Validates that all non-disabled rooms have delta_t50 configured.
         Loads load_monitoring configuration from boiler.yaml.
-        
+
         Raises:
-            ValueError: If any non-disabled room missing delta_t50
+            ValueError: If any non-disabled room missing delta_t50 or config not initialized
         """
         # Load load_monitoring config
         load_config = self.config.boiler_config.get('load_monitoring', {})
-        self.enabled = load_config.get('enabled', True)
+        self.enabled = load_config.get('enabled', True)  # True is the actual default
         self.system_delta_t = load_config.get('system_delta_t', C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT)
         self.global_radiator_exponent = load_config.get('radiator_exponent', C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT)
-        
+
+        # Validate all required config loaded
+        if None in [self.enabled, self.system_delta_t, self.global_radiator_exponent]:
+            raise ValueError(
+                "LoadCalculator: Configuration not properly initialized. "
+                "Ensure initialize_from_ha() is called before use."
+            )
+
         if not self.enabled:
             self.ad.log("LoadCalculator: Disabled via configuration", level="INFO")
             return

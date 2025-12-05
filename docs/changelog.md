@@ -1,6 +1,68 @@
 
 # PyHeat Changelog
 
+## 2025-12-05: BUG #11 Fix - LoadCalculator Initialization Pattern
+
+**Summary:**
+Refactored LoadCalculator to use consistent initialization pattern matching LoadSharingManager.
+
+**Problem:**
+LoadCalculator initialized config attributes with misleading placeholder values in `__init__()`:
+- `self.enabled = False` - Looked like "disabled by default" but actually defaults to True
+- `self.system_delta_t = C.LOAD_MONITORING_SYSTEM_DELTA_T_DEFAULT` - Unclear if real default or placeholder
+- `self.global_radiator_exponent = C.LOAD_MONITORING_RADIATOR_EXPONENT_DEFAULT` - Same ambiguity
+
+These values were always overwritten in `initialize_from_ha()`, making the `__init__()` values confusing and misleading.
+
+**Fix Applied:**
+Refactored to match LoadSharingManager's pattern (fixed 2025-11-29):
+
+1. Initialize all config attributes to `None` with explicit comments in `__init__()`:
+   ```python
+   # Configuration (loaded from boiler.yaml in initialize_from_ha)
+   self.enabled = None  # Load monitoring enable/disable flag
+   self.system_delta_t = None  # Assumed system delta-T for capacity calculations
+   self.global_radiator_exponent = None  # Default radiator exponent (EN 442 standard)
+   ```
+
+2. Added validation in `initialize_from_ha()` after loading config:
+   ```python
+   # Validate all required config loaded
+   if None in [self.enabled, self.system_delta_t, self.global_radiator_exponent]:
+       raise ValueError(
+           "LoadCalculator: Configuration not properly initialized. "
+           "Ensure initialize_from_ha() is called before use."
+       )
+   ```
+
+3. Added explicit comment showing the actual default value:
+   ```python
+   self.enabled = load_config.get('enabled', True)  # True is the actual default
+   ```
+
+**Benefits:**
+- `None` values make it explicit these are placeholders, not defaults
+- Validation catches initialization bugs immediately rather than silently using wrong values
+- Matches pattern used by LoadSharingManager for consistency
+- Improves code maintainability and clarity
+
+**Impact:**
+- Code quality improvement only - no functional changes
+- No behavioral differences in production
+- Makes codebase more maintainable and consistent
+
+**Files Modified:**
+- `managers/load_calculator.py` - Updated `__init__()` and `initialize_from_ha()` methods
+- `docs/BUGS.md` - Marked bug #11 as FIXED with resolution details
+- `docs/changelog.md` - Added this changelog entry
+
+**Testing:**
+- AppDaemon reloaded successfully without errors
+- LoadCalculator initialized correctly
+- System continues to operate normally
+
+---
+
 ## 2025-12-05: Documentation Update - Bug Status Verification
 
 **Summary:**
