@@ -8,6 +8,95 @@ When querying HA API with curl/jq, use this reference for correct field names. T
 
 ---
 
+## sensor.pyheat_boiler_state
+
+**Base URL:** `$HA_BASE_URL/api/states/sensor.pyheat_boiler_state`
+
+**Purpose:** Dedicated boiler state entity for reliable graph shading history. Updates only when boiler state changes, providing clean history entries for passive shading.
+
+### Structure
+
+```json
+{
+  "entity_id": "sensor.pyheat_boiler_state",
+  "state": "on|off|pending_on|pending_off|pump_overrun|interlock",
+  "attributes": {
+    "friendly_name": "PyHeat Boiler State",
+    "icon": "mdi:fire|mdi:fire-off"
+  },
+  "last_changed": "ISO8601 timestamp"
+}
+```
+
+**State Values:**
+- `on`: Boiler is actively heating
+- `off`: Boiler is off (no demand)
+- `pending_on`: Waiting for TRVs to open before turning on
+- `pending_off`: Off-delay timer running (system still delivering residual heat)
+- `pump_overrun`: Boiler off but pump still running to dissipate heat
+- `interlock`: Blocked by external interlock (e.g., DHW priority)
+
+**System Heating Detection:**
+For graph shading, system is considered "heating" when state is `on` or `pending_off`.
+
+---
+
+## sensor.pyheat_{room}_state
+
+**Base URL:** `$HA_BASE_URL/api/states/sensor.pyheat_{room}_state`
+
+**Purpose:** Per-room state entity with structured state string for reliable history tracking.
+
+### State String Format
+
+```
+$mode, $load_sharing, $calling, $valve
+```
+
+**Examples:**
+```
+"auto (active), LS off, not calling, 0%"
+"auto (passive), LS off, not calling, 65%"
+"auto (passive), LS T1, not calling, 30%"
+"auto (active), LS T1, calling, 100%"
+"auto (override), LS off, calling, 100%"
+"manual, LS off, not calling, 80%"
+"passive, LS off, not calling, 50%"
+"off, LS off, not calling, 0%"
+```
+
+**Components:**
+- `$mode`: `auto (active)`, `auto (passive)`, `auto (override)`, `passive`, `manual`, `off`
+- `$load_sharing`: `LS off`, `LS T1`, `LS T2`, `LS T3`
+- `$calling`: `calling`, `not calling`
+- `$valve`: `0%`, `30%`, `65%`, `100%`, etc.
+
+**Note:** Every component change creates a new history entry, ensuring reliable state tracking for graph shading.
+
+### Attributes
+
+```json
+{
+  "friendly_name": "Bathroom State",
+  "mode": "auto",
+  "operating_mode": "passive",
+  "temperature": 19.4,
+  "target": 20.0,
+  "calling_for_heat": false,
+  "valve_percent": 65,
+  "is_stale": false,
+  "frost_protection": false,
+  "manual_setpoint": null,
+  "formatted_status": "Auto (passive): 15-20C, 30% until 07:00 (18.0C)",
+  "scheduled_temp": 20.0,
+  "override_target": 22.0,          // Only present during override
+  "override_end_time": "ISO8601",   // Only present during override
+  "override_remaining_minutes": 45   // Only present during override
+}
+```
+
+---
+
 ## sensor.pyheat_status
 
 **Base URL:** `$HA_BASE_URL/api/states/sensor.pyheat_status`

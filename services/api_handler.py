@@ -785,50 +785,43 @@ class APIHandler:
                     if calling_start is not None:
                         calling_ranges.append([calling_start, end_time.isoformat()])
 
-            # System heating and load-sharing history - extract from system status entity
-            # Both tracked in sensor.pyheat_status attributes
+            # Load-sharing history - now extracted from room state string
+            # State string format: "$mode, $load_sharing, $calling, $valve"
+            # Examples: "auto (active), LS T1, not calling, 30%"
+            #           "auto (passive), LS off, not calling, 65%"
             load_sharing_data = []
-            system_heating_data = []
-            status_entity = C.STATUS_ENTITY  # sensor.pyheat_status
-            if self.ad.entity_exists(status_entity):
-                status_history = self.ad.get_history(
-                    entity_id=status_entity,
+            state_entity = f"sensor.pyheat_{room_id}_state"
+            if self.ad.entity_exists(state_entity):
+                state_history = self.ad.get_history(
+                    entity_id=state_entity,
                     start_time=start_time,
                     end_time=end_time
                 )
 
-                if status_history and len(status_history) > 0:
-                    for state_obj in status_history[0]:
+                if state_history and len(state_history) > 0:
+                    import re
+                    for state_obj in state_history[0]:
                         try:
-                            attrs = state_obj.get("attributes", {})
+                            state_str = state_obj.get("state", "")
                             timestamp = state_obj["last_changed"]
 
-                            # Extract system-wide heating state (any_call_for_heat)
-                            any_call_for_heat = attrs.get("any_call_for_heat", False)
-                            system_heating_data.append({
-                                "time": timestamp,
-                                "system_heating": any_call_for_heat
-                            })
-
-                            # Extract load_sharing status
-                            load_sharing = attrs.get("load_sharing")
-                            if load_sharing and isinstance(load_sharing, dict):
-                                active_rooms = load_sharing.get("active_rooms", [])
-
-                                # Check if this room is in load-sharing
-                                for active_room in active_rooms:
-                                    if active_room.get("room_id") == room_id:
-                                        # Room is in load-sharing - record the state
-                                        load_sharing_data.append({
-                                            "time": timestamp,
-                                            "load_sharing_active": True,
-                                            "tier": active_room.get("tier"),
-                                            "valve_pct": active_room.get("valve_pct"),
-                                            "reason": active_room.get("reason", "")
-                                        })
-                                        break
+                            # Parse state string: "$mode, $load_sharing, $calling, $valve"
+                            parts = [p.strip() for p in state_str.split(',')]
+                            if len(parts) >= 4:
+                                ls_part = parts[1]  # e.g., "LS T1" or "LS off"
+                                
+                                # Extract load-sharing tier from "LS T{n}" format
+                                if 'LS T' in ls_part:
+                                    tier_match = re.search(r'T(\d)', ls_part)
+                                    tier = int(tier_match.group(1)) if tier_match else 1
+                                    load_sharing_data.append({
+                                        "time": timestamp,
+                                        "load_sharing_active": True,
+                                        "tier": tier,
+                                        "valve_pct": 0,  # Not in state string, use valve_data
+                                        "reason": ""
+                                    })
                                 else:
-                                    # Room not in active load-sharing
                                     load_sharing_data.append({
                                         "time": timestamp,
                                         "load_sharing_active": False,
@@ -836,6 +829,33 @@ class APIHandler:
                                         "valve_pct": 0,
                                         "reason": ""
                                     })
+                        except (KeyError, TypeError, AttributeError):
+                            continue
+
+            # System heating history - from dedicated boiler state entity
+            # Boiler states: on, off, pending_on, pending_off, pump_overrun, interlock
+            # System heating = boiler is "on" or "pending_off" (still delivering heat)
+            system_heating_data = []
+            boiler_state_entity = C.BOILER_STATE_ENTITY  # sensor.pyheat_boiler_state
+            if self.ad.entity_exists(boiler_state_entity):
+                boiler_history = self.ad.get_history(
+                    entity_id=boiler_state_entity,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if boiler_history and len(boiler_history) > 0:
+                    for state_obj in boiler_history[0]:
+                        try:
+                            boiler_state = state_obj.get("state", "off")
+                            timestamp = state_obj["last_changed"]
+
+                            # System heating when boiler is on or pending_off (still delivering heat)
+                            is_heating = boiler_state in ("on", "pending_off")
+                            system_heating_data.append({
+                                "time": timestamp,
+                                "system_heating": is_heating
+                            })
                         except (KeyError, TypeError, AttributeError):
                             continue
             

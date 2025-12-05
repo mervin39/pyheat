@@ -1,6 +1,80 @@
 
 # PyHeat Changelog
 
+## 2025-12-05: Graph Shading Reliability Fix (State String Refactor)
+
+**Summary:**
+Refactored room state entity format and added dedicated boiler state entity to fix missing/patchy graph shading issues in pyheat-web.
+
+**Problem:**
+Graph shading for passive heating and load-sharing was inconsistent:
+- Missing shading when room state changed
+- Patchy/disconnected shading due to sparse history data
+- Both passive and load-sharing relied on `sensor.pyheat_status` (system-wide entity) which only creates history entries when ANY room changes, not when a specific room's state changes
+
+**Root Cause:**
+1. **Load-sharing data**: Extracted from system-wide `sensor.pyheat_status` which creates sparse, irregular history entries
+2. **System heating data**: Same issue - `any_call_for_heat` from system-wide entity
+3. **Timing gaps**: Interpolated chart points between sparse history entries had no data to reference
+
+**Solution:**
+Changed to per-entity state tracking for reliable history entries:
+
+1. **New Room State String Format** (`sensor.pyheat_{room}_state`):
+   ```
+   Format: $mode, $load_sharing, $calling, $valve
+   
+   Examples:
+   "auto (active), LS off, not calling, 0%"
+   "auto (passive), LS T1, not calling, 65%"
+   "auto (active), LS T1, calling, 100%"
+   "manual, LS off, not calling, 80%"
+   "off, LS off, not calling, 0%"
+   ```
+   
+   Every flag change creates a new history entry, ensuring reliable state tracking.
+
+2. **New Boiler State Entity** (`sensor.pyheat_boiler_state`):
+   - State values: `on`, `off`, `pending_on`, `pending_off`, `pump_overrun`, `interlock`
+   - Updates only when boiler state changes, providing clean history for passive shading
+   - System heating = boiler state in (`on`, `pending_off`)
+
+**Technical Changes:**
+
+1. **Constants** (`core/constants.py`):
+   - Added `BOILER_STATE_ENTITY = "sensor.pyheat_boiler_state"`
+
+2. **Status Publisher** (`services/status_publisher.py`):
+   - Added `publish_boiler_state()` method
+   - Added `_build_room_state_string()` helper for structured state format
+   - Updated `publish_room_entities()` to accept `load_sharing_info` parameter
+   - Room state string now includes load-sharing tier in parseable format
+
+3. **App Orchestrator** (`app.py`):
+   - Builds load-sharing info map for each room
+   - Passes load-sharing info to `publish_room_entities()`
+   - Calls `publish_boiler_state()` after boiler update
+
+4. **API Handler** (`services/api_handler.py`):
+   - Load-sharing: Now parsed from room state string instead of system status attributes
+   - System heating: Now extracted from `sensor.pyheat_boiler_state` history
+
+**Entity Changes:**
+- **Modified (6)**: `sensor.pyheat_{room}_state` - new state string format
+- **Created (1)**: `sensor.pyheat_boiler_state` - dedicated boiler state entity
+- **Unchanged**: All attributes on room state entity preserved for backward compatibility
+
+**Historical Data Note:**
+Data before this deployment won't have the new state format. Historical graphs may not show proper shading for past data.
+
+**Files Changed:**
+- `core/constants.py`
+- `services/status_publisher.py`
+- `services/api_handler.py`
+- `app.py`
+
+---
+
 ## 2025-12-04: Add Graph Shading for Passive Rooms and Load-Sharing
 
 **Summary:**

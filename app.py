@@ -856,6 +856,16 @@ class PyHeat(hass.Hass):
             
             self.valve_coordinator.clear_load_sharing_overrides()
         
+        # Build load-sharing info map for each room (for state string publishing)
+        load_sharing_info_map = {}
+        if hasattr(self, 'load_sharing') and self.load_sharing:
+            for room_id, activation in self.load_sharing.context.active_rooms.items():
+                load_sharing_info_map[room_id] = {
+                    'active': True,
+                    'tier': activation.tier,
+                    'reason': activation.reason
+                }
+        
         # Apply all valve commands through valve coordinator
         # The coordinator handles persistence overrides, load sharing, corrections, and normal commands
         for room_id in self.config.rooms.keys():
@@ -868,8 +878,14 @@ class PyHeat(hass.Hass):
             # Update room_data with final valve for status publishing
             data['valve_percent'] = final_valve
             
-            # Publish room entities
-            self.status.publish_room_entities(room_id, data, now)
+            # Get load-sharing info for this room (if any)
+            ls_info = load_sharing_info_map.get(room_id)
+            
+            # Publish room entities with load-sharing info
+            self.status.publish_room_entities(room_id, data, now, load_sharing_info=ls_info)
+        
+        # Publish boiler state entity (for reliable graph shading history)
+        self.status.publish_boiler_state(boiler_state)
         
         # Publish system status
         self.status.publish_system_status(any_calling, active_rooms, room_data, 

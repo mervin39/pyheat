@@ -634,8 +634,90 @@ class StatusPublisher:
                 attributes=cooldown_attrs,
                 replace=True
             )
+
+    def publish_boiler_state(self, boiler_state: str) -> None:
+        """Publish dedicated boiler state entity for reliable graph shading history.
         
-    def publish_room_entities(self, room_id: str, data: Dict, now: datetime) -> None:
+        This entity provides reliable state transitions for determining when
+        heat is available (for passive shading). Unlike the system-wide
+        sensor.pyheat_status, this entity updates ONLY when boiler state changes,
+        ensuring clean history entries for frontend graph shading.
+        
+        Args:
+            boiler_state: Current boiler state (on, off, pending_on, pending_off, pump_overrun, interlock)
+        """
+        self.ad.set_state(
+            C.BOILER_STATE_ENTITY,
+            state=boiler_state,
+            attributes={
+                'friendly_name': 'PyHeat Boiler State',
+                'icon': 'mdi:fire' if boiler_state == 'on' else 'mdi:fire-off'
+            },
+            replace=True
+        )
+
+    def _build_room_state_string(self, room_id: str, data: Dict,
+                                  load_sharing_info: Dict = None) -> str:
+        """Build structured room state string for reliable history entries.
+        
+        Format: $mode, $load_sharing, $calling, $valve
+        
+        Examples:
+            "auto (active), LS off, not calling, 0%"
+            "auto (passive), LS off, not calling, 65%"
+            "auto (active), LS T1, not calling, 30%"
+            "auto (active), LS off, calling, 100%"
+            "manual, LS off, not calling, 80%"
+            "off, LS off, not calling, 0%"
+        
+        This format ensures every flag change creates a new history entry,
+        fixing sparse/patchy graph shading issues.
+        
+        Args:
+            room_id: Room identifier
+            data: Room state dictionary
+            load_sharing_info: Load sharing state dict with 'active', 'tier' keys
+            
+        Returns:
+            Formatted state string
+        """
+        mode = data.get('mode', 'off')
+        operating_mode = data.get('operating_mode', 'off')
+        
+        # $mode component
+        if mode == 'off':
+            mode_str = 'off'
+        elif mode == 'manual':
+            mode_str = 'manual'
+        elif mode == 'passive':
+            mode_str = 'passive'
+        elif mode == 'auto':
+            if data.get('override_active', False):
+                mode_str = 'auto (override)'
+            elif operating_mode == 'passive':
+                mode_str = 'auto (passive)'
+            else:
+                mode_str = 'auto (active)'
+        else:
+            mode_str = mode
+        
+        # $load_sharing component
+        if load_sharing_info and load_sharing_info.get('active'):
+            tier = load_sharing_info.get('tier', 1)
+            ls_str = f"LS T{tier}"
+        else:
+            ls_str = "LS off"
+        
+        # $calling component
+        calling_str = "calling" if data.get('calling', False) else "not calling"
+        
+        # $valve component
+        valve_str = f"{data.get('valve_percent', 0)}%"
+        
+        return f"{mode_str}, {ls_str}, {calling_str}, {valve_str}"
+
+    def publish_room_entities(self, room_id: str, data: Dict, now: datetime,
+                              load_sharing_info: Dict = None) -> None:
         """Publish per-room entities.
         
         NOTE: Temperature sensor is NOT updated here - it's updated in real-time
@@ -690,21 +772,13 @@ class StatusPublisher:
             except Exception as e:
                 self.ad.log(f"Error getting scheduled temp for {room_id}: {e}", level="WARNING")
         
-        # Format state string based on mode (legacy for backward compatibility)
-        if data['mode'] == 'manual':
-            manual_setpoint = data.get('manual_setpoint')
-            if manual_setpoint is not None:
-                state_str = f"manual({manual_setpoint})"
-            else:
-                state_str = f"manual({data.get('target', 0)})"
-        else:
-            state_str = data['mode']
+        # Add override_active flag to data for state string building
+        data_with_override = dict(data)
+        data_with_override['override_active'] = override_active
         
-        # Append override indicator to legacy state
-        if override_active:
-            state_str = f"{state_str} (override)"
-        elif data['mode'] == 'auto' and data.get('calling', False):
-            state_str = f"heating ({data.get('valve_percent', 0)}%)"
+        # Build structured state string for reliable history entries
+        # Format: "$mode, $load_sharing, $calling, $valve"
+        state_str = self._build_room_state_string(room_id, data_with_override, load_sharing_info)
         
         # Generate human-readable formatted status
         formatted_status = self._format_status_text(room_id, data, scheduled_info)
