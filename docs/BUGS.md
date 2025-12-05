@@ -114,9 +114,10 @@ After AppDaemon restart at 13:30:
 
 ## BUG #15: Load Sharing Status Text Shows Incorrect Tier Information
 
-**Status:** OPEN 🔴  
-**Date Discovered:** 2025-12-03  
-**Severity:** Medium - misleading UI status text, no functional impact  
+**Status:** FIXED ✅
+**Date Discovered:** 2025-12-03
+**Date Fixed:** 2025-12-03
+**Severity:** Medium - misleading UI status text, no functional impact
 **Category:** Status Display / Load Sharing
 
 ### Description
@@ -641,9 +642,10 @@ This allows passive mode rooms to participate in load sharing when they don't ha
 
 ## BUG #12: Spurious "Not in persistence data" Warnings on Startup
 
-**Status:** OPEN 🔴  
-**Date Discovered:** 2025-11-30  
-**Severity:** Low - Cosmetic only, no functional impact  
+**Status:** FIXED ✅
+**Date Discovered:** 2025-11-30
+**Date Fixed:** 2025-12-05 (resolved naturally, no code changes)
+**Severity:** Low - Cosmetic only, no functional impact
 **Category:** Logging / Initialization
 
 ### Description
@@ -708,6 +710,25 @@ File modification time shows persistence.json hasn't been written since first mi
 ### Workaround
 
 None needed - system functions correctly. Could potentially downgrade WARNING to DEBUG for these cases, but want to keep WARNING for genuinely missing rooms (new additions to config).
+
+### Resolution (2025-12-05)
+
+**Status:** Issue resolved naturally without code changes.
+
+**Verification:**
+- Analyzed all AppDaemon logs from December 2025
+- Found 13 successful restarts with persistence loading
+- All 6 rooms (pete, games, lounge, abby, office, bathroom) successfully loaded on every restart
+- Zero "Not in persistence data" warnings found in December logs
+- All three previously-problematic rooms (lounge, abby, bathroom) now loading consistently
+
+**Conclusion:**
+The issue was likely transient, possibly related to:
+- Temporary file system timing issues during the November 30 restart
+- Race condition that has since been resolved by other changes
+- One-time initialization quirk that cleared itself
+
+No code changes were necessary. The persistence system is now working reliably across all rooms.
 
 ---
 

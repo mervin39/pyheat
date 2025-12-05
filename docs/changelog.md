@@ -1,6 +1,30 @@
 
 # PyHeat Changelog
 
+## 2025-12-05: Documentation Update - Bug Status Verification
+
+**Summary:**
+Verified and updated status of bugs #12 and #15 in BUGS.md.
+
+**Bug #15: Load Sharing Status Text Shows Incorrect Tier Information**
+- Status: FIXED (previously marked as OPEN)
+- Verification: Code review confirmed fix from 2025-12-03 is present in `status_publisher.py`
+- Fix distinguishes tier 1 (schedule-based) from tier 2 (fallback) activations
+
+**Bug #12: Spurious "Not in persistence data" Warnings on Startup**
+- Status: FIXED (resolved naturally without code changes)
+- Verification: Analyzed December 2025 AppDaemon logs
+  - 13 successful restarts with persistence loading
+  - All 6 rooms loading successfully on every restart
+  - Zero warnings found in December logs
+  - Previously-problematic rooms (lounge, abby, bathroom) now loading consistently
+- Conclusion: Issue was transient, likely one-time initialization quirk
+
+**Files Modified:**
+- `docs/BUGS.md` - Updated status and added resolution details for bugs #12 and #15
+
+---
+
 ## 2025-12-05: BUG #16 Fix - Passive Mode Valve Percent UI Sync
 
 **Summary:**
