@@ -209,12 +209,21 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │                   STATUS PUBLICATION (status_publisher.py)                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Publish state to Home Assistant entities:                                   │
-│    ├─ Per-room entities (sensor.pyheat_room_{room}):                         │
-│    │    • State: current temperature                                         │
+│    ├─ Per-room state entities (sensor.pyheat_{room}_state):                  │
+│    │    • State: structured string for reliable HA history tracking          │
+│    │      Format: "$mode, $load_sharing, $calling, $valve"                   │
+│    │      Examples: "auto (active), LS off, not calling, 0%"                 │
+│    │                "auto (passive), LS T1, calling, 100%"                   │
+│    │    • Every field change creates new history entry (graph shading)       │
 │    │    • Attributes: target, mode, operating_mode, calling, valve_percent   │
 │    │    • passive_max_temp (when in passive mode)                            │
 │    │    • formatted_status with schedule/override information                │
 │    │    • next_change, override_end_time (for UI countdowns)                 │
+│    ├─ Boiler state entity (sensor.pyheat_boiler_state):                      │
+│    │    • State: on, off, pending_on, pending_off, pump_overrun, interlock   │
+│    │    • Updates only when boiler state changes (clean history)             │
+│    │    • Used by pyheat-web for graph shading (system_heating detection)    │
+│    │    • Also used by api_get_boiler_history() for boiler timeline          │
 │    ├─ System status (sensor.pyheat_status):                                  │
 │    │    • State: "heating", "idle", or "master_off"                          │
 │    │    • Attributes: boiler_state, calling_rooms[], all room_data           │
