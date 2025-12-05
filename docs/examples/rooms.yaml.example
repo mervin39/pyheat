@@ -8,7 +8,7 @@ rooms:
       alpha: 0.3      # 30% new, 70% history (good for 2+ sensors)
     load_sharing:
       schedule_lookahead_m: 30  # Conservative pre-warming (bedroom)
-      # No fallback_priority = excluded from Tier 3 (bedroom privacy)
+      # No fallback_priority = excluded from Tier 2 fallback (bedroom privacy)
     sensors:
       - entity_id: sensor.pete_xiaomi_temperature
         role: primary
@@ -74,7 +74,7 @@ rooms:
       - entity_id: sensor.lounge_xiaomi_temperature
         role: primary
         timeout_m: 180
-      - entity_id: sensor.awair_omni_270_temperature
+      - entity_id: sensor.lounge_snzb02_temperature
         role: primary
         timeout_m: 180
     trv:
@@ -95,7 +95,7 @@ rooms:
       alpha: 0.3      # 30% new, 70% history (strong smoothing for noisy single sensor)
     load_sharing:
       schedule_lookahead_m: 30  # Conservative pre-warming (bedroom)
-      # No fallback_priority = excluded from Tier 3 (bedroom privacy)
+      # No fallback_priority = excluded from Tier 2 fallback (bedroom privacy)
     sensors:
       - entity_id: sensor.abby_xiaomi_temperature
         role: primary

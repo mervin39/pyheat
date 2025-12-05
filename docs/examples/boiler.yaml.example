@@ -43,26 +43,33 @@ boiler:
 
   # Load sharing configuration
   # Intelligent load balancing to reduce short-cycling
-  # Mode controlled via input_select.pyheat_load_sharing_mode in Home Assistant
+  # Enable/disable via input_boolean.pyheat_load_sharing_enable in Home Assistant
   # load_sharing:
   #   min_calling_capacity_w: 2000  # Activate when calling capacity below this
   #   target_capacity_w: 2500       # Target total capacity to reach
   #   min_activation_duration_s: 300  # 5 minutes minimum (prevents oscillation)
-  #   tier3_timeout_s: 900           # 15 minutes max for Tier 3 fallback rooms
-  #   tier3_cooldown_s: 1800         # 30 minutes before room can be re-selected after timeout
-  #   tier3_comfort_target_c: 20.0  # Comfort target for Tier 3 pre-warming (bypasses low parking temps)
-  #   high_return_delta_c: 6         # Cycling risk: return temp within this many °C of setpoint
-  #                                  # Tuned from analysis: 98% of cooldowns occur at delta <= 8°C
-  #                                  # Oversized boiler runs stably at 5-6°C delta during normal heating
-  #                                  # Example: if setpoint is 70°C, triggers at return >= 62°C
+  #   fallback_timeout_s: 900         # 15 minutes max for fallback rooms
+  #   fallback_cooldown_s: 1800       # 30 minutes before room can be re-selected after timeout
+  #   fallback_comfort_target_c: 20.0  # Comfort target for fallback pre-warming (bypasses low parking temps)
+  #   high_return_delta_c: 3         # Cycling risk: return temp within this many C of setpoint
   load_sharing:
     min_calling_capacity_w: 2000      # Keep (bathroom is 415W, well below)
     target_capacity_w: 2500           # Keep
-    min_activation_duration_s: 60     # REDUCE from 300 → 60s (1 min minimum)
-    tier3_timeout_s: 180              # REDUCE from 900 → 180s (3 min instead of 15)
-    tier3_cooldown_s: 300             # REDUCE from 1800 → 300s (5 min instead of 30)
-    tier3_comfort_target_c: 20.0      # Keep
-    high_return_delta_c: 6            # Keep
+    min_activation_duration_s: 60     # REDUCE from 300 -> 60s (1 min minimum)
+    fallback_timeout_s: 900           # 15 minutes max for fallback rooms (prevents excessive valve cycling)
+    fallback_cooldown_s: 300          # 5 min cooldown before room can be re-selected
+    fallback_comfort_target_c: 20.0   # Keep
+    high_return_delta_c: 3            # Keep
+
+# System-wide configuration
+system:
+  # Frost protection temperature (°C)
+  # Automatic emergency heating activates when room drops below this threshold
+  # Applies to all modes EXCEPT "off" (respects explicit user disable)
+  # Uses aggressive heating (100% valve) for rapid recovery
+  # Standard UK/EU frost protection: 7-10°C (default 8°C)
+  frost_protection_temp_c: 8.0
+
 # Load monitoring configuration (for capacity estimation)
 # Calculates estimated radiator heat output for load-based optimization
 load_monitoring:
