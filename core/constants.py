@@ -178,7 +178,7 @@ CYCLING_COOLDOWN_SETPOINT = 30  # °C - prevents re-ignition during cooldown
 
 # Recovery threshold calculation
 CYCLING_RECOVERY_DELTA_C = 15  # °C below saved setpoint
-CYCLING_RECOVERY_MIN_C = 35    # °C absolute minimum (safety margin above cooldown)
+CYCLING_RECOVERY_MIN_C = 45    # °C absolute minimum (safety margin above cooldown)
 
 # Recovery monitoring interval
 CYCLING_RECOVERY_MONITORING_INTERVAL_S = 10  # Check every 10 seconds
