@@ -1,6 +1,37 @@
 
 # PyHeat Changelog
 
+## 2025-12-08: DOCS - Clean Up Outdated Passive Mode Semantics in ARCHITECTURE.md
+
+**Summary:**
+Removed all remaining references to old passive mode semantics in ARCHITECTURE.md documentation. After the BUG #17 semantic inversion fix, several documentation sections still described passive mode using the old incorrect semantics (target = max_temp).
+
+**Documentation Fixes:**
+
+1. **Line 92** (Target Resolution flow diagram): Changed "passive_max_temp (threshold, not setpoint)" to "passive_min to passive_max range"
+
+2. **Line 219** (Status publisher attributes): Added "passive_min_temp" alongside existing "passive_max_temp" to show both values are published
+
+3. **Line 862-864** (Precedence hierarchy): Updated to show passive mode uses a range (min to max) with clear explanations of each value's purpose
+
+4. **Line 875** (Precedence table): Changed example from "18.0°C (passive max_temp)" to "16-19°C range"
+
+5. **Lines 885-889** (Key behaviors): Updated to explain both passive_min_temp (comfort floor) and passive_max_temp (upper limit)
+
+6. **Lines 1856-1862** (Load-sharing passive rooms): Corrected description to use passive_max_temp for upper limit, added note about passive_min_temp as comfort floor
+
+7. **Line 2241** (Room heating logic branch): Updated from "valve open if temp < max_temp" to "valve open if temp < passive_max_temp, heating triggered if temp < passive_min_temp"
+
+**Impact:**
+- Documentation now correctly reflects the current passive mode implementation
+- Prevents future confusion about passive mode semantics
+- All references to old "target = max_temp in passive mode" semantics removed
+
+**Files Modified:**
+- docs/ARCHITECTURE.md (7 sections updated)
+
+---
+
 ## 2025-12-08: FIX - Passive Min History Extraction Race Condition
 
 **Summary:**

@@ -89,7 +89,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │  Determine target temperature using precedence hierarchy:                    │
 │    1. Off mode          → None (no heating)                                  │
 │    2. Manual mode       → manual_setpoint (user-set constant)                │
-│    3. Passive mode      → passive_max_temp (threshold, not setpoint)         │
+│    3. Passive mode      → passive_min to passive_max range                   │
 │    4. Override active   → override_target (absolute temp, from target/delta) │
 │    5. Schedule block    → block target for current time/day                  │
 │    6. Default           → default_target (outside schedule blocks)           │
@@ -216,7 +216,7 @@ PyHeat operates as an event-driven control loop that continuously monitors tempe
 │    │                "auto (passive), LS T1, calling, 100%"                   │
 │    │    • Every field change creates new history entry (graph shading)       │
 │    │    • Attributes: target, mode, operating_mode, calling, valve_percent   │
-│    │    • passive_max_temp (when in passive mode)                            │
+│    │    • passive_min_temp, passive_max_temp (when in passive mode)         │
 │    │    • formatted_status with schedule/override information                │
 │    │    • next_change, override_end_time (for UI countdowns)                 │
 │    ├─ Boiler state entity (sensor.pyheat_boiler_state):                      │
@@ -859,7 +859,9 @@ The `resolve_room_target()` method implements a strict precedence hierarchy:
 Priority (highest to lowest):
 1. OFF mode          → None (no heating)
 2. MANUAL mode       → manual setpoint (ignores schedule/override) - active heating
-3. PASSIVE mode      → passive_max_temp (threshold, not setpoint) - passive heating
+3. PASSIVE mode      → passive_min to passive_max range (opportunistic heating)
+                        - passive_min_temp: comfort floor (triggers active if breached)
+                        - passive_max_temp: upper limit (valve closes when reached)
 4. OVERRIDE active   → override target (absolute, calculated from target or delta) - active heating
 5. SCHEDULE block    → block target for current time (may specify active or passive)
 6. DEFAULT           → default_target (gap between blocks) - active heating
@@ -872,7 +874,7 @@ Priority (highest to lowest):
 |------|----------|----------|--------|
 | Off | - | 18.0°C | **None** (off wins) |
 | Manual | 21.0°C | 18.0°C | **20.0°C** (manual setpoint, active, ignores override) |
-| Passive | 21.0°C | 18.0°C | **18.0°C** (passive max_temp, passive, ignores override) |
+| Passive | 21.0°C | 18.0°C | **16-19°C range** (passive_min to passive_max, ignores override/schedule) |
 | Auto | 21.0°C | 18.0°C | **21.0°C** (override wins, active) |
 | Auto | 20.0°C (from delta +2) | 18.0°C | **20.0°C** (override calculated from delta, active) |
 | Auto | - | 18.0°C | **18.0°C** (scheduled block, mode from schedule) |
@@ -881,8 +883,10 @@ Priority (highest to lowest):
 
 **Key Behaviors:**
 - **Off mode** always wins - even if override active
-- **Manual mode** ignores ALL overrides and schedules, uses active heating
-- **Passive mode** ignores ALL overrides and schedules, uses passive heating with max_temp threshold
+- **Manual mode** ignores ALL overrides and schedules, uses active heating to setpoint
+- **Passive mode** ignores ALL overrides and schedules, uses passive range (min_temp to max_temp)
+  - passive_min_temp = comfort floor (triggers active heating if breached)
+  - passive_max_temp = upper limit (valve closes when reached)
 - **Override** is stored as absolute temperature (delta only used at creation time), always uses active heating
 - **Schedule blocks** can specify `mode: 'passive'` for scheduled passive periods
 - **Holiday mode** only applies when no override active
@@ -1850,10 +1854,12 @@ Tier 3 is split into two phases:
 **Selection Criteria:**
 - Current `operating_mode == 'passive'` (room is passive RIGHT NOW)
 - Not currently calling for heat (excludes comfort/frost protection modes)
-- Current temperature < max_temp (room can still accept heat)
-- Temperature sensors not stale (both temp and max_temp available)
+- Current temperature < passive_max_temp (room can still accept heat)
+- Temperature sensors not stale
 
-**Target Temperature:** Room's configured max_temp (passive target)
+**Target Temperature:** Room's configured passive_max_temp (upper limit for valve control)
+- Note: passive_min_temp is the comfort floor that triggers active heating if breached
+- In passive mode, the room heats opportunistically up to passive_max_temp
 
 **Valve Opening:** 50% initial → 60% → 70% → 80% → 90% → 100% (standard Tier 3 escalation)
 - **Overrides user's `passive_valve_percent`** during load sharing
@@ -2232,7 +2238,7 @@ def compute_room(room_id: str, now: datetime) -> Dict:
    - If temp is None (sensors stale) → calling=False, valve=0%
    - Exception: Manual mode still requires valid temp
 7. Branch on operating mode:
-   - PASSIVE: Binary threshold control (valve open if temp < max_temp)
+   - PASSIVE: Range control (valve open if temp < passive_max_temp, heating triggered if temp < passive_min_temp)
    - ACTIVE: Calculate error, hysteresis, and stepped valve bands
 8. Return room state dict
 ```
