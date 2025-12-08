@@ -360,16 +360,16 @@ class CyclingProtection:
             )
             self._set_setpoint(desired_setpoint)
     
-    def _dhw_was_recently_active(self, lookback_seconds: int = 5) -> bool:
+    def _dhw_was_recently_active(self, lookback_seconds: int = 12) -> bool:
         """Check if DHW was active in recent history (backward-looking check).
-        
+
         This catches the race condition where tap closes just before flame OFF.
         By the time flame OFF event fires, DHW sensors may already show 'off',
         but the history buffer will still contain the 'on' states.
-        
+
         Args:
-            lookback_seconds: How far back to check history (default: 5s)
-            
+            lookback_seconds: How far back to check history (default: 12s)
+
         Returns:
             True if DHW was active within lookback window, False otherwise
         """
@@ -425,7 +425,7 @@ class CyclingProtection:
         # QUAD-CHECK: DHW at flame OFF OR DHW now OR DHW in recent history
         dhw_was_active = is_dhw_active(dhw_binary_at_flame_off, dhw_flow_at_flame_off)
         dhw_is_active = is_dhw_active(dhw_binary_now, dhw_flow_now)
-        dhw_recently_active = self._dhw_was_recently_active(lookback_seconds=5)
+        dhw_recently_active = self._dhw_was_recently_active(lookback_seconds=12)
         
         if dhw_was_active or dhw_is_active or dhw_recently_active:
             self.ad.log(

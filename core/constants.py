@@ -171,7 +171,7 @@ CYCLING_SENSOR_DELAY_S = 2  # Wait for OpenTherm sensors to update after flame O
 
 # High return temp detection threshold (delta from setpoint)
 # When return_temp >= (setpoint - delta), cooldown is triggered
-CYCLING_HIGH_RETURN_DELTA_C = 10  # e.g., 60°C when setpoint is 70°C
+CYCLING_HIGH_RETURN_DELTA_C = 5  # e.g., 50°C when setpoint is 55°C, 65°C when setpoint is 70°C
 
 # Cooldown setpoint (must be climate entity minimum)
 CYCLING_COOLDOWN_SETPOINT = 30  # °C - prevents re-ignition during cooldown

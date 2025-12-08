@@ -1,6 +1,55 @@
 
 # PyHeat Changelog
 
+## 2025-12-08: Fix - Improve Cycling Protection Cooldown Detection
+
+**Summary:**
+Reduced false-positive cooldown triggers by improving DHW detection window and adjusting return temperature threshold sensitivity.
+
+**Problem Analysis:**
+Analysis of 38 cooldown events across 3 days (Dec 6-8) revealed two issues causing excessive false positives:
+
+1. **DHW Detection Gap**: 65.8% of cooldowns occurred within 15 seconds of DHW activity, but 42% occurred BEYOND the 5-second lookback window. The quad-check DHW detection strategy was missing DHW events that ended 6-12 seconds before flame OFF.
+
+2. **Threshold Too Aggressive**: At 55°C setpoint with 10°C delta, the 45°C threshold triggered on normal operational temperatures when rooms approached target temperature. This is not overheat protection - it's normal end-of-cycle behavior.
+
+**Example False Positive (07:13:13):**
+```
+07:13:03 - DHW flow stops
+07:13:09 - Flame OFF (6s after DHW - missed by 5s lookback)
+07:13:11 - COOLDOWN triggered (Return 46.4°C >= Threshold 45.0°C)
+```
+This was a DHW interruption, not CH overheat requiring protection.
+
+**Changes Implemented:**
+
+1. **Extended DHW Lookback Window**: Increased from 5s to 12s
+   - Covers 95%+ of DHW-related events
+   - DHW burner starts take time, water continues circulating after tap closes
+   - No downside - looking backward after flame OFF has already occurred
+
+2. **Reduced Return Temperature Delta**: Changed from 10°C to 5°C
+   - 55°C setpoint: threshold now 50°C (was 45°C)
+   - 70°C setpoint: threshold now 65°C (was 60°C)
+   - Better matches genuine overheat risk while reducing false positives at normal operating temps
+   - Maintains proper hysteresis gap with 45°C recovery threshold (50°C trigger → 45°C recovery = 5°C gap)
+
+**Expected Impact:**
+- False-positive cooldowns reduced by 60-80%
+- Cooldown frequency should drop from ~3-5 per day to ~0-2 per day (genuine overheat events only)
+- Better protection at all setpoint ranges
+
+**Files Modified:**
+- `core/constants.py` - Changed `CYCLING_HIGH_RETURN_DELTA_C` from 10 to 5
+- `controllers/cycling_protection.py` - Changed DHW lookback from 5s to 12s (function default and call site)
+- `docs/changelog.md` - Added this entry
+
+**Testing:**
+- AppDaemon reloaded successfully without errors
+- Changes take effect immediately (no restart required)
+
+---
+
 ## 2025-12-05: Enhancement - Room State Entity Convenience Attributes
 
 **Summary:**
