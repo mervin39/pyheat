@@ -1,6 +1,76 @@
 
 # PyHeat Changelog
 
+## 2025-12-08: Feature - Passive Min/Max Range Visualization on Temperature Charts
+
+**Summary:**
+Added explicit visualization of passive-mode temperature range (min and max) on room temperature charts. When rooms are in passive mode (either user-selected or scheduled passive blocks), charts now show both the comfort floor (passive_min) and the passive upper limit (passive_max).
+
+**Motivation:**
+Previously, only the main setpoint line was visible on charts. For passive mode, users couldn't easily see the full passive range (min to max). This made it difficult to understand:
+- The comfort floor threshold (below which the room will actively call for heat)
+- The passive upper limit (above which the valve closes)
+- Whether the room temperature was staying within the intended passive range
+
+**Implementation:**
+
+**Backend Changes:**
+1. Extended `api_get_history()` API endpoint to include passive_min and passive_max data
+2. Extracts `passive_min_temp` and `passive_max_temp` from room state entity attributes when `operating_mode == 'passive'`
+3. Returns two new arrays in history response:
+   - `passive_min`: Array of `{"time": str, "value": float}` points
+   - `passive_max`: Array of `{"time": str, "value": float}` points
+
+**Frontend Changes (pyheat-web):**
+1. **Data Processing:**
+   - Added `PassiveMinMaxPoint` TypeScript interface for passive min/max data
+   - Forward-fill passive_min and passive_max values as step functions (like setpoints)
+   - Include passive min/max in interpolated points for smooth rendering
+
+2. **Visual Design:**
+   - **Passive Min Line:** Dashed line with longer dashes (8px dash, 4px gap), 70% opacity
+   - **Passive Max Line:** Dotted line with short dots (2px dash, 3px gap, round linecap), 70% opacity
+   - Both lines use the passive purple color (same as passive mode setpoint)
+   - Lighter weight (1.5px) than main setpoint line (2px) to avoid visual clutter
+
+3. **Data-Driven Y-Axis Floor Logic:**
+   - Implements smart Y-axis domain calculation to avoid excessive zoom-out for low passive_min values
+   - Configuration:
+     - `RELEVANCE_MARGIN`: 3°C (passive_min values must be within 3°C of observed temps to be included)
+     - `ABSOLUTE_FLOOR`: 12°C (minimum chart floor to prevent extreme zoom-out)
+   - A passive_min value is considered "relevant" and included in Y-domain if:
+     1. `passive_min >= (observed_temperature_min - 3°C)`, OR
+     2. Passive mode is actively heating at that timestamp (valve open + system heating)
+   - Irrelevant passive_min values (e.g., 8°C comfort floor when temps are 15-18°C) are excluded from Y-domain calculation but still rendered on the chart
+   - All passive_max values are always included in Y-domain (upper limits are always relevant)
+
+**Example Use Cases:**
+- **Scheduled Passive Blocks:** When auto mode enters a scheduled passive block, the chart shows the passive range replacing the active setpoint line
+- **User-Selected Passive Mode:** When user manually sets a room to passive mode, the full range is immediately visible
+- **Comfort Mode Transitions:** When temperature drops below passive_min, users can see when the comfort floor was breached
+
+**Benefits:**
+- **Clearer Passive Mode Visualization:** Full passive range is now visible, not just the max
+- **Better Decision Making:** Users can see if passive ranges are appropriate for their rooms
+- **Reduced Chart Clutter:** Data-driven floor logic prevents excessive zoom-out for low comfort floors
+- **Consistent Design:** Uses existing passive color scheme and step-after rendering style
+
+**Files Modified:**
+- `services/api_handler.py` - Added passive_min/max extraction and API response fields
+- `docs/changelog.md` - Added this entry
+
+**Files Modified (pyheat-web):**
+- `client/src/components/TemperatureChart.tsx` - Added passive min/max line rendering and data-driven Y-axis logic
+- `docs/changelog.md` - Added corresponding entry
+
+**Testing:**
+- Python syntax validation passed
+- TypeScript compilation passed without errors
+- Docker container rebuilt and started successfully
+- pyheat-web running without errors
+
+---
+
 ## 2025-12-08: Fix - Setpoint Line Color Inconsistency on Temperature Graphs
 
 **Summary:**

@@ -548,7 +548,9 @@ class APIHandler:
             "valve": [{"time": str, "valve_percent": int}],
             "load_sharing": [{"time": str, "load_sharing_active": bool, "tier": int, "valve_pct": int, "reason": str}],
             "system_heating": [{"time": str, "system_heating": bool}],
-            "calling_for_heat": [["start_time", "end_time"]]
+            "calling_for_heat": [["start_time", "end_time"]],
+            "passive_min": [{"time": str, "value": float}],
+            "passive_max": [{"time": str, "value": float}]
         }
         """
         from datetime import datetime, timedelta, timezone
@@ -661,11 +663,14 @@ class APIHandler:
             # Operating mode history - tracks actual heating behavior (e.g., auto mode in passive schedule)
             # Also extracts override info for chart coloring (red for heating override, blue for cooling)
             # Also extracts passive state and valve position for passive room shading
+            # Also extracts passive min/max temperatures for chart visualization
             # This is stored as attributes on the state entity
             operating_mode_data = []
             override_data = []  # Tracks override periods with type (heating/cooling)
             passive_data = []  # Tracks passive state (operating_mode='passive' AND valve > 0)
             valve_data = []  # Tracks valve position for all modes
+            passive_min_data = []  # Tracks passive minimum temperature (comfort floor)
+            passive_max_data = []  # Tracks passive maximum temperature (upper limit)
             state_entity = f"sensor.pyheat_{room_id}_state"
             if self.ad.entity_exists(state_entity):
                 state_history = self.ad.get_history(
@@ -773,6 +778,24 @@ class APIHandler:
                                     "override_target": None,
                                     "scheduled_temp": scheduled_temp
                                 })
+
+                            # Extract passive min/max temperatures when in passive mode
+                            # These define the passive range: min is comfort floor, max is upper limit
+                            if op_mode == "passive":
+                                passive_min_temp = attrs.get("passive_min_temp")
+                                passive_max_temp = attrs.get("passive_max_temp")
+
+                                if passive_min_temp is not None:
+                                    passive_min_data.append({
+                                        "time": timestamp,
+                                        "value": passive_min_temp
+                                    })
+
+                                if passive_max_temp is not None:
+                                    passive_max_data.append({
+                                        "time": timestamp,
+                                        "value": passive_max_temp
+                                    })
                         except (KeyError, TypeError, AttributeError):
                             continue
             
@@ -892,7 +915,9 @@ class APIHandler:
                 "valve": valve_data,
                 "load_sharing": load_sharing_data,
                 "system_heating": system_heating_data,
-                "calling_for_heat": calling_ranges
+                "calling_for_heat": calling_ranges,
+                "passive_min": passive_min_data,
+                "passive_max": passive_max_data
             }, 200
             
         except Exception as e:
