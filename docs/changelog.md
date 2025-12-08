@@ -1,6 +1,31 @@
 
 # PyHeat Changelog
 
+## 2025-12-08: FIX - Passive Min History Extraction Race Condition
+
+**Summary:**
+Fixed timestamp race condition in passive_min history extraction that caused graph tooltips to show outdated passive minimum temperatures. When passive mode settings were changed via the UI, the history API would miss the latest passive_min value due to a correlation timing bug.
+
+**Root Cause:**
+The api_handler correlates setpoint history with operating_mode history to extract passive_min values. However, when settings are updated, the backend writes:
+1. First: `sensor.pyheat_{room}_target` (e.g., at timestamp.680589)
+2. Then: `sensor.pyheat_{room}_state` with operating_mode (e.g., at timestamp.692669)
+
+The original correlation logic only matched operating_mode changes that occurred BEFORE the setpoint change (`op_point_dt <= setpoint_dt`), missing cases where the operating_mode update happened milliseconds AFTER due to write ordering.
+
+**Fix:**
+Added 1-second tolerance window when correlating timestamps. Now matches operating_mode changes that occur within 1 second before OR after the setpoint change (`op_point_dt <= setpoint_dt + timedelta(seconds=1)`). Also added proper datetime type handling for both string and datetime objects.
+
+**Impact:**
+- Graph tooltips now show current passive_min values immediately after settings changes
+- Fixes issue where hovering over recent time periods showed old passive_min values
+- Example: After changing passive_min from 14°C to 15.5°C at 21:36, tooltip immediately shows 15.5°C instead of continuing to show 14°C
+
+**Files Modified:**
+- services/api_handler.py - Fixed passive_min extraction correlation logic
+
+---
+
 ## 2025-12-08: CRITICAL FIX - Missed Semantic Inversions from BUG #17
 
 **Summary:**

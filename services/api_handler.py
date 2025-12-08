@@ -813,12 +813,30 @@ class APIHandler:
             # Extract passive_min from setpoint data when operating_mode was passive
             # After the semantic fix, sensor.pyheat_{room}_target stores min_temp in passive mode
             # We correlate setpoint_data with operating_mode_data to get passive_min history
+            from datetime import datetime, timedelta
+
             for setpoint_point in setpoint_data:
                 setpoint_time = setpoint_point["time"]
                 # Find the operating mode at this time
+                # NOTE: Use 1-second tolerance to handle race conditions where operating_mode
+                # update happens milliseconds after setpoint update
                 op_mode_at_time = None
+
+                # Convert to datetime if string
+                if isinstance(setpoint_time, str):
+                    setpoint_dt = datetime.fromisoformat(setpoint_time.replace('Z', '+00:00'))
+                else:
+                    setpoint_dt = setpoint_time
+
                 for op_point in operating_mode_data:
-                    if op_point["time"] <= setpoint_time:
+                    op_point_time = op_point["time"]
+                    if isinstance(op_point_time, str):
+                        op_point_dt = datetime.fromisoformat(op_point_time.replace('Z', '+00:00'))
+                    else:
+                        op_point_dt = op_point_time
+
+                    # Match if operating_mode change is within 1 second before or after setpoint change
+                    if op_point_dt <= setpoint_dt + timedelta(seconds=1):
                         op_mode_at_time = op_point["operating_mode"]
 
                 # If operating_mode was passive at this time, this setpoint is actually passive_min
