@@ -259,7 +259,7 @@ class Scheduler:
         default_mode = schedule.get('default_mode', 'active')
         
         if default_mode == 'passive':
-            default_target = schedule.get('default_target')  # This is max_temp for passive
+            default_target = schedule.get('default_target')  # In config, default_target is used as max_temp for passive
             # Use schedule values if provided, otherwise fall back to entity values
             valve_percent = schedule.get('default_valve_percent')
             if valve_percent is None:

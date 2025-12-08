@@ -1,6 +1,32 @@
 
 # PyHeat Changelog
 
+## 2025-12-08: CRITICAL FIX - Missed Semantic Inversions from BUG #17
+
+**Summary:**
+Fixed three locations where old passive mode semantics were still being used after the BUG #17 fix. These bugs caused incorrect status line displays and potentially incorrect load-sharing behavior.
+
+**Bugs Fixed:**
+
+1. **status_publisher.py (lines 236, 256, 584)**: Status line generation was still treating `target` as `max_temp` in passive mode
+   - Impact: Status line showed inverted temperature range (e.g., "Passive: 16-16C" instead of "Passive: 16-19C")
+   - Fix: Corrected to use `target` as `min_temp` and `passive_max_temp` for upper limit
+
+2. **load_sharing_manager.py (line 747)**: Fallback tier selection was reading `target` instead of `passive_max_temp`
+   - Impact: Load-sharing fallback tier used min_temp (comfort floor) instead of max_temp for capacity calculations
+   - Fix: Changed to use `passive_max_temp` for correct passive room selection
+
+3. **scheduler.py (line 262)**: Outdated comment suggested `default_target` was directly max_temp
+   - Impact: Confusing code comment only (logic was correct)
+   - Fix: Clarified comment to explain config usage
+
+**Files Modified:**
+- services/status_publisher.py (3 fixes)
+- managers/load_sharing_manager.py (1 fix)
+- core/scheduler.py (1 comment fix)
+
+---
+
 ## 2025-12-08: CRITICAL FIX - Passive Mode Target Semantic Inversion (BUG #17)
 
 **Summary:**

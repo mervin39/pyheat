@@ -233,15 +233,15 @@ class StatusPublisher:
         
         # Handle passive mode (not in comfort mode)
         if mode == 'passive':
-            max_temp = data.get('target')  # This is the max_temp in passive mode
-            min_temp = data.get('passive_min_temp')
-            
+            min_temp = data.get('target')  # FIXED: target is now min_temp (comfort floor)
+            max_temp = data.get('passive_max_temp')  # Upper limit for valve control
+
             if max_temp is None or min_temp is None:
                 return 'Passive (opportunistic)'
-            
+
             # Get passive valve percent from HA entity (runtime value)
             passive_valve_percent = self._get_passive_valve_percent(room_id)
-            
+
             return f'Passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%'
         
         # Handle auto mode (no override)
@@ -253,8 +253,8 @@ class StatusPublisher:
             
             # Check if we're in a scheduled passive block (auto mode but operating in passive)
             if operating_mode == 'passive':
-                max_temp = target  # In passive mode, target is the max temp
-                min_temp = data.get('passive_min_temp')
+                min_temp = target  # FIXED: target is now min_temp (comfort floor)
+                max_temp = data.get('passive_max_temp')  # Upper limit for valve control
                 
                 # Get passive valve percent from HA entity (runtime value)
                 passive_valve_percent = self._get_passive_valve_percent(room_id)
@@ -581,8 +581,8 @@ class StatusPublisher:
             
             # Add passive-specific fields when in passive mode
             if data.get('operating_mode') == 'passive':
-                room_attrs['passive_max_temp'] = data.get('target')  # In passive mode, target is max_temp
-                room_attrs['passive_min_temp'] = data.get('passive_min_temp')  # Comfort floor
+                room_attrs['passive_min_temp'] = data.get('target')  # FIXED: target is now min_temp (comfort floor)
+                room_attrs['passive_max_temp'] = data.get('passive_max_temp')  # Upper limit for valve control
                 room_attrs['comfort_mode'] = data.get('comfort_mode', False)
             
             attrs['rooms'][room_id] = room_attrs

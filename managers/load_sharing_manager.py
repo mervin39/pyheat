@@ -744,8 +744,8 @@ class LoadSharingManager:
             
             # Get current temp and max_temp
             temp = state.get('temp')
-            max_temp = state.get('target')  # For passive, target is max_temp
-            
+            max_temp = state.get('passive_max_temp')  # FIXED: use passive_max_temp (not target which is now min_temp)
+
             if temp is None or max_temp is None:
                 continue  # Skip rooms with stale sensors
             
