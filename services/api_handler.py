@@ -678,10 +678,37 @@ class APIHandler:
                     for state_obj in state_history[0]:
                         try:
                             attrs = state_obj.get("attributes", {})
+                            state_str = state_obj.get("state", "")
                             timestamp = state_obj["last_changed"]
 
-                            # Extract operating mode
-                            op_mode = attrs.get("operating_mode", "").lower()
+                            # Extract operating mode from state string for reliable mode detection
+                            # State string format: "$mode, $load_sharing, $calling, $valve"
+                            # Examples: "auto (active), LS off, calling, 100%"
+                            #           "auto (passive), LS T1, not calling, 65%"
+                            #           "passive, LS off, not calling, 80%"
+                            # Parse state string to get effective operating mode
+                            parts = [p.strip() for p in state_str.split(',')]
+                            if len(parts) >= 1:
+                                mode_part = parts[0]  # e.g., "auto (active)", "auto (passive)", "passive"
+
+                                # Map mode string to effective operating mode for setpoint line coloring
+                                if mode_part.startswith("auto (active)") or mode_part.startswith("auto (override)"):
+                                    op_mode = "auto"
+                                elif mode_part.startswith("auto (passive)"):
+                                    op_mode = "passive"
+                                elif mode_part == "passive":
+                                    op_mode = "passive"
+                                elif mode_part == "manual":
+                                    op_mode = "manual"
+                                elif mode_part == "off":
+                                    op_mode = "off"
+                                else:
+                                    # Fallback to attribute if state string parsing fails
+                                    op_mode = attrs.get("operating_mode", "").lower()
+                            else:
+                                # Fallback to attribute if state string is malformed
+                                op_mode = attrs.get("operating_mode", "").lower()
+
                             # Only include valid operating modes
                             if op_mode in ("auto", "manual", "passive", "off"):
                                 operating_mode_data.append({

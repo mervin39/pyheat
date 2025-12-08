@@ -1,6 +1,58 @@
 
 # PyHeat Changelog
 
+## 2025-12-08: Fix - Setpoint Line Color Inconsistency on Temperature Graphs
+
+**Summary:**
+Fixed inconsistency where dotted setpoint line showed incorrect color (purple instead of orange) on temperature graphs when room was in auto active mode.
+
+**Problem:**
+Users reported that the Living Room graph showed:
+- Orange shaded area (correct - room actively calling for heat)
+- Status line showing "Auto: 18.0°C until 16:00 (19.0°C)" (correct - auto mode)
+- Purple dotted setpoint line (incorrect - should be orange for auto active mode)
+
+The shaded area coloring was correct after previous improvements (2025-12-05 state string refactor), but the setpoint line coloring was still using the old `operating_mode` attribute directly, which didn't capture the distinction between "auto (active)" and "auto (passive)".
+
+**Root Cause:**
+In `api_handler.py`, the `api_get_history()` method extracted `operating_mode` directly from entity attributes:
+```python
+op_mode = attrs.get("operating_mode", "").lower()
+```
+
+This caused issues because:
+- When in auto mode during scheduled passive blocks: `operating_mode = "passive"` (correct)
+- When in auto mode actively calling: `operating_mode` could still show "passive" transiently
+- The attribute didn't reflect the state string's "auto (active)" vs "auto (passive)" distinction
+
+**Solution:**
+Changed `api_get_history()` to parse the room state string (same approach used for graph shading):
+
+1. Extract mode component from state string: "auto (active)", "auto (passive)", "passive", "manual", "off"
+2. Map to effective operating mode for setpoint line coloring:
+   - "auto (active)" → "auto" (orange line)
+   - "auto (passive)" → "passive" (purple line)
+   - "auto (override)" → "auto" (orange line, but override red/blue takes precedence in frontend)
+   - "passive" → "passive" (purple line)
+   - "manual" → "manual" (yellow line)
+   - "off" → "off" (gray line)
+
+**Benefits:**
+- Setpoint line color now matches shaded area color (both use state string parsing)
+- Reliable mode detection using structured state string format
+- Consistent with 2025-12-05 shading improvements
+
+**Files Modified:**
+- `services/api_handler.py` - Parse state string for operating_mode extraction
+- `docs/changelog.md` - Added this entry
+
+**Testing:**
+- AppDaemon reloaded successfully without errors
+- Changes take effect immediately (no restart required)
+- Frontend will show corrected setpoint line colors on next graph load
+
+---
+
 ## 2025-12-08: Fix - Improve Cycling Protection Cooldown Detection
 
 **Summary:**
