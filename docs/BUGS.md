@@ -4,6 +4,121 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #17: Passive Mode Target Semantic Inversion - FIXED
+
+**Status:** FIXED ✅
+**Date Discovered:** 2025-12-08
+**Date Fixed:** 2025-12-08
+**Severity:** CRITICAL - Semantic bug affecting target storage and historical graphs
+**Category:** Core Logic / Passive Mode / Historical Data
+
+### Description
+
+**Critical semantic inversion:** In passive mode, the system currently stores `max_temp` (valve-close threshold) in `sensor.pyheat_<room>_target`, but the actual **heating target** is `min_temp` (comfort floor). This is backwards.
+
+### Why This Is Wrong
+
+**Semantically:**
+- In passive mode, **min_temp is the actual heating target** - it's what triggers active heating (comfort mode)
+- max_temp is just a valve control threshold (close valve when temp exceeds it)
+- But we're storing max_temp as the "target", which is semantically incorrect
+
+**Practically:**
+- No historical data exists for min_temp (it's never stored in HA entities, only in internal data dict)
+- This makes it impossible to show passive range on historical graphs (min line can't be rendered)
+- Attributes don't work for history (2025-12-05 "Graph Shading Reliability Fix" proved this)
+
+### Current State (WRONG)
+
+**Entity Storage:**
+- `sensor.pyheat_<room>_target` = max_temp (upper limit, valve-close threshold)
+- `passive_min_temp` = NOT STORED (only exists in internal data dict)
+
+**Heating Control:**
+- Comfort mode triggers when `temp < min_temp` → active heating to reach min_temp
+- Opportunistic mode when `min_temp <= temp <= max_temp` → valve open at scheduled %
+- Too hot mode when `temp > max_temp` → valve closes
+
+**The Problem:**
+Room controller code at [room_controller.py:271](room_controller.py:271) overrides target to min_temp in comfort mode, but the stored target is still max_temp. This creates confusion and prevents historical graphs from showing the actual heating target.
+
+### Target State (CORRECT)
+
+**Entity Storage:**
+- `sensor.pyheat_<room>_target` = min_temp (comfort floor, actual heating target) ✅
+- `sensor.pyheat_<room>_passive_max_temp` = max_temp (upper limit, valve-close threshold) ✅ NEW
+
+**Benefits:**
+- Semantically correct: "target" actually means what drives heating decisions
+- Reliable historical data for both min and max (stored as entity states, not attributes)
+- Enables passive range visualization on graphs
+- Cleaner code (no need to override target in comfort mode)
+
+### Implementation Plan
+
+**1. core/scheduler.py - Swap min/max in return values:**
+```python
+# User-selected passive mode, scheduled passive blocks, default passive mode
+return {
+    'target': min_temp,  # SWAP - min is the heating target
+    'mode': 'passive',
+    'valve_percent': valve_pct,
+    'passive_max_temp': max_temp,  # SWAP - max is valve control threshold (NEW KEY)
+    ...
+}
+```
+
+**2. controllers/room_controller.py - Use corrected semantic:**
+- Extract `passive_max_temp = target_info.get('passive_max_temp')`
+- Use `target` (now min_temp) for heating decisions
+- Use `passive_max_temp` for valve-close threshold check
+- Add `passive_max_temp` to result dict for status_publisher
+
+**3. services/status_publisher.py - Create new entity:**
+```python
+# Target sensor (now stores min_temp in passive mode)
+target_entity = f"sensor.pyheat_{room_id}_target"
+self.ad.set_state(target_entity, state=data['target'], ...)  # Already correct
+
+# NEW: Passive max temp sensor
+passive_max_entity = f"sensor.pyheat_{room_id}_passive_max_temp"
+if data.get('operating_mode') == 'passive' and data.get('passive_max_temp') is not None:
+    self.ad.set_state(passive_max_entity, state=data['passive_max_temp'], ...)
+else:
+    self.ad.set_state(passive_max_entity, state="unavailable")
+```
+
+**4. services/api_handler.py - Extract from entity history:**
+- passive_min: From `sensor.pyheat_<room>_target` history when `operating_mode == 'passive'`
+- passive_max: From `sensor.pyheat_<room>_passive_max_temp` history
+
+**5. Update documentation:**
+- changelog.md
+- HA_API_SCHEMA.md
+
+### Resolution
+
+**Implementation Complete:** All code changes implemented and syntax validated.
+
+**Changes Made:**
+1. **scheduler.py**: Swapped target/passive_max_temp in all three passive mode cases (user-selected, scheduled blocks, default)
+2. **room_controller.py**: Updated to use target (min_temp) for comfort mode, passive_max_temp for valve control
+3. **status_publisher.py**: Created new sensor.pyheat_{room}_passive_max_temp entity
+4. **api_handler.py**: Extracts passive_min from target history (when passive), passive_max from dedicated sensor
+
+**Testing Status:** Awaiting deployment and live testing
+
+### Files Modified
+- core/scheduler.py
+- controllers/room_controller.py
+- services/status_publisher.py
+- services/api_handler.py
+- docs/BUGS.md
+- docs/changelog.md
+- docs/HA_API_SCHEMA.md
+
+---
+
 ## BUG #16: Passive Mode Valve Percent UI Shows Stale Value - FIXED
 
 **Status:** FIXED ✅  

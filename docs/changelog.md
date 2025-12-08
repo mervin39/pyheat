@@ -1,6 +1,70 @@
 
 # PyHeat Changelog
 
+## 2025-12-08: CRITICAL FIX - Passive Mode Target Semantic Inversion (BUG #17)
+
+**Summary:**
+Fixed critical semantic bug where `sensor.pyheat_<room>_target` stored `max_temp` instead of `min_temp` in passive mode. The actual heating target in passive mode is `min_temp` (comfort floor), not `max_temp` (valve-close threshold).
+
+**Impact:**
+- **Before**: Target sensor showed max_temp (e.g., 19°C) while actual heating target was min_temp (e.g., 16°C)
+- **After**: Target sensor correctly shows min_temp (16°C), new sensor for max_temp (19°C)
+- **Historical Graphs**: Now able to display passive range correctly with reliable entity state history
+
+**Root Cause (BUG #17):**
+In passive mode, heating control decisions use `min_temp` (comfort floor):
+- Comfort mode triggers when `temp < min_temp` → active heating
+- But we were storing `max_temp` (valve threshold) in the "target" sensor
+- This was semantically backwards and prevented historical graph visualization
+
+**Solution Implemented:**
+
+**1. core/scheduler.py** - Swapped return values in all passive mode cases:
+```python
+# User-selected passive, scheduled passive blocks, default passive
+return {
+    'target': min_temp,  # FIXED: min is the heating target
+    'passive_max_temp': max_temp,  # NEW: max for valve control
+    ...
+}
+```
+
+**2. controllers/room_controller.py** - Use corrected semantic:
+- Comfort mode: Uses `target` (now min_temp) for heating decisions
+- Valve control: Uses `passive_max_temp` for open/close threshold
+- Error calculations updated accordingly
+
+**3. services/status_publisher.py** - New entity created:
+- `sensor.pyheat_{room}_target` = min_temp in passive mode (heating target)
+- `sensor.pyheat_{room}_passive_max_temp` = max_temp (valve threshold) - NEW
+- Both stored as entity states (reliable history, not attributes)
+
+**4. services/api_handler.py** - Extract from entity history:
+- passive_min: From target sensor history when operating_mode was passive
+- passive_max: From new passive_max_temp sensor
+- Correlates setpoint_data with operating_mode_data for accurate extraction
+
+**Benefits:**
+- Semantically correct: "target" means what drives heating decisions
+- Enables passive range visualization on graphs (min and max both have history)
+- Entity states (not attributes) = reliable history even after schedule changes
+- Cleaner code (no target overrides needed in comfort mode)
+
+**Backward Compatibility:**
+- Existing schedules work without changes
+- Config fields unchanged
+- UI displays updated automatically
+
+**Files Modified:**
+- core/scheduler.py
+- controllers/room_controller.py
+- services/status_publisher.py
+- services/api_handler.py
+- docs/BUGS.md
+- docs/changelog.md
+
+---
+
 ## 2025-12-08: Feature - Passive Min/Max Range Visualization on Temperature Charts
 
 **Summary:**

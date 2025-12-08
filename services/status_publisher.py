@@ -727,10 +727,10 @@ class StatusPublisher:
         room_name = room_config.get('name', room_id)
         precision = room_config.get('precision', 1)
         
-        # Target sensor
+        # Target sensor (in passive mode, this is min_temp - the heating target)
         target_entity = f"sensor.pyheat_{room_id}_target"
         if data['target'] is not None:
-            self.ad.set_state(target_entity, 
+            self.ad.set_state(target_entity,
                          state=round(data['target'], precision),
                          attributes={
                              'unit_of_measurement': '°C',
@@ -739,7 +739,21 @@ class StatusPublisher:
                          })
         else:
             self.ad.set_state(target_entity, state="unavailable")
-        
+
+        # Passive max temp sensor (upper limit for passive mode valve control)
+        passive_max_entity = f"sensor.pyheat_{room_id}_passive_max_temp"
+        if data.get('operating_mode') == 'passive' and data.get('passive_max_temp') is not None:
+            self.ad.set_state(passive_max_entity,
+                         state=round(data['passive_max_temp'], precision),
+                         attributes={
+                             'unit_of_measurement': '°C',
+                             'device_class': 'temperature',
+                             'state_class': 'measurement',
+                             'friendly_name': f'{room_name} Passive Max Temperature'
+                         })
+        else:
+            self.ad.set_state(passive_max_entity, state="unavailable")
+
         # State sensor with comprehensive attributes
         state_entity = f"sensor.pyheat_{room_id}_state"
         

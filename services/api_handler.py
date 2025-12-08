@@ -620,14 +620,15 @@ class APIHandler:
                         except (ValueError, KeyError):
                             continue
             
-            # Setpoint history
+            # Setpoint history (in passive mode, this is passive_min - the heating target)
+            setpoint_data = []
             if self.ad.entity_exists(target_sensor):
                 setpoint_history = self.ad.get_history(
                     entity_id=target_sensor,
                     start_time=start_time,
                     end_time=end_time
                 )
-                
+
                 if setpoint_history and len(setpoint_history) > 0:
                     for state_obj in setpoint_history[0]:
                         try:
@@ -638,7 +639,38 @@ class APIHandler:
                             })
                         except (ValueError, KeyError):
                             continue
-            
+
+            # Passive min/max history - extracted from dedicated entity states (not attributes)
+            # passive_min: From target sensor when in passive mode (semantically correct post-fix)
+            # passive_max: From dedicated passive_max_temp sensor
+            passive_min_data = []
+            passive_max_data = []
+
+            # Passive max history - from dedicated sensor
+            passive_max_sensor = f"sensor.pyheat_{room_id}_passive_max_temp"
+            if self.ad.entity_exists(passive_max_sensor):
+                passive_max_history = self.ad.get_history(
+                    entity_id=passive_max_sensor,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if passive_max_history and len(passive_max_history) > 0:
+                    for state_obj in passive_max_history[0]:
+                        try:
+                            if state_obj["state"] != "unavailable":
+                                passive_max_value = float(state_obj["state"])
+                                passive_max_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "value": passive_max_value
+                                })
+                        except (ValueError, KeyError, TypeError):
+                            continue
+
+            # Passive min history - from target sensor history when operating_mode was passive
+            # We'll extract this from setpoint_data + operating_mode_data correlation later
+            # For now, we need the operating_mode history first (extracted below)
+
             # Mode history - for mode-aware setpoint coloring in charts
             if self.ad.entity_exists(mode_select):
                 mode_history = self.ad.get_history(
@@ -663,14 +695,11 @@ class APIHandler:
             # Operating mode history - tracks actual heating behavior (e.g., auto mode in passive schedule)
             # Also extracts override info for chart coloring (red for heating override, blue for cooling)
             # Also extracts passive state and valve position for passive room shading
-            # Also extracts passive min/max temperatures for chart visualization
             # This is stored as attributes on the state entity
             operating_mode_data = []
             override_data = []  # Tracks override periods with type (heating/cooling)
             passive_data = []  # Tracks passive state (operating_mode='passive' AND valve > 0)
             valve_data = []  # Tracks valve position for all modes
-            passive_min_data = []  # Tracks passive minimum temperature (comfort floor)
-            passive_max_data = []  # Tracks passive maximum temperature (upper limit)
             state_entity = f"sensor.pyheat_{room_id}_state"
             if self.ad.entity_exists(state_entity):
                 state_history = self.ad.get_history(
@@ -778,27 +807,27 @@ class APIHandler:
                                     "override_target": None,
                                     "scheduled_temp": scheduled_temp
                                 })
-
-                            # Extract passive min/max temperatures when in passive mode
-                            # These define the passive range: min is comfort floor, max is upper limit
-                            if op_mode == "passive":
-                                passive_min_temp = attrs.get("passive_min_temp")
-                                passive_max_temp = attrs.get("passive_max_temp")
-
-                                if passive_min_temp is not None:
-                                    passive_min_data.append({
-                                        "time": timestamp,
-                                        "value": passive_min_temp
-                                    })
-
-                                if passive_max_temp is not None:
-                                    passive_max_data.append({
-                                        "time": timestamp,
-                                        "value": passive_max_temp
-                                    })
                         except (KeyError, TypeError, AttributeError):
                             continue
-            
+
+            # Extract passive_min from setpoint data when operating_mode was passive
+            # After the semantic fix, sensor.pyheat_{room}_target stores min_temp in passive mode
+            # We correlate setpoint_data with operating_mode_data to get passive_min history
+            for setpoint_point in setpoint_data:
+                setpoint_time = setpoint_point["time"]
+                # Find the operating mode at this time
+                op_mode_at_time = None
+                for op_point in operating_mode_data:
+                    if op_point["time"] <= setpoint_time:
+                        op_mode_at_time = op_point["operating_mode"]
+
+                # If operating_mode was passive at this time, this setpoint is actually passive_min
+                if op_mode_at_time == "passive":
+                    passive_min_data.append({
+                        "time": setpoint_time,
+                        "value": setpoint_point["value"]
+                    })
+
             # Calling for heat - use the dedicated binary sensor for this room
             calling_sensor = f"binary_sensor.pyheat_{room_id}_calling_for_heat"
             if self.ad.entity_exists(calling_sensor):

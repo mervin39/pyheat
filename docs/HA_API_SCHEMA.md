@@ -8,6 +8,39 @@ When querying HA API with curl/jq, use this reference for correct field names. T
 
 ---
 
+## sensor.pyheat_{room}_passive_max_temp
+
+**Base URL:** `$HA_BASE_URL/api/states/sensor.pyheat_{room}_passive_max_temp`
+
+**Purpose:** Stores the passive mode upper limit (valve-close threshold) for reliable historical graph visualization. Only populated when room is in passive mode.
+
+**Added:** 2025-12-08 (BUG #17 fix)
+
+### Structure
+
+```json
+{
+  "entity_id": "sensor.pyheat_lounge_passive_max_temp",
+  "state": "19.0",  // Upper limit in °C, or "unavailable" when not in passive mode
+  "attributes": {
+    "unit_of_measurement": "°C",
+    "device_class": "temperature",
+    "state_class": "measurement",
+    "friendly_name": "Living Room Passive Max Temperature"
+  },
+  "last_changed": "ISO8601 timestamp"
+}
+```
+
+**Notes:**
+- Only available when `operating_mode == "passive"`
+- Shows "unavailable" in active, manual, or off modes
+- Represents the upper temperature threshold for valve control
+- When `temp > passive_max_temp`, valve closes (too hot)
+- Complements `sensor.pyheat_{room}_target` which stores passive_min in passive mode
+
+---
+
 ## sensor.pyheat_boiler_state
 
 **Base URL:** `$HA_BASE_URL/api/states/sensor.pyheat_boiler_state`
@@ -130,7 +163,7 @@ Each room object contains:
 {
   "mode": "auto|off|override",
   "temperature": 19.4,              // Current room temp in °C (may be missing if stale)
-  "target": 14.0,                   // Target temp in °C
+  "target": 14.0,                   // Target temp in °C (in passive mode, this is min_temp - the heating target)
   "estimated_dump_capacity": 1684.0, // Radiator capacity in watts
   "is_stale": "true|false"          // Optional: present if temp sensor stale
 }
@@ -140,6 +173,8 @@ Each room object contains:
 - ✅ `mode` (not `heating_mode`)
 - ✅ `temperature` (not `current_temp`)
 - ✅ `target` (not `target_temp` or `setpoint`)
+  - **Note (2025-12-08)**: In passive mode, `target` represents `min_temp` (comfort floor/heating target), not `max_temp`
+  - See `sensor.pyheat_{room}_passive_max_temp` for the upper limit in passive mode
 - ✅ `estimated_dump_capacity` (not `capacity`)
 
 **Notable Absences:**

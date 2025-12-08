@@ -81,10 +81,10 @@ class Scheduler:
             min_temp = self._get_passive_min_temp(room_id)
             precision = self.config.rooms[room_id].get('precision', 1)
             return {
-                'target': round(max_temp, precision),
+                'target': round(min_temp, precision),  # FIXED: min_temp is the actual heating target
                 'mode': 'passive',
                 'valve_percent': valve_pct,
-                'min_target': round(min_temp, precision),
+                'passive_max_temp': round(max_temp, precision),  # NEW: max_temp for valve control
                 'is_default_mode': False  # Passive mode (user-selected, not schedule-based)
             }
         
@@ -228,6 +228,7 @@ class Scheduler:
                 
                 # For passive mode, check for min_target in schedule
                 min_target = None
+                max_temp = None
                 if block_mode == 'passive':
                     # Scheduled min_target takes precedence, otherwise fall back to entity
                     if 'min_target' in block:
@@ -240,12 +241,15 @@ class Scheduler:
                     else:
                         # Use entity value
                         min_target = self._get_passive_min_temp(room_id)
-                
+
+                    # For passive mode, block['target'] is the max_temp
+                    max_temp = block['target']
+
                 return {
-                    'target': block['target'],
+                    'target': min_target if block_mode == 'passive' else block['target'],  # FIXED: min is target in passive
                     'mode': block_mode,
                     'valve_percent': valve_percent,
-                    'min_target': min_target,
+                    'passive_max_temp': max_temp,  # NEW: max_temp for valve control (only in passive)
                     'is_default_mode': False,  # This is from a scheduled block
                     'block_end_time': block.get('end', '23:59')  # When this block ends
                 }
@@ -255,12 +259,12 @@ class Scheduler:
         default_mode = schedule.get('default_mode', 'active')
         
         if default_mode == 'passive':
-            default_target = schedule.get('default_target')
+            default_target = schedule.get('default_target')  # This is max_temp for passive
             # Use schedule values if provided, otherwise fall back to entity values
             valve_percent = schedule.get('default_valve_percent')
             if valve_percent is None:
                 valve_percent = self._get_passive_valve_percent(room_id)
-            
+
             min_temp = schedule.get('default_min_temp')
             if min_temp is None:
                 min_temp = self._get_passive_min_temp(room_id)
@@ -270,12 +274,12 @@ class Scheduler:
                 if min_temp < frost_temp:
                     self.ad.log(f"Room '{room_id}' default_min_temp ({min_temp}C) is below frost_protection_temp_c ({frost_temp}C), using frost protection temp", level="ERROR")
                     min_temp = frost_temp
-            
+
             return {
-                'target': default_target,
+                'target': min_temp,  # FIXED: min_temp is the actual heating target
                 'mode': 'passive',
                 'valve_percent': valve_percent,
-                'min_target': min_temp,
+                'passive_max_temp': default_target,  # NEW: max_temp for valve control
                 'is_default_mode': True  # This is from default_mode
             }
         else:

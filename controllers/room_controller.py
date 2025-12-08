@@ -226,18 +226,18 @@ class RoomController:
         
         # Get target info (dict with target, mode, valve_percent, min_target)
         target_info = self.scheduler.resolve_room_target(room_id, now, room_mode, holiday_mode, is_stale)
-        
-        # Extract target temperature (may be setpoint for active, max_temp for passive)
+
+        # Extract target temperature (setpoint for active, min_temp for passive)
         target = None
         operating_mode = 'off'  # 'active', 'passive', or 'off'
         passive_valve_percent = None
-        passive_min_temp = None
-        
+        passive_max_temp = None  # Upper limit for passive mode valve control
+
         if target_info is not None:
-            target = target_info['target']
+            target = target_info['target']  # In passive mode, this is min_temp (heating target)
             operating_mode = target_info['mode']
             passive_valve_percent = target_info.get('valve_percent')
-            passive_min_temp = target_info.get('min_target')
+            passive_max_temp = target_info.get('passive_max_temp')  # For valve control in passive mode
         
         # Get manual setpoint for status display
         manual_setpoint = None
@@ -252,7 +252,7 @@ class RoomController:
         # Initialize result
         result = {
             'temp': temp,
-            'target': target,
+            'target': target,  # In passive mode, this is min_temp (heating target)
             'is_stale': is_stale,
             'mode': room_mode,
             'operating_mode': operating_mode,
@@ -260,7 +260,8 @@ class RoomController:
             'valve_percent': 0,
             'error': None,
             'manual_setpoint': manual_setpoint,
-            'passive_min_temp': passive_min_temp,
+            'passive_min_temp': target if operating_mode == 'passive' else None,  # For backwards compat in status
+            'passive_max_temp': passive_max_temp,  # NEW: upper limit for passive mode
             'comfort_mode': False,
         }
         
@@ -298,23 +299,24 @@ class RoomController:
             off_delta = hysteresis['off_delta_c']
             
             # Check if comfort mode should activate (temperature below min_temp)
+            # target is now min_temp in passive mode
             in_comfort_mode = self.room_comfort_mode_active.get(room_id, False)
-            
-            if passive_min_temp is not None and temp < (passive_min_temp - on_delta) and not in_comfort_mode:
+
+            if temp < (target - on_delta) and not in_comfort_mode:
                 # Activate comfort mode - room is too cold
                 self.room_comfort_mode_active[room_id] = True
                 in_comfort_mode = True
                 self.ad.log(
-                    f"Room {room_id} comfort mode activated: {temp:.1f}C < {passive_min_temp:.1f}C",
+                    f"Room {room_id} comfort mode activated: {temp:.1f}C < {target:.1f}C",
                     level="INFO"
                 )
-            
-            elif in_comfort_mode and passive_min_temp is not None and temp > (passive_min_temp + off_delta):
+
+            elif in_comfort_mode and temp > (target + off_delta):
                 # Deactivate comfort mode - room has recovered
                 self.room_comfort_mode_active[room_id] = False
                 in_comfort_mode = False
                 self.ad.log(
-                    f"Room {room_id} comfort mode deactivated: {temp:.1f}C > {passive_min_temp:.1f}C",
+                    f"Room {room_id} comfort mode deactivated: {temp:.1f}C > {target:.1f}C",
                     level="INFO"
                 )
             
@@ -324,7 +326,7 @@ class RoomController:
                 self.room_call_for_heat[room_id] = True
                 result['calling'] = True
                 result['valve_percent'] = 100
-                result['error'] = passive_min_temp - temp  # Error relative to min_temp
+                result['error'] = target - temp  # Error relative to min_temp (target in passive mode)
                 result['comfort_mode'] = True
                 self.room_last_valve[room_id] = 100
                 
@@ -340,14 +342,20 @@ class RoomController:
             self.room_current_band[room_id] = 0
             result['calling'] = False
             result['comfort_mode'] = False
-            
-            # Calculate error (positive = below target, negative = above target)
-            error = target - temp
+
+            # For valve control, use passive_max_temp (upper limit) instead of target (min_temp)
+            # Calculate error relative to max_temp (positive = below max, negative = above max)
+            if passive_max_temp is not None:
+                error = passive_max_temp - temp
+            else:
+                # Fallback if no max_temp (shouldn't happen, but be defensive)
+                error = target - temp
+
             result['error'] = error
-            
+
             # Get previous valve state for hysteresis
             prev_valve = self.room_last_valve.get(room_id, 0)
-            
+
             # Valve control with hysteresis to prevent cycling:
             # - Open when temp < max_temp - on_delta (e.g., < 17.7C for max_temp=18C)
             # - Close when temp > max_temp + off_delta (e.g., > 18.1C for max_temp=18C)
