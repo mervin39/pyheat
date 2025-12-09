@@ -1,6 +1,28 @@
 
 # PyHeat Changelog
 
+## 2025-12-09: FIX - Persistence File Path for Docker Container
+
+**Summary:**
+Fixed hardcoded persistence file path that prevented AppDaemon (running in Docker) from writing to the correct mounted volume. The cooldowns counter and other persistence updates were being written to an unmapped directory inside the container.
+
+**Problem:**
+`PERSISTENCE_FILE` constant used hardcoded host path `/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json`, which doesn't exist inside the Docker container. The volume mount maps `/opt/appdata/appdaemon/conf` (host) to `/conf` (container), so writes to the hardcoded path created a separate file in the container's local filesystem that wasn't visible on the host.
+
+**Impact:**
+- `cooldowns_count` appeared to not be persisting after the 2025-12-09 fix
+- Any persistence updates (room state, cycling protection) weren't visible in the host file
+- The container was writing to `/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json` inside its own filesystem instead of the mounted volume
+
+**Solution:**
+Changed `PERSISTENCE_FILE` from `/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json` to `/conf/apps/pyheat/state/persistence.json` to use the container's mounted path.
+
+**Files Modified:**
+- `core/constants.py` - Fixed PERSISTENCE_FILE path
+- `state/persistence.json` - Added missing `cooldowns_count: 1` field from container file
+
+---
+
 ## 2025-12-09: ADD - Outside Temperature Column to Heating Logs
 
 **Summary:**
