@@ -135,6 +135,9 @@ class HeatingLogger:
         for room_id in self.room_ids:
             headers.append(f'{room_id}_estimated_dump_capacity')
         
+        # External sensors
+        headers.append('outside_temperature')
+        
         return headers
     
     def _check_date_rotation(self):
@@ -469,6 +472,10 @@ class HeatingLogger:
             row[f'{room_id}_passive_min_temp'] = room.get('passive_min_temp', '')
             row[f'{room_id}_override'] = room.get('override', '')
             row[f'{room_id}_estimated_dump_capacity'] = round(load_data.get('estimated_capacities', {}).get(room_id, 0), 0) if load_data else 0
+        
+        # Add external sensors
+        outside_temp = self.ad.get_state('sensor.outside_temperature')
+        row['outside_temperature'] = round_temp(outside_temp)
         
         # Write row
         self.csv_writer.writerow(row)

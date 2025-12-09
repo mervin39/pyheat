@@ -50,12 +50,32 @@ These logs are **temporary data collection** for developing OpenTherm optimizati
 | `boiler_state` | String | idle/heating/pump_overrun/off | Current boiler finite state machine state |
 | `pump_overrun_active` | Boolean | True/False | Whether pump overrun period is active (circulation after flame off) |
 
+### Cycling Protection
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `cycling_state` | String | Current cycling protection state (NORMAL/MONITORING/COOLDOWN/RECOVERY) |
+| `cycling_cooldown_count` | Integer | Number of cooldown cycles completed |
+| `cycling_saved_setpoint` | Float | Saved setpoint temperature before cycling protection activated |
+| `cycling_recovery_threshold` | Float | Temperature threshold for recovery from cycling protection |
+
+### Load Sharing
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `load_sharing_state` | String | Current load sharing state (inactive/active) |
+| `load_sharing_active_count` | Integer | Number of rooms currently in load sharing mode |
+| `load_sharing_trigger_rooms` | String | Comma-separated list of rooms that triggered load sharing |
+| `load_sharing_trigger_capacity` | Integer | Total estimated dump capacity that triggered load sharing (%) |
+| `load_sharing_reason` | String | Explanation of why load sharing was activated/deactivated |
+
 ### System Aggregates
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `num_rooms_calling` | Integer | Count of rooms currently calling for heat |
 | `total_valve_pct` | Integer | Sum of all TRV valve feedback positions (0-100% per room) |
+| `total_estimated_dump_capacity` | Integer | Total estimated heat dump capacity across all rooms (%) |
 
 ### Per-Room Data
 
@@ -69,9 +89,19 @@ For each configured room (e.g., `pete`, `games`, `lounge`, `beth`, `main`), the 
 | `{room}_valve_fb` | Integer | TRV valve feedback position (0-100%) |
 | `{room}_valve_cmd` | Integer | Last commanded valve position (0-100%) |
 | `{room}_mode` | String | Room mode: `auto` (schedule), `manual`, or `off` |
+| `{room}_operating_mode` | String | Operating mode: `active` (heating demand) or `passive` (no demand) |
+| `{room}_frost_protection` | Boolean | True if room is in frost protection mode |
+| `{room}_passive_min_temp` | Float | Minimum temperature maintained when in passive mode (°C) |
 | `{room}_override` | Boolean | True if temporary override timer is active |
+| `{room}_estimated_dump_capacity` | Integer | Estimated heat dump capacity for this room (0-100%) |
 
 **Room Column Order**: Columns are grouped by property type (all temps together, all targets together, etc.) for easier analysis.
+
+### External Sensors
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `outside_temperature` | Float | Outside temperature (°C), rounded to 2 decimal places - from `sensor.outside_temperature` |
 
 ## 🎯 Trigger Types
 

@@ -1,6 +1,29 @@
 
 # PyHeat Changelog
 
+## 2025-12-09: ADD - Outside Temperature Column to Heating Logs
+
+**Summary:**
+Added `outside_temperature` column to heating log CSV files to track external weather conditions alongside heating system state. This enables future analysis of heating efficiency and behavior in relation to outdoor temperature.
+
+**Implementation:**
+- Added `outside_temperature` as final column in CSV files (after all per-room columns)
+- Reads from `sensor.outside_temperature` entity in Home Assistant
+- Logged with every CSV entry (no separate trigger - piggybacks on existing log events)
+- Temperature rounded to 2 decimal places for consistency with room temperatures
+- Does not trigger recomputes or additional log writes on its own
+
+**Documentation:**
+- Updated `heating_logs/README.md` with new External Sensors section
+- Added all missing column documentation (cycling protection, load sharing, per-room extended properties)
+- Ensured column reference is complete and up-to-date
+
+**Files Modified:**
+- `services/heating_logger.py` - Added column header and sensor reading
+- `docs/heating_logs/README.md` - Updated column reference documentation
+
+---
+
 ## 2025-12-09: FIX - Persist Cooldowns Count to Survive HA Restarts
 
 **Summary:**
