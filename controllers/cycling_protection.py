@@ -540,11 +540,6 @@ class CyclingProtection:
                     f"Excessive short-cycling detected!\n\n"
                     f"**{len(recent_cooldowns)} cooldowns in {C.CYCLING_EXCESSIVE_WINDOW_S/60:.0f} minutes:**\n"
                     f"{cooldown_details}\n\n"
-                    f"This suggests cooldown isn't solving the root cause. "
-                    f"Consider:\n"
-                    f"- Increasing recovery delta (currently {C.CYCLING_RECOVERY_DELTA_C}C)\n"
-                    f"- Lowering flow temperature setpoint\n"
-                    f"- Checking if only 1 room is calling for heat\n\n"
                     f"System will continue trying to protect the boiler.",
                     auto_clear=True
                 )
