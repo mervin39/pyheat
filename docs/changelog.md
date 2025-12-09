@@ -1,36 +1,42 @@
 
 # PyHeat Changelog
 
-## 2025-12-09: FIX - OpenTherm Modulation Sensor Logging Unit
+## 2025-12-09: FIX - Correct All OpenTherm Sensor Logging Units
 
 **Summary:**
-Fixed OpenTherm modulation sensor logging to correctly use percentage units (%) instead of temperature units (C).
+Fixed OpenTherm sensor logging to use correct units for all sensors by checking actual Home Assistant entity attributes.
 
 **Problem:**
-The `opentherm_sensor_changed()` method incorrectly logged modulation values with "C" suffix:
+Multiple sensors had incorrect units in debug logs:
 ```
-2025-12-09 19:43:18.079257 DEBUG pyheat: OpenTherm [modulation]: 23.0C  ❌
-2025-12-09 19:43:18.248891 DEBUG pyheat: OpenTherm [power]: 10.9%      ✓
+OpenTherm [modulation]: 23.0C  ❌ (should be %)
+OpenTherm [power]: 10.9%       ❌ (should be kW)
+OpenTherm [dhw_flow_rate]: ... ❌ (should be L/min)
 ```
 
-Modulation is a percentage value (0-100%) representing the boiler's burner intensity, not a temperature.
+**Root Cause:**
+The logging code made incorrect assumptions about sensor units:
+- Assumed only "power" was a percentage
+- Grouped "dhw_flow_rate" with binary sensors instead of numeric sensors with units
+- Didn't account for power being in kW, not %
 
 **Solution:**
-Updated the logging logic to treat both "power" and "modulation" as percentage sensors:
-```python
-if sensor_name in ["power", "modulation"]:
-    # Percentage sensors
-    self.log(f"OpenTherm [{sensor_name}]: {value}%", level="DEBUG")
-```
+Verified actual units from Home Assistant API and updated logging:
+- `modulation`: % (percentage, 0-100)
+- `power`: kW (kilowatts)
+- `dhw_flow_rate`: L/min (liters per minute)
+- `heating_temp`, `heating_return_temp`, `heating_setpoint_temp`: °C (Celsius)
 
 **After Fix:**
 ```
 OpenTherm [modulation]: 23.0%
-OpenTherm [power]: 10.9%
+OpenTherm [power]: 10.9kW
+OpenTherm [dhw_flow_rate]: 5.2L/min
+OpenTherm [heating_temp]: 65.0C
 ```
 
 **Files Modified:**
-- `app.py` - Updated `opentherm_sensor_changed()` to include "modulation" in percentage sensor list
+- `app.py` - Updated `opentherm_sensor_changed()` with correct units for each sensor type
 
 ---
 

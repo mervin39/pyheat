@@ -585,22 +585,25 @@ class PyHeat(hass.Hass):
         if sensor_name == "flame":
             # Binary sensor - on/off
             self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
-        elif sensor_name in ["dhw", "dhw_flow_rate"]:
-            # DHW binary/flow sensors - log changes
+        elif sensor_name == "dhw":
+            # DHW binary sensor
             self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
         elif sensor_name in ["burner_starts", "dhw_burner_starts"]:
             # Counter - only log when it changes
             if old != new:
                 self.log(f"OpenTherm [{sensor_name}]: {old} -> {new}", level="DEBUG")
         else:
-            # Numeric sensors - log with units
+            # Numeric sensors - log with correct units
             try:
                 value = float(new)
-                if sensor_name in ["power", "modulation"]:
-                    # Percentage sensors
+                if sensor_name == "modulation":
                     self.log(f"OpenTherm [{sensor_name}]: {value}%", level="DEBUG")
+                elif sensor_name == "power":
+                    self.log(f"OpenTherm [{sensor_name}]: {value}kW", level="DEBUG")
+                elif sensor_name == "dhw_flow_rate":
+                    self.log(f"OpenTherm [{sensor_name}]: {value}L/min", level="DEBUG")
                 else:
-                    # Temperature sensors
+                    # Temperature sensors (heating_temp, heating_return_temp, heating_setpoint_temp)
                     self.log(f"OpenTherm [{sensor_name}]: {value}C", level="DEBUG")
             except (ValueError, TypeError):
                 self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
