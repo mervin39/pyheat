@@ -46,7 +46,7 @@ PyHeat provides multi-room heating control with:
 5. **Load Sharing**: Intelligently opens additional room valves when primary calling rooms have insufficient capacity to prevent boiler short-cycling. Uses three-tier cascade: schedule-aware pre-warming (60min) → extended lookahead (120min) → passive rooms + fallback priority list. Passive rooms participate with higher valve percentages (50-100%) while respecting temperature ceilings.
 6. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 7. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
-8. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 10°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
+8. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 5°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
 
 ## Installation
 
@@ -74,7 +74,7 @@ PyHeat provides multi-room heating control with:
    
    ```bash
    # From your Home Assistant config directory
-   cp /opt/appdata/appdaemon/conf/apps/pyheat/ha_yaml/pyheat_package.yaml packages/pyheat_package.yaml
+   cp /opt/appdata/appdaemon/conf/apps/pyheat/config/ha_yaml/pyheat_package.yaml packages/pyheat_package.yaml
    ```
    
    Then ensure your `configuration.yaml` has packages enabled:
@@ -181,11 +181,18 @@ When in Manual mode, set temperature via:
 4. Room benefits from heat circulation when other rooms are actively heating
 
 **Configuration (for manual passive mode):**
-- `input_number.pyheat_{room}_passive_mode_max_temp` - Maximum temperature (10-30°C, default 18°C)
-- `input_number.pyheat_{room}_passive_mode_valve_percent` - Valve opening percentage (0-100%, default 30%)
+- `input_number.pyheat_{room}_passive_mode_max_temp` - Maximum temperature ceiling (10-30°C, default 18°C)
+  - Valve closes when room reaches this temperature
 - `input_number.pyheat_{room}_passive_mode_min_temp` - Minimum temperature/comfort floor (8-20°C, default 8°C)
+  - Room actively calls for heat if temperature drops below this threshold
+  - This is the actual heating target in passive mode
+- `input_number.pyheat_{room}_passive_mode_valve_percent` - Valve opening percentage (0-100%, default 30%)
+  - Applied when temp is between min and max
 
 Note: These entities are only used when the room mode selector is set to "passive". For scheduled passive blocks (in auto mode), use the schedule's `default_valve_percent`, `default_min_temp`, etc.
+
+**Important Semantic Note:**
+In passive mode, the "target" displayed in status and stored in `sensor.pyheat_{room}_target` is the minimum temperature (comfort floor), not the maximum. This reflects the actual heating target - the temperature below which the system will actively call for heat. The maximum temperature (valve-close threshold) is stored separately in `sensor.pyheat_{room}_passive_max_temp`. Both values have full state history for reliable graph visualization.
 
 **Comfort Floor (Minimum Temperature):**
 Optionally configure a comfort floor to prevent passive rooms from getting too cold:
@@ -264,28 +271,41 @@ When timer expires, room returns to scheduled target.
 
 **How it works:**
 1. Detects when calling rooms cannot dissipate boiler output (low capacity + cycling evidence)
-2. Opens additional room valves using three-tier cascading strategy:
+2. Opens additional room valves using two-tier cascading strategy:
    - **Tier 1**: Rooms with schedules starting soon (schedule-aware pre-warming, 60 min default)
-   - **Tier 2**: Rooms with schedules in extended window (120 min default, 2× lookahead)
-   - **Tier 3 Phase A**: Passive mode rooms (opportunistic heating with valve override)
-   - **Tier 3 Phase B**: Fallback priority list for off-schedule periods
+   - **Tier 2 Phase A**: Passive mode rooms (opportunistic heating with valve override)
+   - **Tier 2 Phase B**: Fallback priority list for off-schedule periods
 3. Persists until calling pattern changes (not arbitrary timers)
 
 **Passive Room Participation:**
-- Passive mode rooms participate in Tier 3 Phase A with valve override
+- Passive mode rooms participate in Tier 2 Phase A with valve override
 - Normal passive: 10-30% valve (gentle opportunistic heating)
 - Load sharing active: 50-100% valve (effective heat dumping)
 - Respects max_temp ceiling (exits at max_temp + off_delta)
 - Context matters: passive mode = "I want opportunistic heating", load sharing provides it effectively
 
 **Control:**
-- Mode selector: `input_select.pyheat_load_sharing_mode`
-  - **Off**: Disabled
-  - **Conservative**: Schedule pre-warming only
-  - **Balanced**: Schedule + passive rooms
-  - **Aggressive**: All tiers (recommended)
-- Status: `sensor.pyheat_load_sharing_status` (state, active rooms, reason)
-- Per-room status visible in room sensor attributes
+
+`input_select.pyheat_load_sharing_mode` - Granular aggressiveness control:
+- **Off**: Load sharing completely disabled
+- **Conservative**: Tier 1 only (schedule pre-warming within lookahead window)
+  - Less intrusive, good for spring/summer when cycling is rare
+  - No emergency fallback (reduced cycling protection)
+- **Balanced**: Tier 1 + Tier 2 Phase A (schedule pre-warming + passive rooms)
+  - Includes passive rooms with opportunistic heating
+  - Excludes fallback priority list (no surprise heating in off-schedule rooms)
+  - Good balance of cycling protection and privacy
+- **Aggressive**: All tiers (Tier 1 + Tier 2A + Tier 2B)
+  - Maximum cycling protection with full fallback capability
+  - Includes fallback priority list for emergency heat dumping
+  - Recommended for winter heating season
+  - Default mode
+
+`sensor.pyheat_load_sharing_status` - Real-time status:
+- State shows current tier and reason
+- Attributes include active rooms with tier, valve percentage, and duration
+
+Per-room load-sharing status visible in `sensor.pyheat_{room}_state` attributes
 
 **Configuration:**
 ```yaml
@@ -306,12 +326,12 @@ boiler:
   load_sharing:
     min_calling_capacity_w: 3500       # Activation threshold
     target_capacity_w: 4000            # Target to reach
-    tier3_comfort_target_c: 20.0       # Tier 3 pre-warming target (default: 20°C)
+    fallback_comfort_target_c: 20.0    # Tier 2 Phase B pre-warming target (default: 20°C)
 ```
 
 **Bedroom Configuration Strategy:**
-- **Include in Tier 1/2**: Set `schedule_lookahead_m` (typically 30 min for conservative pre-warming)
-- **Exclude from Tier 3**: Omit `fallback_priority` to prevent unexpected heating during off-schedule periods
+- **Include in Tier 1**: Set `schedule_lookahead_m` (typically 30 min for conservative pre-warming)
+- **Exclude from Tier 2 Phase B**: Omit `fallback_priority` to prevent unexpected heating during off-schedule periods
 - This ensures bedrooms only pre-warm when scheduled, respecting privacy and comfort preferences
 
 See [docs/load_sharing_proposal.md](docs/load_sharing_proposal.md) for complete design details.
@@ -365,12 +385,67 @@ Toggle `input_boolean.pyheat_master_enable` to turn entire system on/off.
 ### Status Entity
 
 `sensor.pyheat_status` provides real-time system status:
-- **State**: "idle" or "heating (N rooms)"
+- **State**: "idle" or "heating (N rooms)" with contextual breakdown
+  - Shows calling rooms, passive rooms, and load-sharing rooms separately
+  - Example: "heating (3 active, 2 passive, +1 pre-warming)"
 - **Attributes**:
   - Per-room details (mode, temp, target, call_for_heat)
   - Boiler state and reason
   - Total valve percentage
   - Last recompute timestamp
+  - Load sharing status and active rooms
+  - Cycling protection state
+
+### Binary Sensors
+
+`binary_sensor.pyheat_calling_for_heat` - System-wide heating demand:
+- **State**: `on` when any room is calling for heat, `off` otherwise
+- **Attributes**:
+  - `active_rooms`: List of room IDs currently calling
+  - `room_count`: Number of rooms calling
+
+`binary_sensor.pyheat_cooldown_active` - Cycling protection cooldown:
+- **State**: `on` when boiler is in cooldown mode (flame off, protecting against short-cycling)
+- **Attributes** (when active):
+  - `cooldown_start`: ISO timestamp when cooldown started
+  - `saved_setpoint`: Setpoint that will be restored after cooldown
+  - `recovery_threshold`: Temperature threshold for recovery
+
+### Counters
+
+`sensor.pyheat_cooldowns` - Cumulative cooldown events counter:
+- Increments each time cycling protection triggers a cooldown
+- Uses `state_class: total_increasing` for HA statistics integration
+- Useful for monitoring boiler cycling patterns over time
+
+### Room State Entities
+
+`sensor.pyheat_{room}_state` - Per-room state with structured format:
+- **State**: Structured string showing mode, load-sharing, calling status, and valve percentage
+  - Example: "auto (active), LS off, calling, 100%"
+  - Example: "auto (passive), LS T1, not calling, 65%"
+- **Attributes**:
+  - `load_sharing`: Load-sharing tier ("off", "T1", "T2") - convenience attribute
+  - `valve`: Valve percentage (0-100) - convenience attribute
+  - `passive_low`: Minimum temperature in passive mode (comfort floor) - null in other modes
+  - `calling`: Boolean calling status - convenience attribute
+  - Plus all standard room attributes (temp, target, mode, etc.)
+
+`sensor.pyheat_{room}_target` - Current target temperature:
+- In passive mode, shows the comfort floor (min_temp) - the actual heating target
+- See `sensor.pyheat_{room}_passive_max_temp` for the upper limit in passive mode
+
+`sensor.pyheat_{room}_passive_max_temp` - Passive mode upper limit:
+- Shows the temperature at which valves close in passive mode
+- Only populated when room is in passive mode
+- Both min and max stored as entity states for reliable history tracking
+
+### Boiler State Entity
+
+`sensor.pyheat_boiler_state` - Dedicated boiler state tracking:
+- **State**: Current boiler FSM state: `on`, `off`, `pending_on`, `pending_off`, `pump_overrun`, `interlock`
+- Creates clean history entries for timeline visualization
+- Used by pyheat-web for boiler timeline and graph shading
 
 ### Logs
 
@@ -623,12 +698,19 @@ curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_status \
 - `boiler_actual_state` - Actual boiler status: "on" or "off"
 - `last_recompute` - ISO 8601 timestamp of last system update
 - `boiler_*_end_time` - ISO 8601 timestamps for active boiler timers (null if inactive)
+- `cooldown_active` - Boolean indicating if cycling protection cooldown is active
+- `calling_count` - Number of rooms naturally calling for heat
+- `passive_count` - Number of passive rooms receiving heat (valve open, not calling)
+- `load_sharing_schedule_count` - Number of rooms in load-sharing schedule tiers (pre-warming)
+- `load_sharing_fallback_count` - Number of rooms in load-sharing fallback tier
+- `total_heating_count` - Total rooms receiving heat (sum of all categories)
 - `load_sharing` - Load sharing status object (null if feature disabled):
-  - `state` - Current state: "disabled", "inactive", "tier1_active", "tier2_active", "tier3_active"
+  - `state` - Current state: "disabled", "inactive", "tier1_active", "tier2_active"
   - `active_rooms` - Array of rooms currently in load sharing with tier, valve_pct, reason, and duration_s
   - `trigger_capacity` - Capacity that triggered load sharing (kW)
   - `trigger_rooms` - Array of room IDs that triggered load sharing
   - `master_enabled` - Whether load sharing is enabled in configuration
+  - `mode` - Current mode: "Off", "Conservative", "Balanced", or "Aggressive"
   - `decision_explanation` - Human-readable explanation of current load sharing decision
 
 ---
@@ -664,9 +746,26 @@ curl -X POST http://appdaemon:5050/api/appdaemon/pyheat_get_history \
   "calling_for_heat": [
     ["2025-11-13T06:30:00+00:00", "2025-11-13T08:15:00+00:00"],
     ["2025-11-13T18:00:00+00:00", "2025-11-13T22:00:00+00:00"]
+  ],
+  "passive_min": [
+    {"time": "2025-12-04T10:00:00+00:00", "value": 16.0}
+  ],
+  "passive_max": [
+    {"time": "2025-12-04T10:00:00+00:00", "value": 19.0}
+  ],
+  "valve": [
+    {"time": "2025-12-04T10:00:00+00:00", "valve_percent": 30}
+  ],
+  "load_sharing": [
+    {"time": "2025-12-04T10:00:00+00:00", "load_sharing_active": true, "tier": 1, "valve_pct": 25, "reason": "schedule_30m"}
+  ],
+  "system_heating": [
+    {"time": "2025-12-04T10:00:00+00:00", "system_heating": true}
   ]
 }
 ```
+
+Note: `passive_min` and `passive_max` arrays are only populated when room is in passive mode. These enable graph visualization of passive temperature ranges.
 
 ---
 

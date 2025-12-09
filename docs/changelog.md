@@ -1,6 +1,62 @@
 
 # PyHeat Changelog
 
+## 2025-12-09: DOCS - Update README with December 2025 Features
+
+**Summary:**
+Updated README.md to reflect all features and changes implemented throughout December 2025. Cross-referenced changelog entries with actual code to ensure accuracy.
+
+**Major Updates:**
+
+1. **New Entities Section** - Added comprehensive documentation for new monitoring entities:
+   - `binary_sensor.pyheat_calling_for_heat` - System-wide heating demand
+   - `binary_sensor.pyheat_cooldown_active` - Cycling protection cooldown status
+   - `sensor.pyheat_cooldowns` - Cumulative cooldown counter
+   - `sensor.pyheat_boiler_state` - Dedicated boiler FSM state entity
+   - `sensor.pyheat_{room}_passive_max_temp` - Passive mode upper limit entity
+
+2. **Room State Entity Documentation** - Added convenience attributes:
+   - `load_sharing` - Load-sharing tier ("off", "T1", "T2")
+   - `valve` - Valve percentage (0-100)
+   - `passive_low` - Minimum temperature in passive mode (comfort floor)
+   - `calling` - Boolean calling status
+
+3. **Passive Mode Semantic Fix** - Updated documentation to reflect BUG #17 fix:
+   - `sensor.pyheat_{room}_target` now shows min_temp (comfort floor) in passive mode, not max_temp
+   - Added explanation that both min and max have full state history for graph visualization
+   - Clarified that the "target" is the actual heating target (what triggers heating)
+
+4. **Load Sharing Updates**:
+   - Changed from boolean + mode selector to single mode selector control
+   - Updated tier naming: removed outdated "Tier 3" references, now uses "Tier 2 Phase A/B"
+   - Fixed config example to use `fallback_comfort_target_c` instead of `tier3_comfort_target_c`
+   - Added detailed mode descriptions (Off/Conservative/Balanced/Aggressive)
+
+5. **Enhanced Boiler Status Display** - Added documentation for contextual room count display:
+   - Shows calling, passive, and load-sharing rooms separately
+   - Example: "heating (3 active, 2 passive, +1 pre-warming)"
+
+6. **API Response Updates**:
+   - Added `cooldown_active`, `calling_count`, `passive_count`, `load_sharing_schedule_count`, `load_sharing_fallback_count`, `total_heating_count` to system status
+   - Added `mode` field to load_sharing status object
+   - Added `passive_min`, `passive_max`, `valve`, `load_sharing`, `system_heating` to history endpoint
+
+7. **Technical Corrections**:
+   - Fixed cycling protection delta from 10°C to 5°C (2025-12-08 change)
+   - Fixed HA package path from `ha_yaml/` to `config/ha_yaml/`
+   - Updated entity names to include `_mode` suffix for passive mode entities
+
+**Cross-Reference Verification:**
+- Verified all December changelog entries against actual code implementation
+- Confirmed entity names match constants.py definitions
+- Validated API response fields against api_handler.py implementation
+- Checked load sharing tier naming matches LOAD_SHARING.md
+
+**Files Modified:**
+- README.md - Major updates throughout document
+
+---
+
 ## 2025-12-08: DOCS - Clean Up Outdated Passive Mode Semantics in ARCHITECTURE.md
 
 **Summary:**
