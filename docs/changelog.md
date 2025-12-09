@@ -1,25 +1,42 @@
 
 # PyHeat Changelog
 
+## 2025-12-09: FIX - Use Relative Path for Persistence File (AppDaemon Best Practice)
+
+**Summary:**
+Changed persistence file path from hardcoded container path to relative path using `__file__` resolution, following the same pattern as config file loading. This is the proper AppDaemon way to handle file paths and makes the code portable across different environments.
+
+**Problem with Previous Fix:**
+The previous fix changed the path from hardcoded host path to hardcoded container path (`/conf/apps/pyheat/state/persistence.json`). While this worked in Docker, it wasn't following AppDaemon best practices and wasn't portable.
+
+**Proper Solution:**
+Following the pattern used by `config_loader.py` and recommended by AppDaemon documentation:
+1. Changed `PERSISTENCE_FILE` constant to relative path: `state/persistence.json`
+2. Each controller constructs absolute path at runtime: `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`
+3. This mirrors how config files (`rooms.yaml`, `schedules.yaml`, `boiler.yaml`) are loaded
+
+**Benefits:**
+- Works in Docker containers, bare metal, or any environment
+- Follows AppDaemon conventions (like `self.app_dir`)
+- Matches existing config file loading pattern
+- No hardcoded paths in constants
+- Portable and maintainable
+
+**Files Modified:**
+- `core/constants.py` - Changed PERSISTENCE_FILE to relative path
+- `controllers/cycling_protection.py` - Added os import, construct absolute path at runtime
+- `controllers/room_controller.py` - Added os import, construct absolute path at runtime
+- `controllers/valve_coordinator.py` - Added os import, construct absolute path at runtime
+
+**Reference:**
+AppDaemon docs: "It is also possible to get some constants like the app directory within apps. This can be accessed using the attribute `self.app_dir`."
+
+---
+
 ## 2025-12-09: FIX - Persistence File Path for Docker Container
 
 **Summary:**
-Fixed hardcoded persistence file path that prevented AppDaemon (running in Docker) from writing to the correct mounted volume. The cooldowns counter and other persistence updates were being written to an unmapped directory inside the container.
-
-**Problem:**
-`PERSISTENCE_FILE` constant used hardcoded host path `/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json`, which doesn't exist inside the Docker container. The volume mount maps `/opt/appdata/appdaemon/conf` (host) to `/conf` (container), so writes to the hardcoded path created a separate file in the container's local filesystem that wasn't visible on the host.
-
-**Impact:**
-- `cooldowns_count` appeared to not be persisting after the 2025-12-09 fix
-- Any persistence updates (room state, cycling protection) weren't visible in the host file
-- The container was writing to `/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json` inside its own filesystem instead of the mounted volume
-
-**Solution:**
-Changed `PERSISTENCE_FILE` from `/opt/appdata/appdaemon/conf/apps/pyheat/state/persistence.json` to `/conf/apps/pyheat/state/persistence.json` to use the container's mounted path.
-
-**Files Modified:**
-- `core/constants.py` - Fixed PERSISTENCE_FILE path
-- `state/persistence.json` - Added missing `cooldowns_count: 1` field from container file
+~~Fixed hardcoded persistence file path that prevented AppDaemon (running in Docker) from writing to the correct mounted volume~~. **Note: This fix was replaced by the proper relative path fix above.**
 
 ---
 

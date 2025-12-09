@@ -10,6 +10,7 @@ Responsibilities:
 """
 
 from datetime import datetime
+import os
 from typing import Dict, Tuple, Optional
 import constants as C
 from persistence import PersistenceManager
@@ -33,7 +34,10 @@ class RoomController:
         self.sensors = sensors
         self.scheduler = scheduler
         self.trvs = trvs
-        self.persistence = PersistenceManager(C.PERSISTENCE_FILE)
+        # Construct absolute path from app root (same pattern as config_loader)
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
+        self.persistence = PersistenceManager(persistence_file)
         
         self.room_call_for_heat = {}  # {room_id: bool}
         self.room_current_band = {}  # {room_id: band_index}

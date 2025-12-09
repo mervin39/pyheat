@@ -11,6 +11,7 @@ Responsibilities:
 """
 
 from datetime import datetime
+import os
 from typing import Dict, Optional
 import constants as C
 from persistence import PersistenceManager
@@ -39,7 +40,10 @@ class ValveCoordinator:
         """
         self.ad = ad
         self.trvs = trv_controller
-        self.persistence = PersistenceManager(C.PERSISTENCE_FILE)
+        # Construct absolute path from app root (same pattern as config_loader)
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
+        self.persistence = PersistenceManager(persistence_file)
         
         # Persistence overrides from boiler controller (DEPRECATED - kept for compatibility)
         self.persistence_overrides = {}  # {room_id: valve_percent}

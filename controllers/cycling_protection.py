@@ -15,6 +15,7 @@ Responsibilities:
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from collections import deque
+import os
 import constants as C
 from persistence import PersistenceManager
 
@@ -157,7 +158,10 @@ class CyclingProtection:
         self.config = config
         self.alert_manager = alert_manager
         self.boiler_controller = boiler_controller
-        self.persistence = PersistenceManager(C.PERSISTENCE_FILE)
+        # Construct absolute path from app root (same pattern as config_loader)
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
+        self.persistence = PersistenceManager(persistence_file)
         
         # State machine state
         self.state = self.STATE_NORMAL
