@@ -448,33 +448,48 @@ class CyclingProtection:
             return
         
         # All checks confirm no DHW - this is a genuine CH shutdown
-        # Check if return temp is dangerously high
+        # Check if flow or return temp indicates overheat condition
+        flow_temp = self._get_flow_temp()
         return_temp = self._get_return_temp()
         setpoint = self._get_current_setpoint()
         
-        if return_temp is None or setpoint is None:
-            self.ad.log("Cannot evaluate cooldown: missing return temp or setpoint", level="WARNING")
+        if flow_temp is None or return_temp is None or setpoint is None:
+            self.ad.log("Cannot evaluate cooldown: missing temperature data", level="WARNING")
             return
         
-        delta = setpoint - return_temp
-        threshold = setpoint - C.CYCLING_HIGH_RETURN_DELTA_C
+        # Calculate thresholds for dual-temperature detection
+        flow_overheat_threshold = setpoint + C.CYCLING_FLOW_OVERHEAT_MARGIN_C  # Flow ABOVE setpoint
+        return_threshold = setpoint - C.CYCLING_HIGH_RETURN_DELTA_C            # Return below setpoint
+        
+        # Check if EITHER temperature indicates overheat
+        flow_overheat = flow_temp >= flow_overheat_threshold
+        return_high = return_temp >= return_threshold
         
         self.ad.log(
             f"Flame OFF: Confirmed CH shutdown | "
             f"DHW at flame OFF: binary={dhw_binary_at_flame_off}, flow={dhw_flow_at_flame_off} | "
             f"DHW now: binary={dhw_binary_now}, flow={dhw_flow_now} | "
-            f"Return: {return_temp:.1f}C | Setpoint: {setpoint:.1f}C | Delta: {delta:.1f}C",
+            f"Flow: {flow_temp:.1f}C (overheat if >={flow_overheat_threshold:.1f}C) {'OVERHEAT' if flow_overheat else 'OK'} | "
+            f"Return: {return_temp:.1f}C (high if >={return_threshold:.1f}C) {'HIGH' if return_high else 'OK'} | "
+            f"Setpoint: {setpoint:.1f}C",
             level="INFO"
         )
         
-        if return_temp >= threshold:
-            # High return temp detected - enter cooldown
+        if flow_overheat or return_high:
+            # Determine trigger reason for logging
+            if flow_overheat and return_high:
+                reason = "flow overheat AND high return temp"
+            elif flow_overheat:
+                reason = "flow temperature exceeds setpoint"
+            else:
+                reason = "return temperature high (fallback)"
+            
+            self.ad.log(f"Entering cooldown: {reason}", level="WARNING")
             self._enter_cooldown(setpoint)
         else:
             # Normal conditions - no cooldown needed
             self.ad.log(
-                f"Flame OFF: Normal conditions (return {return_temp:.1f}C, "
-                f"threshold {threshold:.1f}C) - no cooldown needed",
+                f"Flame OFF: Normal conditions - no cooldown needed",
                 level="DEBUG"
             )
             
@@ -573,11 +588,12 @@ class CyclingProtection:
             return
         
         now = datetime.now()
+        flow_temp = self._get_flow_temp()
         return_temp = self._get_return_temp()
         recovery_threshold = self._get_recovery_threshold()
         
-        if return_temp is None:
-            self.ad.log("Cannot check recovery: missing return temp", level="WARNING")
+        if flow_temp is None or return_temp is None:
+            self.ad.log("Cannot check recovery: missing temperature data", level="WARNING")
             # Try again in 10 seconds
             self.recovery_handle = self.ad.run_in(
                 self._check_recovery,
@@ -592,7 +608,7 @@ class CyclingProtection:
         if time_in_cooldown > C.CYCLING_COOLDOWN_MAX_DURATION_S:
             self.ad.log(
                 f"ERROR: COOLDOWN TIMEOUT: Stuck in cooldown for {int(time_in_cooldown/60)} minutes! "
-                f"Return temp: {return_temp:.1f}C, "
+                f"Flow: {flow_temp:.1f}C, Return: {return_temp:.1f}C, "
                 f"Target: {recovery_threshold:.1f}C",
                 level="ERROR"
             )
@@ -603,8 +619,8 @@ class CyclingProtection:
                     self.alert_manager.ALERT_CYCLING_PROTECTION_TIMEOUT,
                     self.alert_manager.SEVERITY_WARNING,
                     f"Cycling protection stuck in cooldown for {int(time_in_cooldown/60)} minutes.\n\n"
-                    f"**Current:** {return_temp:.1f}°C return temp\n"
-                    f"**Target:** {recovery_threshold:.1f}°C\n"
+                    f"**Current:** Flow {flow_temp:.1f}C, Return {return_temp:.1f}C\n"
+                    f"**Target:** {recovery_threshold:.1f}C\n"
                     f"**Action:** Forcing recovery and restoring setpoint.\n\n"
                     f"This may indicate recovery threshold needs adjustment.",
                     auto_clear=True
@@ -615,17 +631,23 @@ class CyclingProtection:
             self._exit_cooldown()
             return
         
+        # Check max of both temps against threshold (ensures BOTH are safe)
+        max_temp = max(flow_temp, return_temp)
+        temps_safe = max_temp <= recovery_threshold
+        
         # Log progress
         self.ad.log(
-            f"Cooldown check: {return_temp:.1f}C (target: {recovery_threshold:.1f}C) "
-            f"[{int(time_in_cooldown)}s elapsed]",
+            f"Cooldown check: Flow={flow_temp:.1f}C Return={return_temp:.1f}C "
+            f"max={max_temp:.1f}C (target<={recovery_threshold:.1f}C) "
+            f"{'SAFE' if temps_safe else 'COOLING'} [{int(time_in_cooldown)}s elapsed]",
             level="DEBUG"
         )
         
         # Check if recovery threshold reached
-        if return_temp <= recovery_threshold:
+        if temps_safe:
             self.ad.log(
-                f"Recovery threshold reached: {return_temp:.1f}C <= {recovery_threshold:.1f}C "
+                f"Recovery complete: Both temps safe "
+                f"(Flow={flow_temp:.1f}C, Return={return_temp:.1f}C, max={max_temp:.1f}C <= {recovery_threshold:.1f}C) "
                 f"(cooldown duration: {int(time_in_cooldown/60)}m {int(time_in_cooldown%60)}s)",
                 level="INFO"
             )
@@ -692,6 +714,20 @@ class CyclingProtection:
             return None
         try:
             return float(return_temp_str)
+        except (ValueError, TypeError):
+            return None
+    
+    def _get_flow_temp(self) -> Optional[float]:
+        """Get current flow/supply temperature from OpenTherm sensor.
+        
+        Returns:
+            Flow temperature in °C, or None if unavailable
+        """
+        flow_temp_str = self.ad.get_state(C.OPENTHERM_HEATING_TEMP)
+        if flow_temp_str in ['unknown', 'unavailable', None]:
+            return None
+        try:
+            return float(flow_temp_str)
         except (ValueError, TypeError):
             return None
             

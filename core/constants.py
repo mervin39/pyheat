@@ -169,7 +169,11 @@ STATE_INTERLOCK_BLOCKED = "interlock_blocked"
 # DHW detection - sensor delay for state stabilization
 CYCLING_SENSOR_DELAY_S = 2  # Wait for OpenTherm sensors to update after flame OFF
 
-# High return temp detection threshold (delta from setpoint)
+# Cooldown detection thresholds - dual temperature approach
+# Flow temperature overheat detection (flow ABOVE setpoint indicates boiler overheat)
+CYCLING_FLOW_OVERHEAT_MARGIN_C = 2  # Trigger if flow exceeds setpoint by 2°C
+
+# Return temperature detection (fallback - unchanged from original logic)
 # When return_temp >= (setpoint - delta), cooldown is triggered
 CYCLING_HIGH_RETURN_DELTA_C = 5  # e.g., 50°C when setpoint is 55°C, 65°C when setpoint is 70°C
 

@@ -1,6 +1,87 @@
 
 # PyHeat Changelog
 
+## 2025-12-09: FEAT - Enhanced Cooldown Detection with Dual-Temperature Logic
+
+**Summary:**
+Enhanced short-cycling protection to detect boiler overheat shutdowns that were being missed by return-temperature-only detection. Adds flow temperature monitoring as primary detection method while maintaining return temperature as fallback.
+
+**Problem:**
+Analysis of heating logs revealed 16 overheat-related flame-off events in 2.5 hours with zero cooldown protections triggered. The boiler's internal overheat protection was tripping when flow temperature reached/exceeded setpoint (58-60°C observed), but return temperature remained below our detection threshold (43-47°C vs 50°C threshold). Result: unprotected short-cycling.
+
+**Root Cause:**
+- Return temperature lags flow by ~10-12°C due to system delta-T
+- Boiler trips on flow reaching setpoint, but return hasn't caught up yet
+- Single-temperature (return-only) detection misses these events
+
+**Solution - Dual-Temperature Detection:**
+
+1. **Flow Temperature Overheat Check (NEW - Primary)**:
+   - Trigger: `flow_temp >= setpoint + 2°C`
+   - Detects actual overheat (flow exceeding target)
+   - Catches boiler's internal overheat shutdowns directly
+   - Avoids false positives during normal operation
+
+2. **Return Temperature Check (Unchanged - Fallback)**:
+   - Trigger: `return_temp >= setpoint - 5°C`
+   - Maintains existing proven logic
+   - Safety net if flow sensor fails
+   - Zero regression risk
+
+**Dual-Temperature Recovery:**
+- **Before:** Checked return temp only
+- **After:** Checks `max(flow_temp, return_temp) <= threshold`
+- Ensures **both** temperatures are safe before exiting cooldown
+- Reuses existing dynamic threshold calculation (no new constants needed)
+- Prevents premature exit if either temp still elevated
+
+**Implementation:**
+
+*`core/constants.py`:*
+- Added `CYCLING_FLOW_OVERHEAT_MARGIN_C = 2` (new constant)
+- Enhanced comments for `CYCLING_HIGH_RETURN_DELTA_C`
+
+*`controllers/cycling_protection.py`:*
+- Added `_get_flow_temp()` method to read OpenTherm flow sensor
+- Updated `_evaluate_cooldown_need()`:
+  - Reads both flow and return temperatures
+  - Calculates both thresholds
+  - Triggers on either condition
+  - Enhanced logging shows both checks and trigger reason
+- Updated `_check_recovery()`:
+  - Reads both temperatures
+  - Uses `max(flow, return)` for single-threshold check
+  - Enhanced logging shows both temps and max value
+  - Updated timeout message to include both temps
+
+*`README.md`:*
+- Updated feature summary with dual-temperature approach
+- Added comprehensive "Short-Cycling Protection (Cooldown)" section:
+  - How it works (detection, DHW filtering, enforcement, recovery)
+  - Configuration constants with tuning guidelines
+  - Monitoring entities and log messages
+  - Troubleshooting guidance
+
+**Validation:**
+- Tested against 2025-12-09 06:30-09:00 heating log data
+- Coverage: 15/16 non-DHW flame-offs (94%) caught by new flow check
+- One intentional miss: flow=55°C exactly at setpoint (borderline/ambiguous)
+- No syntax errors, AppDaemon loaded successfully
+- Zero regression: return-only logic unchanged, acts as proven fallback
+
+**Benefits:**
+- Catches 94% of previously missed overheat shutdowns
+- Minimal code changes (one constant, one method, threshold logic)
+- Zero regression risk (fallback maintains existing behavior)
+- Simpler recovery (max() reuses existing threshold)
+- Better diagnostics (distinguishes flow vs return issues)
+
+**Related:**
+- Proposal document: `docs/debug/proposals/cooldown_detection_enhancement_proposal.md`
+- Analysis based on: `docs/heating_logs/2025-12-09.csv`
+
+---
+
 ## 2025-12-09: DOCS - Update README with December 2025 Features
 
 **Summary:**

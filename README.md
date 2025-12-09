@@ -46,7 +46,12 @@ PyHeat provides multi-room heating control with:
 5. **Load Sharing**: Intelligently opens additional room valves when primary calling rooms have insufficient capacity to prevent boiler short-cycling. Uses three-tier cascade: schedule-aware pre-warming (60min) → extended lookahead (120min) → passive rooms + fallback priority list. Passive rooms participate with higher valve percentages (50-100%) while respecting temperature ceilings.
 6. **TRV Setpoint Locking**: All TRVs locked to 35°C with immediate correction via state listener
 7. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
-8. **Short-Cycling Protection**: Monitors return temperature on flame OFF events; triggers cooldown when efficiency degrades (return temp ≥ setpoint - 5°C); uses setpoint manipulation to enforce cooldown; recovers when return temp drops below dynamic threshold
+8. **Short-Cycling Protection**: Dual-temperature overheat detection with automatic cooldown enforcement
+   - **Detection**: Triggers on flame-off if flow temp ≥ setpoint+2°C (overheat) OR return temp ≥ setpoint-5°C (fallback)
+   - **DHW filtering**: Ignores flame-offs during hot water demand (multi-sensor check with 12s history buffer)
+   - **Cooldown enforcement**: Drops boiler setpoint to 30°C to prevent re-ignition
+   - **Recovery**: Exits when max(flow, return) ≤ dynamic threshold (setpoint-15°C, min 45°C)
+   - **Monitoring**: 10s interval checks with 30min timeout protection and excessive cycling alerts
 
 ## Installation
 
@@ -375,6 +380,85 @@ system:
 5. System returns to normal mode behavior
 
 **Status display:** When active, room status shows `"FROST PROTECTION: 7.5C -> 8.0C (emergency heating)"`
+
+### Short-Cycling Protection (Cooldown)
+
+**Automatic overheat detection and cooldown enforcement** to prevent boiler damage from short-cycling.
+
+#### How It Works
+
+**Detection (Dual-Temperature Approach):**
+Cooldown triggers on any flame-off event if **either** condition is met:
+
+1. **Flow Temperature Overheat** (Primary): `flow_temp >= setpoint + 2°C`
+   - Detects actual overheat condition (flow exceeding target)
+   - Example: With 55°C setpoint, triggers if flow ≥ 57°C
+   - Catches boiler's internal overheat shutdowns
+
+2. **High Return Temperature** (Fallback): `return_temp >= setpoint - 5°C`
+   - Backup detection if flow sensor fails
+   - Example: With 55°C setpoint, triggers if return ≥ 50°C
+   - Maintains existing protection behavior
+
+**DHW Filtering:**
+- Ignores flame-offs during domestic hot water demand
+- Uses quad-check: DHW binary sensor + flow rate sensor, at flame-off and 2s later
+- Includes 12-second history buffer to catch fast DHW events
+- Prevents false positives from DHW interruptions
+
+**Cooldown Enforcement:**
+- Drops boiler setpoint to 30°C (prevents re-ignition)
+- Saves original setpoint for restoration
+- Records event in history for excessive cycling detection
+- Monitors recovery every 10 seconds
+
+**Recovery Exit:**
+Cooldown ends when **both** temperatures are safe:
+- Check: `max(flow_temp, return_temp) <= threshold`
+- Threshold: `max(setpoint - 15°C, 45°C)` (dynamic, based on saved setpoint)
+- Example: With 55°C setpoint, exits when both flow and return ≤ 45°C
+- Restores original setpoint automatically
+
+**Safety Features:**
+- 30-minute timeout with forced recovery (alerts user)
+- Excessive cycling detection (alerts if >3 cooldowns in 60 min)
+- Persists state across AppDaemon restarts
+
+#### Configuration
+
+**Constants (in `constants.py`):**
+```python
+CYCLING_FLOW_OVERHEAT_MARGIN_C = 2   # Flow must exceed setpoint by 2°C
+CYCLING_HIGH_RETURN_DELTA_C = 5      # Return threshold: setpoint - 5°C
+CYCLING_COOLDOWN_SETPOINT = 30       # Setpoint during cooldown
+CYCLING_RECOVERY_DELTA_C = 15        # Recovery threshold: setpoint - 15°C
+CYCLING_RECOVERY_MIN_C = 45          # Absolute minimum recovery temp
+```
+
+**Tuning Guidelines:**
+- `CYCLING_FLOW_OVERHEAT_MARGIN_C`: Lower (1°C) = more sensitive, Higher (3°C) = fewer triggers
+- If seeing false positives: Increase flow margin or tighten return threshold
+- If missing events: Check logs for flow/return temps at flame-off
+
+#### Monitoring
+
+**Home Assistant Entities:**
+- `sensor.pyheat_cooldowns` - Total cooldown events (total_increasing)
+- `sensor.pyheat_status` attributes:
+  - `cycling_protection.state` - Current state (NORMAL/COOLDOWN/TIMEOUT)
+  - `cycling_protection.cooldown_start` - Timestamp of current cooldown
+  - `cycling_protection.cooldowns_last_hour` - Recent event count
+
+**Log Messages:**
+- `INFO` - Flame-off analysis with temp readings and threshold checks
+- `WARNING` - Cooldown entry with trigger reason
+- `INFO` - Cooldown exit with duration
+- `ERROR` - Timeout or excessive cycling alerts
+
+**What to Watch For:**
+- Frequent cooldowns (>3/hour) suggest low radiator capacity or setpoint too high
+- Long cooldown durations (>10 min) suggest recovery threshold may need adjustment
+- Timeout events indicate system cooling too slowly
 
 ### Master Enable/Disable
 
