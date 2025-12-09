@@ -596,7 +596,8 @@ class PyHeat(hass.Hass):
             # Numeric sensors - log with units
             try:
                 value = float(new)
-                if sensor_name == "power":
+                if sensor_name in ["power", "modulation"]:
+                    # Percentage sensors
                     self.log(f"OpenTherm [{sensor_name}]: {value}%", level="DEBUG")
                 else:
                     # Temperature sensors

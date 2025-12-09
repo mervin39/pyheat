@@ -1,6 +1,39 @@
 
 # PyHeat Changelog
 
+## 2025-12-09: FIX - OpenTherm Modulation Sensor Logging Unit
+
+**Summary:**
+Fixed OpenTherm modulation sensor logging to correctly use percentage units (%) instead of temperature units (C).
+
+**Problem:**
+The `opentherm_sensor_changed()` method incorrectly logged modulation values with "C" suffix:
+```
+2025-12-09 19:43:18.079257 DEBUG pyheat: OpenTherm [modulation]: 23.0C  ❌
+2025-12-09 19:43:18.248891 DEBUG pyheat: OpenTherm [power]: 10.9%      ✓
+```
+
+Modulation is a percentage value (0-100%) representing the boiler's burner intensity, not a temperature.
+
+**Solution:**
+Updated the logging logic to treat both "power" and "modulation" as percentage sensors:
+```python
+if sensor_name in ["power", "modulation"]:
+    # Percentage sensors
+    self.log(f"OpenTherm [{sensor_name}]: {value}%", level="DEBUG")
+```
+
+**After Fix:**
+```
+OpenTherm [modulation]: 23.0%
+OpenTherm [power]: 10.9%
+```
+
+**Files Modified:**
+- `app.py` - Updated `opentherm_sensor_changed()` to include "modulation" in percentage sensor list
+
+---
+
 ## 2025-12-09: FIX - Use Relative Path for Persistence File (AppDaemon Best Practice)
 
 **Summary:**
