@@ -1,6 +1,58 @@
 
 # PyHeat Changelog
 
+## 2025-12-09: FIX - Persist Cooldowns Count to Survive HA Restarts
+
+**Summary:**
+Fixed `sensor.pyheat_cooldowns` resetting to 0 when Home Assistant is unavailable during AppDaemon/PyHeat startup. The cooldowns counter is now persisted to `persistence.json` and uses the maximum value between HA sensor and persisted count to ensure strictly increasing behavior.
+
+**Problem:**
+The cooldowns counter reset to 0 on:
+- 5th December 08:01:25
+- 7th December 20:30:23
+
+Investigation revealed that `_ensure_cooldowns_sensor()` was creating the sensor with `state="0"` whenever `ad.get_state()` returned `None`, `'unknown'`, or `'unavailable'`. This occurred during:
+- AppDaemon restarts when HA hadn't restored entity states yet
+- PyHeat app restarts (e.g., config changes)
+- HA restarts or temporary unavailability
+
+The cooldowns count was only stored in the HA entity state with no separate persistence, so recreating the entity lost the historical total.
+
+**Solution:**
+1. Added `cooldowns_count` field to `persistence.json` cycling_protection state
+2. Modified `_ensure_cooldowns_sensor()` to:
+   - Read both persisted count and HA sensor value
+   - Use `max(ha_count, persisted_count)` as authoritative value
+   - Update whichever is lower to match (ensures sync)
+   - Create sensor with persisted count if HA unavailable (no reset to 0)
+3. Modified `_increment_cooldowns_sensor()` to update both HA and persistence atomically
+4. Ensures strictly increasing behavior: if HA is ever higher than persistence (e.g., manual edit), persistence updates to match
+
+**Implementation:**
+
+*`core/persistence.py`:*
+- Updated `get_cycling_protection_state()` to include `cooldowns_count` with default 0
+- Added `get_cooldowns_count()` helper method
+- Added `update_cooldowns_count()` helper method for atomic updates
+
+*`controllers/cycling_protection.py`:*
+- Updated `_ensure_cooldowns_sensor()` signature to accept `persistence` parameter
+- Implemented max-value logic to sync HA and persisted count on startup
+- Updated `_increment_cooldowns_sensor()` to update both HA and persistence
+- Updated `ensure_cooldowns_sensor()` to pass persistence instance
+- Updated `_enter_cooldown()` to pass persistence to increment function
+
+**Testing:**
+Counter will now survive:
+- AppDaemon restarts
+- PyHeat app restarts (config changes)
+- Home Assistant restarts
+- Temporary HA unavailability during startup
+
+The counter remains strictly increasing and self-healing if either storage location gets out of sync.
+
+---
+
 ## 2025-12-09: FEAT - Enhanced Cooldown Detection with Dual-Temperature Logic
 
 **Summary:**

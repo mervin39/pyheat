@@ -146,13 +146,14 @@ class PersistenceManager:
         
         Returns:
             Dict with cycling protection state
-            Format: {'mode': str, 'saved_setpoint': float|None, 'cooldown_start': str|None}
+            Format: {'mode': str, 'saved_setpoint': float|None, 'cooldown_start': str|None, 'cooldowns_count': int}
         """
         data = self.load()
         return data.get('cycling_protection', {
             'mode': 'NORMAL',
             'saved_setpoint': None,
-            'cooldown_start': None
+            'cooldown_start': None,
+            'cooldowns_count': 0
         })
     
     def update_cycling_protection_state(self, state: Dict[str, Any]) -> None:
@@ -163,4 +164,31 @@ class PersistenceManager:
         """
         data = self.load()
         data['cycling_protection'] = state
+        self.save(data)
+    
+    def get_cooldowns_count(self) -> int:
+        """Get persisted cooldowns count.
+        
+        Returns:
+            Cooldowns count from persistence (0 if not found)
+        """
+        state = self.get_cycling_protection_state()
+        return state.get('cooldowns_count', 0)
+    
+    def update_cooldowns_count(self, count: int) -> None:
+        """Update persisted cooldowns count.
+        
+        Args:
+            count: New cooldowns count value
+        """
+        data = self.load()
+        if 'cycling_protection' not in data:
+            data['cycling_protection'] = {
+                'mode': 'NORMAL',
+                'saved_setpoint': None,
+                'cooldown_start': None,
+                'cooldowns_count': count
+            }
+        else:
+            data['cycling_protection']['cooldowns_count'] = count
         self.save(data)
