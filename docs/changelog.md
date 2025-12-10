@@ -1,6 +1,109 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: NEW FEATURE - Setpoint Ramp (Toggleable)
+
+**Summary:**
+Added dynamic setpoint ramping feature to prevent short-cycling during large setpoint increases. When the boiler setpoint jumps by more than the configured threshold (default 3°C), the system gradually ramps up in 1°C steps instead of jumping directly to the target. This maintains continuous heating and avoids cooldown penalties.
+
+**Background:**
+Testing on 2025-12-10 10:00-10:17 showed that ramping from 55°C to 70°C in 1°C steps successfully prevented cooldown triggers for 17+ minutes of continuous heating. Without ramping, the large setpoint jump would have caused immediate return temperature spikes and cooldown activation.
+
+**Configuration:**
+
+*In `config/boiler.yaml`:*
+```yaml
+setpoint_ramp:
+  delta_trigger_c: 3.0      # Trigger ramp if setpoint increases by >3.0°C
+  delta_increase_c: 1.0     # Increase setpoint by 1.0°C per step
+```
+
+*Home Assistant entities (add to `pyheat_package.yaml`):*
+```yaml
+input_boolean:
+  pyheat_setpoint_ramp_enable:
+    name: "PyHeat Setpoint Ramp Enable"
+    icon: mdi:stairs-up
+
+input_number:
+  pyheat_opentherm_setpoint_ramp_max:
+    name: "PyHeat OpenTherm Setpoint Ramp Max"
+    min: 30
+    max: 80
+    step: 1
+    unit_of_measurement: "°C"
+    mode: slider
+    icon: mdi:thermometer-high
+```
+
+**How It Works:**
+
+1. **Trigger Conditions:**
+   - Feature enabled via `input_boolean.pyheat_setpoint_ramp_enable`
+   - New computed setpoint is ≥ `delta_trigger_c` above current setpoint
+   - Not already ramping
+   - Not in cycling protection cooldown
+
+2. **Ramping Behavior:**
+   - Records baseline (current) and target (new) setpoints
+   - Each recompute cycle, increases setpoint by `delta_increase_c`
+   - Returns ramped setpoint to boiler controller
+   - Stops when reaching target or `input_number.pyheat_opentherm_setpoint_ramp_max`
+   - Respects max setpoint limit at all times
+
+3. **Cooldown Coordination:**
+   - If cooldown enters during ramp: ramp pauses, resumes after cooldown exit
+   - If cooldown exits: ramp resets to baseline (not ramped value) to avoid immediate re-trigger
+   - Cycling protection skips setpoint validation when ramp is active
+
+4. **State Persistence:**
+   - Ramp state persists across AppDaemon restarts
+   - Validates baseline still matches actual setpoint on restore
+   - Continues ramping after restart if conditions still valid
+
+**Integration Points:**
+
+- **app.py**: Evaluates ramp after boiler state update, applies returned setpoint
+- **cycling_protection.py**: Skips validation when ramping, notifies ramp on cooldown entry/exit
+- **status_publisher.py**: Publishes ramp state to `sensor.pyheat_system_status` attributes
+- **heating_logger.py**: Logs 5 ramp columns (enabled, state, baseline, current, steps)
+- **persistence.py**: Stores/restores ramp state across restarts
+
+**State Machine:**
+
+- **INACTIVE**: Feature disabled or no ramp conditions met
+- **RAMPING**: Actively ramping setpoint toward target
+
+**Validation:**
+
+- Configuration values: 0.1-10.0°C range, 1 decimal precision
+- Warns if `delta_trigger_c > 4.0` (may be too aggressive)
+- Logs all state transitions at INFO level
+
+**Testing:**
+- Tested on 2025-12-10 10:00-10:17 with successful 55→70°C ramp (15 steps, no cooldowns)
+- Feature currently disabled (helpers not created in HA yet)
+- AppDaemon successfully loads module and validates configuration
+
+**Files Changed:**
+- NEW: `controllers/setpoint_ramp.py` (506 lines) - Core state machine
+- `core/constants.py` - Added ramp helper entity constants
+- `core/persistence.py` - Added ramp state methods
+- `config/boiler.yaml` - Added setpoint_ramp section
+- `config/ha_yaml/pyheat_package.yaml` - Added ramp helper entities
+- `controllers/cycling_protection.py` - Coordination + datetime bug fix
+- `app.py` - Integration with main loop
+- `services/status_publisher.py` - Ramp state publishing
+- `services/heating_logger.py` - CSV logging with 5 ramp columns
+
+**Notes:**
+- Feature is disabled by default - must enable `input_boolean.pyheat_setpoint_ramp_enable`
+- CSV headers updated for new files (tomorrow or after restart)
+- No rate limiting by design - ramps as fast as recompute cycles allow
+- Ramp holds during cooldown, does not count toward timeout
+
+---
+
 ## 2025-12-10: IMPROVE - Add CSV Logging for Critical State Changes
 
 **Summary:**
