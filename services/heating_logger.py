@@ -98,6 +98,13 @@ class HeatingLogger:
             'cycling_saved_setpoint',
             'cycling_recovery_threshold',
             
+            # Setpoint ramp
+            'setpoint_ramp_enabled',
+            'setpoint_ramp_state',
+            'setpoint_ramp_baseline',
+            'setpoint_ramp_current',
+            'setpoint_ramp_steps',
+            
             # Load sharing
             'load_sharing_state',
             'load_sharing_active_count',
@@ -480,6 +487,13 @@ class HeatingLogger:
             'cycling_saved_setpoint': round_temp(cycling_data.get('saved_setpoint', '')) if cycling_data else '',
             'cycling_recovery_threshold': round_temp(cycling_data.get('recovery_threshold', '')) if cycling_data else '',
             
+            # Setpoint ramp (extract from system status entity)
+            'setpoint_ramp_enabled': False,
+            'setpoint_ramp_state': 'INACTIVE',
+            'setpoint_ramp_baseline': '',
+            'setpoint_ramp_current': '',
+            'setpoint_ramp_steps': 0,
+            
             # Load sharing
             'load_sharing_state': load_sharing_data.get('state', 'inactive') if load_sharing_data else 'inactive',
             'load_sharing_active_count': len(load_sharing_data.get('active_rooms', [])) if load_sharing_data else 0,
@@ -492,6 +506,20 @@ class HeatingLogger:
             'total_valve_pct': total_valve_pct,
             'total_estimated_dump_capacity': round(load_data.get('total_estimated_capacity', 0), 0) if load_data else 0,
         }
+        
+        # Extract setpoint ramp data from system status entity
+        try:
+            system_status_attrs = self.ad.get_state('sensor.pyheat_system_status', attribute='all')
+            if system_status_attrs and 'attributes' in system_status_attrs:
+                ramp_data = system_status_attrs['attributes'].get('setpoint_ramp', {})
+                if ramp_data:
+                    row['setpoint_ramp_enabled'] = ramp_data.get('enabled', False)
+                    row['setpoint_ramp_state'] = ramp_data.get('state', 'INACTIVE')
+                    row['setpoint_ramp_baseline'] = round_temp(ramp_data.get('baseline_setpoint', ''))
+                    row['setpoint_ramp_current'] = round_temp(ramp_data.get('current_ramped_setpoint', ''))
+                    row['setpoint_ramp_steps'] = ramp_data.get('ramp_steps_applied', 0)
+        except Exception as e:
+            self.ad.log(f"HeatingLogger: Error extracting setpoint ramp data: {e}", level="WARNING")
         
         # Add per-room data (round temps to 2dp)
         for room_id in self.room_ids:

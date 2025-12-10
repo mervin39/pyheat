@@ -751,8 +751,8 @@ class CyclingProtection:
         
         # Trigger CSV log for state change
         if self.app_ref and hasattr(self.app_ref, 'recompute_and_publish'):
-            from datetime import datetime
-            self.app_ref.recompute_and_publish('cycling_cooldown_ended', datetime.now())
+            from datetime import datetime as dt
+            self.app_ref.recompute_and_publish('cycling_cooldown_ended', dt.now())
         
         # Clear state
         self._reset_to_normal()

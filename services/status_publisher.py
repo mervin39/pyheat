@@ -554,6 +554,18 @@ class StatusPublisher:
                 'cooldowns_last_hour': cooldowns_last_hour
             }
         
+        # Add setpoint ramp state if available
+        if hasattr(self.ad, 'setpoint_ramp'):
+            ramp_state_dict = self.ad.setpoint_ramp.get_state_dict()
+            attrs['setpoint_ramp'] = {
+                'enabled': ramp_state_dict.get('enabled', False),
+                'state': ramp_state_dict.get('state', 'INACTIVE'),
+                'baseline_setpoint': ramp_state_dict.get('baseline_setpoint'),
+                'current_ramped_setpoint': ramp_state_dict.get('current_ramped_setpoint'),
+                'ramp_steps_applied': ramp_state_dict.get('ramp_steps_applied', 0),
+                'max_setpoint': ramp_state_dict.get('max_setpoint')
+            }
+        
         # Add load sharing state if available
         if hasattr(self.ad, 'load_sharing'):
             load_sharing_status = self.ad.load_sharing.get_status()
