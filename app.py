@@ -600,17 +600,25 @@ class PyHeat(hass.Hass):
             return
         
         # Flow temperature sensor triggers immediate recompute for setpoint ramp
-        # This allows ramping to react within 1-2 seconds instead of waiting up to
+        # This allows ramping to react within 3-4 seconds instead of waiting up to
         # 60 seconds for periodic recompute. Critical for preventing short-cycling.
+        # 
+        # Sensor characteristics:
+        # - Updates every ~3-4 seconds during heating
+        # - Reports to 0.1C precision (OpenTherm standard)
+        # - Climate entity setpoint also uses 0.1C precision (target_temp_step)
+        #
+        # No threshold needed - trigger on every change during active heating:
+        # - Adds ~8-10 recomputes/minute during stable heating
+        # - Adds ~15-20 recomputes/minute during rapid temp changes
+        # - Ensures setpoint ramp reacts within one sensor update cycle (3-4s)
         if sensor_name == 'heating_temp':
             try:
                 new_temp = float(new)
                 old_temp = float(old) if old not in ['unknown', 'unavailable', None] else None
                 
-                # Only trigger recompute if temperature changed by >= 1C to avoid
-                # excessive recomputes from minor fluctuations (flow temp reports
-                # to 0.1C precision but boiler control operates in whole degrees)
-                if old_temp is None or abs(new_temp - old_temp) >= 1.0:
+                # Trigger recompute on any actual change (sensor already filters noise)
+                if old_temp is None or abs(new_temp - old_temp) > 0.01:
                     self.trigger_recompute('flow_temp_changed')
             except (ValueError, TypeError):
                 pass  # Failed to parse - just log below

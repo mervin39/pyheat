@@ -16,26 +16,33 @@ Setpoint ramp feature was failing to react to flow temperature spikes because ev
 The boiler shut itself down before the next recompute could evaluate and ramp the setpoint.
 
 **Solution:**
-Modified `opentherm_sensor_changed()` to trigger immediate recompute when flow temperature (`sensor.opentherm_heating_temp`) changes by ≥1°C. This allows setpoint ramp evaluation to occur within 1-2 seconds of flow temp changes, preventing boiler shutdown.
+Modified `opentherm_sensor_changed()` to trigger immediate recompute when flow temperature (`sensor.opentherm_heating_temp`) changes. This allows setpoint ramp evaluation to occur within 3-4 seconds of flow temp changes (sensor update interval), preventing boiler shutdown.
 
-**Why 1°C threshold:**
-- Flow temp sensor reports to 0.1°C precision
-- Boiler control operates in whole degrees
-- 1°C threshold avoids excessive recomputes from minor fluctuations while ensuring rapid response to meaningful changes
-- During rapid heating, flow temp typically changes by 1°C every 1-3 seconds
+**Sensor Characteristics:**
+- Updates every ~3-4 seconds during active heating
+- Reports to 0.1°C precision (OpenTherm standard)
+- Climate setpoint also uses 0.1°C precision (target_temp_step=0.1)
+
+**Why trigger on every change:**
+- Sensor already filters noise (only reports actual changes)
+- Adds ~8-10 recomputes/minute during stable heating
+- Adds ~15-20 recomputes/minute during rapid temp changes
+- Ensures setpoint ramp reacts within one sensor cycle (3-4s max delay)
+- During critical spike (48→57°C in 10s), triggers 3 recomputes vs missing it entirely
 
 **Impact:**
-- Setpoint ramp can now react in near real-time (1-2 seconds) instead of waiting up to 60 seconds
+- Setpoint ramp can now react within 3-4 seconds (one sensor update) instead of up to 60 seconds
 - Prevents boiler short-cycling during low-demand heating scenarios
+- Adds 8-20 recomputes/minute during heating (vs 1/minute baseline from periodic timer)
 - No impact on room temperature control (still uses smoothed temps with 0.05°C deadband)
 
 **Files Changed:**
-- `app.py` - Modified `opentherm_sensor_changed()` to trigger recompute on flow temp changes ≥1°C
+- `app.py` - Modified `opentherm_sensor_changed()` to trigger recompute on all flow temp changes
 
 **Testing Required:**
 - Re-run setpoint ramp test with flow temp sensor triggering recomputes
-- Verify ramp activates before boiler shuts down
-- Monitor recompute frequency (should be 5-10 per minute during active heating)
+- Verify ramp activates before boiler shuts down (should react within 3-4 seconds)
+- Monitor recompute frequency (expect 8-10/min stable, 15-20/min during rapid changes)
 
 ---
 
