@@ -173,9 +173,9 @@ class CyclingProtection:
         self.cooldown_history: List[Tuple[datetime, float, float]] = []
         
         # DHW history tracking for improved detection
-        # Circular buffers storing (timestamp, state) tuples for last 5 seconds
-        self.dhw_history_binary = deque(maxlen=100)
-        self.dhw_history_flow = deque(maxlen=100)
+        # Circular buffers storing (timestamp, state) tuples
+        self.dhw_history_binary = deque(maxlen=C.CYCLING_DHW_HISTORY_BUFFER_SIZE)
+        self.dhw_history_flow = deque(maxlen=C.CYCLING_DHW_HISTORY_BUFFER_SIZE)
         
         # Recovery monitoring handle
         self.recovery_handle = None
@@ -408,7 +408,7 @@ class CyclingProtection:
             )
             self._set_setpoint(desired_setpoint)
     
-    def _dhw_was_recently_active(self, lookback_seconds: int = 12) -> bool:
+    def _dhw_was_recently_active(self, lookback_seconds: int = None) -> bool:
         """Check if DHW was active in recent history (backward-looking check).
 
         This catches the race condition where tap closes just before flame OFF.
@@ -416,11 +416,14 @@ class CyclingProtection:
         but the history buffer will still contain the 'on' states.
 
         Args:
-            lookback_seconds: How far back to check history (default: 12s)
+            lookback_seconds: How far back to check history (default: from constants) constants)
 
         Returns:
             True if DHW was active within lookback window, False otherwise
         """
+        if lookback_seconds is None:
+            lookback_seconds = C.CYCLING_DHW_LOOKBACK_S
+        
         cutoff = datetime.now() - timedelta(seconds=lookback_seconds)
         
         # Check binary sensor history
@@ -473,7 +476,7 @@ class CyclingProtection:
         # QUAD-CHECK: DHW at flame OFF OR DHW now OR DHW in recent history
         dhw_was_active = is_dhw_active(dhw_binary_at_flame_off, dhw_flow_at_flame_off)
         dhw_is_active = is_dhw_active(dhw_binary_now, dhw_flow_now)
-        dhw_recently_active = self._dhw_was_recently_active(lookback_seconds=12)
+        dhw_recently_active = self._dhw_was_recently_active()
         
         if dhw_was_active or dhw_is_active or dhw_recently_active:
             self.ad.log(

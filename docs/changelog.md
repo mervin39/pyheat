@@ -1,6 +1,45 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: IMPROVE - Increase DHW Lookback Window for Cooldown Detection
+
+**Summary:**
+Increased DHW lookback window from 12 seconds to 60 seconds to better detect DHW-related flame shutdowns and avoid false cooldown triggers.
+
+**Problem:**
+Cooldown was incorrectly triggered at 08:19:21 when DHW activity had occurred at 08:18:47-08:18:55 (19 seconds before flame OFF). The 12-second lookback window was too short to catch this case, resulting in a false cooldown.
+
+**Analysis:**
+- DHW was active from 08:18:47 to 08:18:55 (8 seconds)
+- Flame went OFF at 08:19:14
+- Gap: 19 seconds (7 seconds beyond the 12-second lookback)
+- Result: Cooldown incorrectly triggered (this was likely a DHW-related shutdown)
+
+**Solution:**
+- Increased `CYCLING_DHW_LOOKBACK_S` from 12 to 60 seconds
+- Moved magic numbers to constants.py:
+  - `CYCLING_DHW_LOOKBACK_S = 60` (DHW history lookback window)
+  - `CYCLING_DHW_HISTORY_BUFFER_SIZE = 100` (history buffer size)
+- Updated `_dhw_was_recently_active()` to use the constant
+
+**Benefits:**
+- ✅ Catches slower DHW-related shutdowns (like the 19-second case)
+- ✅ More conservative approach to avoid false cooldowns
+- ✅ Handles sensor update delays better
+- ✅ No configuration in constants.py, not scattered in code
+
+**Risk Assessment:**
+Minimal risk. The only downside would be if DHW activity occurs, then within 60s the boiler starts CH heating and genuinely short-cycles. This is unlikely because:
+- After DHW use, there's typically a delay before CH resumes
+- The boiler would need to overheat within 60s of the tap closing
+- Genuine short-cycling typically happens during continuous heating, not after DHW
+
+**Files Modified:**
+- `core/constants.py`: Added `CYCLING_DHW_LOOKBACK_S` and `CYCLING_DHW_HISTORY_BUFFER_SIZE`
+- `controllers/cycling_protection.py`: Updated to use constants, removed magic numbers
+
+---
+
 ## 2025-12-09: FIX - Correct All OpenTherm Sensor Logging Units
 
 **Summary:**

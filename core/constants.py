@@ -169,6 +169,10 @@ STATE_INTERLOCK_BLOCKED = "interlock_blocked"
 # DHW detection - sensor delay for state stabilization
 CYCLING_SENSOR_DELAY_S = 2  # Wait for OpenTherm sensors to update after flame OFF
 
+# DHW detection parameters
+CYCLING_DHW_LOOKBACK_S = 60  # How far back to check for DHW activity (increased from 12s to catch slower shutdowns)
+CYCLING_DHW_HISTORY_BUFFER_SIZE = 100  # Number of state changes to track in history buffer
+
 # Cooldown detection thresholds - dual temperature approach
 # Flow temperature overheat detection (flow ABOVE setpoint indicates boiler overheat)
 CYCLING_FLOW_OVERHEAT_MARGIN_C = 2  # Trigger if flow exceeds setpoint by 2°C
