@@ -246,6 +246,11 @@ class SetpointRamp:
                 return baseline_setpoint
             return None
         
+        # Initialize baseline if not set (e.g., feature was just enabled)
+        if self.baseline_setpoint is None:
+            self._reset_to_baseline(baseline_setpoint)
+            return baseline_setpoint
+        
         # Update baseline if user changed it
         if self.baseline_setpoint != baseline_setpoint:
             self.ad.log(
@@ -331,8 +336,9 @@ class SetpointRamp:
         Save ramp state to restore on cooldown exit.
         """
         if self.state == self.STATE_RAMPING:
+            ramp_temp = self.current_ramped_setpoint if self.current_ramped_setpoint is not None else 0.0
             self.ad.log(
-                f"SetpointRamp: Cooldown entered while ramping at {self.current_ramped_setpoint:.1f}C - "
+                f"SetpointRamp: Cooldown entered while ramping at {ramp_temp:.1f}C - "
                 f"saving state (will restore to baseline on exit)",
                 level="INFO"
             )
@@ -348,9 +354,11 @@ class SetpointRamp:
             return
         
         if self.state == self.STATE_RAMPING:
+            ramp_temp = self.current_ramped_setpoint if self.current_ramped_setpoint is not None else 0.0
+            baseline_temp = self.baseline_setpoint if self.baseline_setpoint is not None else 0.0
             self.ad.log(
-                f"SetpointRamp: Cooldown exited - resetting from {self.current_ramped_setpoint:.1f}C "
-                f"to baseline {self.baseline_setpoint:.1f}C",
+                f"SetpointRamp: Cooldown exited - resetting from {ramp_temp:.1f}C "
+                f"to baseline {baseline_temp:.1f}C",
                 level="INFO"
             )
         
