@@ -388,7 +388,7 @@ system:
 #### How It Works
 
 **Detection (Dual-Temperature Approach):**
-Cooldown triggers on any flame-off event if **either** condition is met:
+Cooldown triggers on any flame-off event if **EITHER** condition is met (OR logic):
 
 1. **Flow Temperature Overheat** (Primary): `flow_temp >= setpoint + 2°C`
    - Detects actual overheat condition (flow exceeding target)
@@ -399,6 +399,8 @@ Cooldown triggers on any flame-off event if **either** condition is met:
    - Backup detection if flow sensor fails
    - Example: With 55°C setpoint, triggers if return ≥ 50°C
    - Maintains existing protection behavior
+
+**CRITICAL:** Only ONE condition needs to be met to trigger cooldown (not both).
 
 **DHW Filtering:**
 - Ignores flame-offs during domestic hot water demand
@@ -413,10 +415,11 @@ Cooldown triggers on any flame-off event if **either** condition is met:
 - Monitors recovery every 10 seconds
 
 **Recovery Exit:**
-Cooldown ends when **both** temperatures are safe:
+Cooldown ends when **BOTH** temperatures are safe (AND logic):
 - Check: `max(flow_temp, return_temp) <= threshold`
 - Threshold: `max(setpoint - 15°C, 45°C)` (dynamic, based on saved setpoint)
 - Example: With 55°C setpoint, exits when both flow and return ≤ 45°C
+- **CRITICAL:** BOTH temperatures must be safe to exit (opposite of entry logic)
 - Restores original setpoint automatically
 
 **Safety Features:**

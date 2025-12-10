@@ -10,6 +10,10 @@ Responsibilities:
 - Monitor return temp and restore setpoint when safe
 - Track cooldown history for excessive cycling alerts
 - Persist state across AppDaemon restarts
+
+CRITICAL LOGIC:
+- Cooldown ENTRY: Triggers on EITHER flow overheat OR high return temp (OR logic)
+- Cooldown EXIT: Requires BOTH flow AND return temps safe (AND logic)
 """
 
 from datetime import datetime, timedelta
@@ -520,7 +524,7 @@ class CyclingProtection:
         flow_overheat_threshold = setpoint + C.CYCLING_FLOW_OVERHEAT_MARGIN_C  # Flow ABOVE setpoint
         return_threshold = setpoint - C.CYCLING_HIGH_RETURN_DELTA_C            # Return below setpoint
         
-        # Check if EITHER temperature indicates overheat
+        # Check if EITHER temperature indicates overheat (OR logic for cooldown entry)
         flow_overheat = flow_temp >= flow_overheat_threshold
         return_high = return_temp >= return_threshold
         
@@ -537,7 +541,7 @@ class CyclingProtection:
         if flow_overheat or return_high:
             # Determine trigger reason for logging
             if flow_overheat and return_high:
-                reason = "flow overheat AND high return temp"
+                reason = "flow overheat AND high return temp (both conditions met)"
             elif flow_overheat:
                 reason = "flow temperature exceeds setpoint"
             else:

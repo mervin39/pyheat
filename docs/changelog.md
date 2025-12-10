@@ -1,6 +1,45 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: DOC - Clarified Cooldown Trigger Logic (EITHER vs BOTH)
+
+**Issue:**
+Documentation was inconsistent and potentially confusing about cooldown trigger logic. While the code correctly implemented OR logic (EITHER condition triggers), some phrasing could lead agents/users to think BOTH conditions were required.
+
+**Ambiguities Found:**
+1. Code comment said "Check if EITHER" but log message said "AND" when both conditions met (technically accurate but confusing)
+2. Documentation emphasized exit logic (BOTH required) but didn't explicitly contrast with entry logic (EITHER sufficient)
+3. Lack of "CRITICAL" emphasis on the OR vs AND difference
+
+**Solution:**
+Enhanced documentation throughout to explicitly clarify:
+- **Cooldown ENTRY:** Triggers on EITHER flow overheat OR high return temp (OR logic)
+- **Cooldown EXIT:** Requires BOTH flow AND return temps safe (AND logic)
+
+**Files Changed:**
+- `controllers/cycling_protection.py`:
+  - Added CRITICAL LOGIC section to module docstring
+  - Enhanced comment: "OR logic for cooldown entry"
+  - Updated log message: "both conditions met" (instead of just "AND")
+- `README.md`:
+  - Changed "either" to "EITHER" with "OR logic" clarification
+  - Added "CRITICAL:" callouts emphasizing one condition sufficient for entry
+  - Changed "both" to "BOTH" with "AND logic" clarification
+  - Added "CRITICAL:" callout emphasizing opposite logic for exit
+
+**Testing:**
+No code changes - documentation only. Existing implementation already correct.
+
+**Note to Future Self:**
+This is the second time agents have gotten confused about this. The combination of:
+- Entry using OR (less restrictive)
+- Exit using AND (more restrictive)  
+- Log messages that say "AND" when both are true
+
+...creates cognitive load. The new explicit CRITICAL callouts should prevent future confusion.
+
+---
+
 ## 2025-12-10: BUG FIX - Setpoint Ramp Now Resets Climate Entity on Boiler OFF
 
 **Issue:**
