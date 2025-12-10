@@ -1,6 +1,28 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: BUG FIX - Setpoint Ramp Now Resets Climate Entity on Boiler OFF
+
+**Issue:**
+When boiler transitioned to OFF state, setpoint ramp was updating its internal state to reset to baseline but was NOT actually setting the climate entity temperature back to baseline. This left the setpoint at the ramped value even after heating stopped.
+
+**Example:**
+- Boiler ramped setpoint from 52°C → 55°C during heating
+- Heating stopped (pump overrun expired at 13:02:59)
+- Internal state reset: ✓ (logged "resetting ramp")
+- Climate entity reset: ✗ (stayed at 55°C instead of dropping to 52°C)
+
+**Root Cause:**
+`on_boiler_state_changed()` called `_reset_to_baseline()` which only updated internal tracking variables (`self.baseline_setpoint`, `self.current_ramped_setpoint`, `self.state`) but never called `climate.set_temperature` to apply the baseline back to the actual climate entity.
+
+**Solution:**
+Added `climate.set_temperature` call in `on_boiler_state_changed()` to explicitly reset the climate entity to baseline when boiler transitions to OFF or INTERLOCK_BLOCKED states.
+
+**Files Changed:**
+- `controllers/setpoint_ramp.py` - Added climate entity setpoint reset in `on_boiler_state_changed()`
+
+---
+
 ## 2025-12-10: BUG FIX - Flow Temperature Sensor Now Triggers Recompute (Optimized)
 
 **Issue:**

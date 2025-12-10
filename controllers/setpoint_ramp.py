@@ -377,10 +377,19 @@ class SetpointRamp:
         if new_state in [C.STATE_OFF, C.STATE_INTERLOCK_BLOCKED]:
             if self.state == self.STATE_RAMPING and self.baseline_setpoint is not None:
                 self.ad.log(
-                    f"SetpointRamp: Boiler transitioned to {new_state} - resetting ramp",
+                    f"SetpointRamp: Boiler transitioned to {new_state} - resetting ramp to baseline {self.baseline_setpoint:.1f}C",
                     level="INFO"
                 )
+                # Reset internal state
                 self._reset_to_baseline(self.baseline_setpoint)
+                
+                # Actually apply baseline setpoint to climate entity
+                # This ensures setpoint drops back down when heating stops
+                self.ad.call_service(
+                    'climate/set_temperature',
+                    entity_id=C.OPENTHERM_CLIMATE,
+                    temperature=self.baseline_setpoint
+                )
     
     def _reset_to_baseline(self, baseline: float) -> None:
         """Reset ramp state to baseline setpoint.
