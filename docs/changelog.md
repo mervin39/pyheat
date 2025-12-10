@@ -1,6 +1,62 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: Fix Setpoint Ramp Flame-OFF Reset Logic
+
+**Issue:**
+Setpoint ramp flame-OFF reset had two critical bugs that prevented proper reset behavior:
+
+1. **Too restrictive reset condition:** Only reset if `state == STATE_RAMPING`, but should reset whenever climate setpoint doesn't match baseline (regardless of internal state)
+2. **Missing flame check in evaluate:** `evaluate_and_apply()` could ramp even when flame was OFF, causing immediate re-ramping after reset
+
+**Real-World Evidence (16:20-16:21 DHW event):**
+- 16:21:10: Flame went OFF during DHW event
+- Log showed: "resetting from 52.0C to baseline 50.0C"
+- But CSV showed: setpoint stayed at 52-53C (never went to 50C)
+- Problem: `state == INACTIVE` at time of flame-OFF, so reset was skipped
+
+**Root Causes:**
+1. Reset only occurred when `self.state == self.STATE_RAMPING` (line 335)
+2. If state was INACTIVE (feature disabled or not yet ramped), reset was silently skipped
+3. Even if reset applied, `evaluate_and_apply()` didn't check flame state and could immediately ramp again
+
+**Solution:**
+
+**1. Robust flame-OFF reset logic:**
+- Remove `state == STATE_RAMPING` check - reset whenever setpoint != baseline
+- Read current climate entity setpoint and compare to baseline
+- Reset if difference > 0.1C (regardless of internal state)
+- Also reset internal state to INACTIVE if it was RAMPING (for consistency)
+- Skip reset during cooldown (cooldown has its own exit logic at 30C)
+
+**2. Flame state check in evaluate:**
+- Added flame state check in `evaluate_and_apply()` before ramping
+- Don't evaluate ramp if flame is OFF (even if boiler state is ON)
+- Prevents race condition where reset happens, then evaluate immediately ramps again
+
+**Key Improvements:**
+- Reset based on actual climate entity state, not internal tracking
+- Works even if feature was disabled/inactive when flame went OFF
+- Prevents evaluate from overriding reset (flame must be ON to ramp)
+- Clear logging for both reset paths (setpoint mismatch vs state-only)
+
+**Code Changes:**
+- `on_flame_off()`: Check current climate setpoint vs baseline (not internal state)
+- `on_flame_off()`: Skip reset during cooldown (has its own 30C setpoint)
+- `on_flame_off()`: Reset internal state even if setpoint already at baseline
+- `evaluate_and_apply()`: Check flame state before allowing ramp
+
+**Testing Required:**
+- Enable setpoint ramp and verify ramping during heating
+- Trigger DHW event and verify setpoint resets to baseline
+- Check that setpoint stays at baseline (doesn't immediately ramp back up)
+- Verify flame-OFF during cooldown doesn't reset (waits for cooldown exit)
+
+**Files Changed:**
+- `controllers/setpoint_ramp.py` - Fixed flame-OFF reset logic and added flame check
+
+---
+
 ## 2025-12-10: Setpoint Ramp Code Review and Configuration Fix
 
 **Background:**

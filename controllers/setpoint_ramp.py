@@ -172,23 +172,24 @@ class SetpointRamp:
             level="INFO"
         )
     
-    def evaluate_and_apply(self, flow_temp: float, current_setpoint: float, 
-                          baseline_setpoint: float, boiler_state: str, 
+    def evaluate_and_apply(self, flow_temp: float, current_setpoint: float,
+                          baseline_setpoint: float, boiler_state: str,
                           cycling_state: str) -> Optional[float]:
         """Evaluate if ramping needed and return new setpoint.
-        
+
         Only evaluates when:
         - Feature is enabled
         - Boiler state == STATE_ON (actively heating)
         - Cycling state == NORMAL (not in cooldown)
-        
+        - Flame is ON (actively burning)
+
         Args:
             flow_temp: Current flow temperature from sensor
             current_setpoint: Current climate entity setpoint
             baseline_setpoint: User's desired baseline from helper
             boiler_state: Current boiler FSM state
             cycling_state: Current cycling protection state
-        
+
         Returns:
             New setpoint to apply, or None if no change needed
         """
@@ -203,12 +204,12 @@ class SetpointRamp:
                 self._reset_to_baseline(baseline_setpoint)
                 return baseline_setpoint
             return None
-        
+
         # Initialize baseline if not set (e.g., feature was just enabled)
         if self.baseline_setpoint is None:
             self._reset_to_baseline(baseline_setpoint)
             return baseline_setpoint
-        
+
         # Update baseline if user changed it
         if self.baseline_setpoint != baseline_setpoint:
             self.ad.log(
@@ -218,10 +219,24 @@ class SetpointRamp:
             )
             self._reset_to_baseline(baseline_setpoint)
             return baseline_setpoint
-        
+
         # Only ramp when boiler is actively heating (STATE_ON) and not in cooldown
         if boiler_state != C.STATE_ON or cycling_state != C.CYCLING_STATE_NORMAL:
             # Not heating - don't evaluate ramp, but preserve state
+            return None
+
+        # Check if flame is actually ON
+        # Don't ramp if flame is off (even if boiler state is ON)
+        try:
+            flame_state = self.ad.get_state(C.OPENTHERM_FLAME)
+            if flame_state != 'on':
+                # Flame not on - don't ramp
+                return None
+        except Exception as e:
+            self.ad.log(
+                f"SetpointRamp: Failed to read flame state: {e}",
+                level="WARNING"
+            )
             return None
         
         # Get max setpoint
@@ -316,14 +331,14 @@ class SetpointRamp:
     
     def on_flame_off(self, entity, attribute, old, new, kwargs):
         """Handle flame OFF event - reset ramped setpoint to baseline.
-        
+
         When flame goes OFF for any reason (DHW, cooldown, loss of demand),
         reset to user's desired baseline setpoint. This ensures when flame
         comes back on, heating starts from user's intent.
-        
+
         Aligns with feature goal: prevent short-cycling within a heating
         cycle, not across heating cycles.
-        
+
         Args:
             entity: Entity ID (binary_sensor.opentherm_flame)
             attribute: Attribute that changed (usually None for state)
@@ -332,17 +347,50 @@ class SetpointRamp:
             kwargs: Additional callback parameters
         """
         if new == 'off' and old == 'on':
-            if self.state == self.STATE_RAMPING and self.baseline_setpoint is not None:
+            # Only reset if we have a baseline and we're not in cooldown
+            # (cooldown has its own exit logic that restores baseline)
+            if self.baseline_setpoint is None:
+                return
+
+            # Check if cycling protection is in cooldown
+            # Don't reset during cooldown - it has its own setpoint (30C)
+            # and will restore baseline on exit
+            if self.cycling:
+                cycling_state = getattr(self.cycling, 'state', None)
+                if cycling_state == C.CYCLING_STATE_COOLDOWN:
+                    self.ad.log(
+                        "SetpointRamp: Flame OFF during cooldown - skipping reset "
+                        "(cooldown exit will restore baseline)",
+                        level="DEBUG"
+                    )
+                    return
+
+            # Get current climate entity setpoint
+            try:
+                current_setpoint_str = self.ad.get_state(
+                    C.OPENTHERM_CLIMATE,
+                    attribute='temperature'
+                )
+                if current_setpoint_str not in ['unknown', 'unavailable', None]:
+                    current_setpoint = float(current_setpoint_str)
+                else:
+                    current_setpoint = None
+            except (ValueError, TypeError):
+                current_setpoint = None
+
+            # Reset if climate setpoint doesn't match baseline
+            # (regardless of whether state is RAMPING - we want consistency)
+            if current_setpoint is not None and abs(current_setpoint - self.baseline_setpoint) > 0.1:
                 self.ad.log(
                     f"SetpointRamp: Flame OFF detected - resetting from "
-                    f"{self.current_ramped_setpoint:.1f}C to baseline "
-                    f"{self.baseline_setpoint:.1f}C",
+                    f"{current_setpoint:.1f}C to baseline {self.baseline_setpoint:.1f}C",
                     level="INFO"
                 )
-                
-                # Reset internal state
+
+                # Reset internal state to INACTIVE
+                # This prevents evaluate_and_apply() from immediately ramping again
                 self._reset_to_baseline(self.baseline_setpoint)
-                
+
                 # Apply baseline setpoint to climate entity
                 # This ensures setpoint returns to user's desired value
                 self.ad.call_service(
@@ -350,6 +398,15 @@ class SetpointRamp:
                     entity_id=C.OPENTHERM_CLIMATE,
                     temperature=self.baseline_setpoint
                 )
+            elif self.state == self.STATE_RAMPING:
+                # Setpoint already at baseline, but internal state is RAMPING
+                # Reset internal state to INACTIVE for consistency
+                self.ad.log(
+                    f"SetpointRamp: Flame OFF - setpoint already at baseline "
+                    f"{self.baseline_setpoint:.1f}C, resetting internal state to INACTIVE",
+                    level="DEBUG"
+                )
+                self._reset_to_baseline(self.baseline_setpoint)
     
     def _reset_to_baseline(self, baseline: float) -> None:
         """Reset ramp state to baseline setpoint.
