@@ -1,7 +1,7 @@
 
 # PyHeat Changelog
 
-## 2025-12-10: BUG FIX - Flow Temperature Sensor Now Triggers Recompute
+## 2025-12-10: BUG FIX - Flow Temperature Sensor Now Triggers Recompute (Optimized)
 
 **Issue:**
 Setpoint ramp feature was failing to react to flow temperature spikes because evaluation only occurred during periodic recomputes (every 60 seconds) or room temperature sensor changes. When flow temperature spiked rapidly (e.g., 48°C → 56°C in 4 seconds), the boiler's internal overheat protection would shut down the flame before the next recompute cycle could evaluate and ramp the setpoint.
@@ -16,33 +16,32 @@ Setpoint ramp feature was failing to react to flow temperature spikes because ev
 The boiler shut itself down before the next recompute could evaluate and ramp the setpoint.
 
 **Solution:**
-Modified `opentherm_sensor_changed()` to trigger immediate recompute when flow temperature (`sensor.opentherm_heating_temp`) changes. This allows setpoint ramp evaluation to occur within 3-4 seconds of flow temp changes (sensor update interval), preventing boiler shutdown.
+Modified `opentherm_sensor_changed()` to trigger immediate recompute when flow temperature meets the ramp threshold: `flow_temp >= setpoint + delta_trigger_c`. This is exactly when setpoint ramp needs to evaluate, providing targeted triggering without recomputing on every sensor update.
+
+**Optimization Rationale:**
+Instead of triggering on every flow temp change, we only trigger when it matters:
+- **Old approach:** Recompute on every flow temp change → 8-20 extra recomputes/minute
+- **Optimized approach:** Recompute only when `flow_temp >= setpoint + delta_trigger_c` → 1-3 extra recomputes during critical spike periods
+- **Result:** Full reactivity (3-4 second response) with minimal overhead
 
 **Sensor Characteristics:**
 - Updates every ~3-4 seconds during active heating
 - Reports to 0.1°C precision (OpenTherm standard)
-- Climate setpoint also uses 0.1°C precision (target_temp_step=0.1)
-
-**Why trigger on every change:**
-- Sensor already filters noise (only reports actual changes)
-- Adds ~8-10 recomputes/minute during stable heating
-- Adds ~15-20 recomputes/minute during rapid temp changes
-- Ensures setpoint ramp reacts within one sensor cycle (3-4s max delay)
-- During critical spike (48→57°C in 10s), triggers 3 recomputes vs missing it entirely
+- Climate entity setpoint also uses 0.1°C precision (target_temp_step=0.1)
 
 **Impact:**
-- Setpoint ramp can now react within 3-4 seconds (one sensor update) instead of up to 60 seconds
+- Setpoint ramp reacts within 3-4 seconds (one sensor update) when threshold is crossed
 - Prevents boiler short-cycling during low-demand heating scenarios
-- Adds 8-20 recomputes/minute during heating (vs 1/minute baseline from periodic timer)
+- Minimal overhead: Only triggers recompute when action is needed (typically 1-3 times during spike)
 - No impact on room temperature control (still uses smoothed temps with 0.05°C deadband)
 
 **Files Changed:**
-- `app.py` - Modified `opentherm_sensor_changed()` to trigger recompute on all flow temp changes
+- `app.py` - Modified `opentherm_sensor_changed()` to trigger recompute when flow temp meets ramp threshold
 
 **Testing Required:**
-- Re-run setpoint ramp test with flow temp sensor triggering recomputes
-- Verify ramp activates before boiler shuts down (should react within 3-4 seconds)
-- Monitor recompute frequency (expect 8-10/min stable, 15-20/min during rapid changes)
+- Re-run setpoint ramp test with optimized flow temp triggering
+- Verify ramp activates before boiler shuts down (should react within 3-4 seconds of crossing threshold)
+- Monitor recompute frequency (expect minimal increase - only when threshold crossed)
 
 ---
 

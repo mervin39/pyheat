@@ -600,26 +600,29 @@ class PyHeat(hass.Hass):
             return
         
         # Flow temperature sensor triggers immediate recompute for setpoint ramp
-        # This allows ramping to react within 3-4 seconds instead of waiting up to
-        # 60 seconds for periodic recompute. Critical for preventing short-cycling.
+        # when flow temp approaches or exceeds the setpoint trigger threshold.
+        # This allows ramping to react within 3-4 seconds (one sensor update cycle)
+        # instead of waiting up to 60 seconds for periodic recompute.
         # 
-        # Sensor characteristics:
-        # - Updates every ~3-4 seconds during heating
-        # - Reports to 0.1C precision (OpenTherm standard)
-        # - Climate entity setpoint also uses 0.1C precision (target_temp_step)
-        #
-        # No threshold needed - trigger on every change during active heating:
-        # - Adds ~8-10 recomputes/minute during stable heating
-        # - Adds ~15-20 recomputes/minute during rapid temp changes
-        # - Ensures setpoint ramp reacts within one sensor update cycle (3-4s)
+        # Optimization: Only trigger when flow_temp >= setpoint + delta_trigger_c
+        # This is exactly when setpoint ramp needs to evaluate, not on every change.
+        # Reduces recompute overhead while maintaining full reactivity.
         if sensor_name == 'heating_temp':
             try:
                 new_temp = float(new)
-                old_temp = float(old) if old not in ['unknown', 'unavailable', None] else None
                 
-                # Trigger recompute on any actual change (sensor already filters noise)
-                if old_temp is None or abs(new_temp - old_temp) > 0.01:
-                    self.trigger_recompute('flow_temp_changed')
+                # Get current setpoint and ramp trigger threshold
+                setpoint_str = self.get_state(C.OPENTHERM_CLIMATE, attribute='temperature')
+                if setpoint_str not in ['unknown', 'unavailable', None]:
+                    current_setpoint = float(setpoint_str)
+                    
+                    # Get delta_trigger_c from config (default 3.0 if not available)
+                    delta_trigger_c = self.config.boiler_config.get('setpoint_ramp', {}).get('delta_trigger_c', 3.0)
+                    
+                    # Only trigger recompute when flow temp meets or exceeds ramp threshold
+                    # This is when setpoint_ramp.evaluate_and_apply() would actually ramp
+                    if new_temp >= (current_setpoint + delta_trigger_c):
+                        self.trigger_recompute('flow_temp_ramp_threshold')
             except (ValueError, TypeError):
                 pass  # Failed to parse - just log below
         
