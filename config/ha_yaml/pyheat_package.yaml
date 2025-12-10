@@ -388,16 +388,6 @@ input_number:
     mode: box
     icon: mdi:thermometer-low
 
-  # OpenTherm flow temperature setpoint (for cycling protection)
-  pyheat_opentherm_setpoint:
-    name: "PyHeat OpenTherm Flow Temperature Setpoint"
-    min: 30
-    max: 80
-    step: 1
-    unit_of_measurement: "°C"
-    mode: slider
-    icon: mdi:thermometer
-
 # ---------------------------------------------------------------------------
 # Timers (per-room override timers + boiler safety timers)
 # ---------------------------------------------------------------------------

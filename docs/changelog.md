@@ -1,6 +1,55 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: Setpoint Ramp Code Review and Configuration Fix
+
+**Background:**
+Conducted comprehensive code review of the setpoint ramp feature implementation to verify correctness, completeness, and code quality before final testing and merge.
+
+**Review Scope:**
+- Core module implementation (setpoint_ramp.py)
+- All integration points (app.py, cycling_protection.py)
+- Configuration files (boiler.yaml, pyheat_package.yaml)
+- Supporting infrastructure (constants, persistence, logging, status)
+- Documentation (README, ARCHITECTURE, changelog, proposal)
+- Commit history and testing evidence
+
+**Review Findings:**
+1. **Implementation Status:** COMPLETE - All proposal requirements implemented
+2. **Code Quality:** EXCELLENT - Clean architecture, comprehensive error handling, proper documentation
+3. **Integration:** CORRECT - All components properly wired and coordinated
+4. **Documentation:** EXCELLENT - Thorough documentation across all files
+5. **Issue Found:** Duplicate entity definition in pyheat_package.yaml
+
+**Issue Fixed:**
+Removed duplicate definition of `input_number.pyheat_opentherm_setpoint` at line 392-399. The entity was defined twice:
+- First definition (lines 100-107): `mode: box`, icon `mdi:water-boiler` - KEPT
+- Second definition (lines 392-399): `mode: slider`, icon `mdi:thermometer` - REMOVED
+
+Impact: YAML uses the last definition, so the second was overwriting the first. This could cause confusion about the entity's configuration.
+
+**Review Document:**
+Created comprehensive implementation review: `docs/debug/proposals/setpoint_ramp/implementation_review.md`
+
+**Contents:**
+- Executive summary and assessment
+- Implementation completeness verification
+- Integration point validation
+- Configuration review
+- Code quality assessment
+- Architectural highlights
+- Testing recommendations
+- Issue documentation and fix
+
+**Assessment:** Implementation is production-ready after completing re-testing to validate flow temp triggering optimization.
+
+**Files Changed:**
+- `config/ha_yaml/pyheat_package.yaml` - Removed duplicate entity definition
+- `docs/debug/proposals/setpoint_ramp/implementation_review.md` - Added comprehensive review document
+- `docs/changelog.md` - This entry
+
+---
+
 ## 2025-12-10: Implement Flame-OFF Reset Strategy for Setpoint Ramp
 
 **Background:**
