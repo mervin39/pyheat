@@ -145,19 +145,21 @@ class CyclingProtection:
     STATE_COOLDOWN = "COOLDOWN"
     STATE_TIMEOUT = "TIMEOUT"
     
-    def __init__(self, ad, config, alert_manager=None, boiler_controller=None):
-        """Initialize cycling protection.
+    def __init__(self, ad, config, alert_manager=None, boiler_controller=None, app_ref=None):
+        """Initialize cycling protection controller.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
-            alert_manager: Optional AlertManager instance for notifications
-            boiler_controller: Optional BoilerController instance for state checks
+            alert_manager: AlertManager instance for notifications
+            boiler_controller: BoilerController instance for state checking
+            app_ref: Reference to main app for triggering logs
         """
         self.ad = ad
         self.config = config
         self.alert_manager = alert_manager
         self.boiler_controller = boiler_controller
+        self.app_ref = app_ref
         # Construct absolute path from app root (same pattern as config_loader)
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
@@ -609,6 +611,10 @@ class CyclingProtection:
             level="WARNING"
         )
         
+        # Trigger CSV log for state change
+        if self.app_ref and hasattr(self.app_ref, 'recompute_and_publish'):
+            self.app_ref.recompute_and_publish('cycling_cooldown_entered', now)
+        
         # Start recovery monitoring
         self._start_recovery_monitoring()
         
@@ -728,6 +734,11 @@ class CyclingProtection:
             f"Restored setpoint: {self.saved_setpoint:.1f}C",
             level="INFO"
         )
+        
+        # Trigger CSV log for state change
+        if self.app_ref and hasattr(self.app_ref, 'recompute_and_publish'):
+            from datetime import datetime
+            self.app_ref.recompute_and_publish('cycling_cooldown_ended', datetime.now())
         
         # Clear state
         self._reset_to_normal()

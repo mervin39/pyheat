@@ -70,7 +70,7 @@ class PyHeat(hass.Hass):
         self.valve_coordinator.initialize_from_ha()  # Initialize pump overrun state from HA
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
-        self.cycling = CyclingProtection(self, self.config, self.alerts, self.boiler)
+        self.cycling = CyclingProtection(self, self.config, self.alerts, self.boiler, app_ref=self)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.status.load_calculator_ref = self.load_calculator  # Allow status publisher to get capacity data
@@ -639,7 +639,8 @@ class PyHeat(hass.Hass):
                     }
                 # Let should_log() filter heating_temp/return_temp (only log on whole degree changes)
                 # dhw_flow_rate will be filtered by should_log() to detect zero/nonzero transitions
-                force_log = sensor_name in ['heating_setpoint_temp', 'modulation', 'dhw']
+                # Force log for important state changes and counters
+                force_log = sensor_name in ['heating_setpoint_temp', 'modulation', 'dhw', 'climate_state', 'burner_starts', 'dhw_burner_starts']
                 self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=force_log)
             except Exception as e:
                 self.log(f"ERROR in OpenTherm logging: {e}", level="ERROR")
@@ -988,6 +989,15 @@ class PyHeat(hass.Hass):
             self.trvs.get_valve_feedback(room_id) or 0
             for room_id in self.config.rooms.keys()
         )
+        
+        # Get pump overrun and cycling state for comparison in should_log()
+        pump_overrun_active = (self.boiler.boiler_state == C.STATE_PUMP_OVERRUN)
+        cycling_data_temp = self.cycling.get_state_dict()
+        
+        # Temporarily store current values in prev_state for should_log() comparison
+        if self.heating_logger.prev_state:
+            self.heating_logger.prev_state['pump_overrun_active_current'] = pump_overrun_active
+            self.heating_logger.prev_state['cycling_state_current'] = cycling_data_temp.get('state', 'NORMAL')
         
         # Check if we should log (significant changes only)
         if force_log or self.heating_logger.should_log(opentherm_data, boiler_state, log_room_data, self.load_sharing.get_status()):

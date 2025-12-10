@@ -1,6 +1,63 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: IMPROVE - Add CSV Logging for Critical State Changes
+
+**Summary:**
+Added CSV log triggers for cycling protection state changes, pump overrun transitions, climate entity changes, and burner starts increments to ensure all important events are captured in heating logs.
+
+**Problem:**
+Critical state changes were not triggering CSV log entries:
+- Cycling protection transitions (NORMAL → COOLDOWN → TIMEOUT) only logged if other triggers fired
+- Pump overrun state changes (active/inactive) were not captured at transition time
+- Climate entity state changes (heat_cool/idle/heating) were monitored but not force-logged
+- Burner starts increments (important for cycle counting) were missed
+
+This meant analyzing logs for cooldown events or pump overrun behavior required correlation with other sensor changes, and exact transition times were often missing.
+
+**Solution:**
+Enhanced `should_log()` and added force-logging for critical events:
+
+1. **Cycling Protection State Changes**:
+   - Added `cycling_state` comparison in `should_log()`
+   - Trigger log from `_enter_cooldown()` and `_exit_cooldown()`
+   - Logs exact moment of NORMAL → COOLDOWN and COOLDOWN → NORMAL transitions
+
+2. **Pump Overrun State Changes**:
+   - Added `pump_overrun_active` comparison in `should_log()`
+   - Detects False → True and True → False transitions
+   - Captures when pump overrun starts/stops
+
+3. **Climate Entity State Changes**:
+   - Added `climate_state` comparison in `should_log()`
+   - Added to `force_log` list in `opentherm_sensor_changed()`
+   - Logs state changes (heat_cool, idle, heating, etc.)
+
+4. **Burner Starts Increments**:
+   - Added `burner_starts` and `dhw_burner_starts` comparison in `should_log()`
+   - Added to `force_log` list for immediate logging
+   - Captures every cycle increment for analysis
+
+**Implementation Details:**
+- Updated `should_log()` to compare previous vs current state for new fields
+- Modified `_log_heating_state()` to pass current pump_overrun/cycling_state via temporary prev_state fields
+- Added `app_ref` parameter to CyclingProtection to trigger recompute_and_publish on state transitions
+- Updated `prev_state` storage to include all new tracked fields
+
+**Benefits:**
+- ✅ Exact timestamps for cooldown entry/exit events
+- ✅ Complete pump overrun behavior tracking
+- ✅ Climate entity state transition history
+- ✅ Accurate cycle counting via burner starts
+- ✅ Better log analysis and debugging capabilities
+
+**Files Modified:**
+- `services/heating_logger.py`: Enhanced `should_log()` with new state checks, updated `prev_state` storage
+- `app.py`: Pass current states to `should_log()`, updated force_log list, pass app_ref to CyclingProtection
+- `controllers/cycling_protection.py`: Added app_ref parameter, trigger logs on cooldown entry/exit
+
+---
+
 ## 2025-12-10: IMPROVE - Increase DHW Lookback Window for Cooldown Detection
 
 **Summary:**

@@ -226,6 +226,41 @@ class HeatingLogger:
             self.ad.log(f"HeatingLogger: should_log=True (flame: {prev_flame} -> {curr_flame})", level="DEBUG")
             return True
         
+        # Check pump overrun state change
+        prev_pump_overrun = self.prev_state.get('pump_overrun_active', False)
+        curr_pump_overrun = self.prev_state.get('pump_overrun_active_current', False)  # Will be set by caller
+        if prev_pump_overrun != curr_pump_overrun:
+            self.ad.log(f"HeatingLogger: should_log=True (pump_overrun: {prev_pump_overrun} -> {curr_pump_overrun})", level="DEBUG")
+            return True
+        
+        # Check cycling protection state change
+        prev_cycling_state = self.prev_state.get('cycling_state', 'NORMAL')
+        curr_cycling_state = self.prev_state.get('cycling_state_current', 'NORMAL')  # Will be set by caller
+        if prev_cycling_state != curr_cycling_state:
+            self.ad.log(f"HeatingLogger: should_log=True (cycling_state: {prev_cycling_state} -> {curr_cycling_state})", level="DEBUG")
+            return True
+        
+        # Check climate entity state change
+        prev_climate = self.prev_state.get('ot_climate_state')
+        curr_climate = opentherm_data.get('climate_state')
+        if prev_climate != curr_climate:
+            self.ad.log(f"HeatingLogger: should_log=True (climate_state: {prev_climate} -> {curr_climate})", level="DEBUG")
+            return True
+        
+        # Check burner starts increment
+        prev_burner_starts = self.prev_state.get('ot_burner_starts')
+        curr_burner_starts = opentherm_data.get('burner_starts')
+        if prev_burner_starts != curr_burner_starts:
+            self.ad.log(f"HeatingLogger: should_log=True (burner_starts: {prev_burner_starts} -> {curr_burner_starts})", level="DEBUG")
+            return True
+        
+        # Check DHW burner starts increment
+        prev_dhw_burner_starts = self.prev_state.get('ot_dhw_burner_starts')
+        curr_dhw_burner_starts = opentherm_data.get('dhw_burner_starts')
+        if prev_dhw_burner_starts != curr_dhw_burner_starts:
+            self.ad.log(f"HeatingLogger: should_log=True (dhw_burner_starts: {prev_dhw_burner_starts} -> {curr_dhw_burner_starts})", level="DEBUG")
+            return True
+        
         # Check heating temp (rounded to nearest degree)
         heating_temp = opentherm_data.get('heating_temp')
         if heating_temp not in [None, '', 'unknown', 'unavailable']:
@@ -481,10 +516,15 @@ class HeatingLogger:
         self.csv_writer.writerow(row)
         self.csv_file.flush()  # Ensure it's written immediately
         
-        # Update previous state cache
+        # Update previous state for next comparison
         self.prev_state = {
             'boiler_state': boiler_state,
+            'pump_overrun_active': pump_overrun_active,
+            'cycling_state': cycling_data.get('state', 'NORMAL') if cycling_data else 'NORMAL',
             'ot_flame': opentherm_data.get('flame'),
+            'ot_climate_state': opentherm_data.get('climate_state'),
+            'ot_burner_starts': opentherm_data.get('burner_starts'),
+            'ot_dhw_burner_starts': opentherm_data.get('dhw_burner_starts'),
             'ot_setpoint_temp': opentherm_data.get('setpoint_temp'),
             'ot_dhw': opentherm_data.get('dhw'),
             'ot_dhw_flow_rate': opentherm_data.get('dhw_flow_rate'),
