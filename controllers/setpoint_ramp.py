@@ -58,9 +58,11 @@ class SetpointRamp:
         self.max_entity = C.HELPER_SETPOINT_RAMP_MAX
         
     def initialize_from_ha(self) -> None:
-        """Load configuration and restore state from Home Assistant.
+        """Load configuration and initialize state.
         
-        Validates configuration and restores persisted ramp state if applicable.
+        Validates configuration and always starts at baseline setpoint.
+        Rationale: Flame is typically OFF during startup, and flame-OFF
+        reset strategy naturally handles this case.
         """
         # Load and validate configuration from boiler.yaml
         self._load_and_validate_config()
@@ -74,77 +76,33 @@ class SetpointRamp:
             self.state = self.STATE_INACTIVE
             return
         
-        # Feature is enabled - attempt to restore persisted state
-        # This maintains ramped setpoint across AppDaemon restarts to avoid
-        # sudden setpoint drops that would cause boiler shutdown
-        from persistence import PersistenceManager
-        import os
-        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
-        persistence = PersistenceManager(persistence_file)
-        
-        try:
-            state_dict = persistence.get_setpoint_ramp_state()
-            
-            # Get current baseline from helper
-            current_baseline = self._get_baseline_setpoint()
-            if current_baseline is None:
-                self.ad.log(
-                    "SetpointRamp: Cannot initialize - baseline setpoint unavailable",
-                    level="WARNING"
-                )
-                return
-            
-            # Check if persisted baseline matches current baseline
-            persisted_baseline = state_dict.get('baseline_setpoint')
-            persisted_ramped = state_dict.get('current_ramped_setpoint')
-            persisted_steps = state_dict.get('ramp_steps_applied', 0)
-            
-            if persisted_baseline is not None and abs(persisted_baseline - current_baseline) < 0.1:
-                # Baseline matches - restore ramped state
-                self.baseline_setpoint = current_baseline
-                self.current_ramped_setpoint = persisted_ramped
-                self.ramp_steps_applied = persisted_steps
-                
-                if persisted_ramped and persisted_ramped > current_baseline:
-                    self.state = self.STATE_RAMPING
-                    self.ad.log(
-                        f"SetpointRamp: Restored ramped state - "
-                        f"baseline={self.baseline_setpoint:.1f}C, "
-                        f"ramped={self.current_ramped_setpoint:.1f}C, "
-                        f"steps={self.ramp_steps_applied}",
-                        level="INFO"
-                    )
-                else:
-                    self.state = self.STATE_INACTIVE
-                    self.ad.log(
-                        f"SetpointRamp: Initialized at baseline - "
-                        f"baseline={self.baseline_setpoint:.1f}C",
-                        level="INFO"
-                    )
-            else:
-                # Baseline changed or no persisted state - start fresh at baseline
-                self.baseline_setpoint = current_baseline
-                self.current_ramped_setpoint = current_baseline
-                self.ramp_steps_applied = 0
-                self.state = self.STATE_INACTIVE
-                self.ad.log(
-                    f"SetpointRamp: Initialized at baseline (no valid persisted state) - "
-                    f"baseline={self.baseline_setpoint:.1f}C",
-                    level="INFO"
-                )
-                
-        except Exception as e:
+        # Always start at baseline on startup
+        # Flame-OFF reset strategy will handle ramp state naturally
+        current_baseline = self._get_baseline_setpoint()
+        if current_baseline is None:
             self.ad.log(
-                f"SetpointRamp: Failed to restore state: {e}. Starting fresh at baseline.",
+                "SetpointRamp: Cannot initialize - baseline setpoint unavailable",
                 level="WARNING"
             )
-            current_baseline = self._get_baseline_setpoint()
-            if current_baseline:
-                self.baseline_setpoint = current_baseline
-                self.current_ramped_setpoint = current_baseline
-                self.ramp_steps_applied = 0
-                self.state = self.STATE_INACTIVE
+            return
+        
+        self.baseline_setpoint = current_baseline
+        self.current_ramped_setpoint = current_baseline
+        self.ramp_steps_applied = 0
+        self.state = self.STATE_INACTIVE
+        
+        self.ad.log(
+            f"SetpointRamp: Initialized at baseline - "
+            f"baseline={self.baseline_setpoint:.1f}C",
+            level="INFO"
+        )
+        
+        # Sync climate entity to baseline
+        self.ad.call_service(
+            'climate/set_temperature',
+            entity_id=C.OPENTHERM_CLIMATE,
+            temperature=self.baseline_setpoint
+        )
     
     def _load_and_validate_config(self) -> None:
         """Load and validate setpoint_ramp configuration from boiler.yaml.
@@ -348,43 +306,45 @@ class SetpointRamp:
     def on_cooldown_exited(self) -> None:
         """Handle cycling protection exiting cooldown.
         
-        Reset to baseline setpoint (not ramped value) to allow fresh evaluation.
+        Note: Cooldown causes flame to go OFF, which triggers flame-OFF
+        reset naturally. This method kept for coordination but may not
+        need to do anything (flame-OFF already handled reset).
         """
-        if self.baseline_setpoint is None:
-            return
-        
-        if self.state == self.STATE_RAMPING:
-            ramp_temp = self.current_ramped_setpoint if self.current_ramped_setpoint is not None else 0.0
-            baseline_temp = self.baseline_setpoint if self.baseline_setpoint is not None else 0.0
-            self.ad.log(
-                f"SetpointRamp: Cooldown exited - resetting from {ramp_temp:.1f}C "
-                f"to baseline {baseline_temp:.1f}C",
-                level="INFO"
-            )
-        
-        # Reset to baseline for fresh start
-        self._reset_to_baseline(self.baseline_setpoint)
+        # Flame-OFF reset already handled the setpoint reset
+        # This method kept for future coordination needs
+        pass
     
-    def on_boiler_state_changed(self, new_state: str) -> None:
-        """Handle boiler state changes.
+    def on_flame_off(self, entity, attribute, old, new, kwargs):
+        """Handle flame OFF event - reset ramped setpoint to baseline.
         
-        Reset ramp when boiler transitions to OFF or INTERLOCK_BLOCKED.
-        Preserve ramp through PENDING_OFF and PENDING_ON (transient states).
+        When flame goes OFF for any reason (DHW, cooldown, loss of demand),
+        reset to user's desired baseline setpoint. This ensures when flame
+        comes back on, heating starts from user's intent.
+        
+        Aligns with feature goal: prevent short-cycling within a heating
+        cycle, not across heating cycles.
         
         Args:
-            new_state: New boiler state
+            entity: Entity ID (binary_sensor.opentherm_flame)
+            attribute: Attribute that changed (usually None for state)
+            old: Previous state value
+            new: New state value
+            kwargs: Additional callback parameters
         """
-        if new_state in [C.STATE_OFF, C.STATE_INTERLOCK_BLOCKED]:
+        if new == 'off' and old == 'on':
             if self.state == self.STATE_RAMPING and self.baseline_setpoint is not None:
                 self.ad.log(
-                    f"SetpointRamp: Boiler transitioned to {new_state} - resetting ramp to baseline {self.baseline_setpoint:.1f}C",
+                    f"SetpointRamp: Flame OFF detected - resetting from "
+                    f"{self.current_ramped_setpoint:.1f}C to baseline "
+                    f"{self.baseline_setpoint:.1f}C",
                     level="INFO"
                 )
+                
                 # Reset internal state
                 self._reset_to_baseline(self.baseline_setpoint)
                 
-                # Actually apply baseline setpoint to climate entity
-                # This ensures setpoint drops back down when heating stops
+                # Apply baseline setpoint to climate entity
+                # This ensures setpoint returns to user's desired value
                 self.ad.call_service(
                     'climate/set_temperature',
                     entity_id=C.OPENTHERM_CLIMATE,

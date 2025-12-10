@@ -9,6 +9,7 @@ PyHeat provides multi-room heating control with:
 - **Smart TRV control** via zigbee2mqtt (TRVZB devices)
 - **Boiler management** with safety interlocks and anti-cycling
 - **Short-cycling protection** via return temperature monitoring and setpoint manipulation
+- **Setpoint ramping** - optional dynamic setpoint increase during heating to prevent premature flame-off
 - **Load sharing** - intelligent multi-room heating to prevent boiler short-cycling
 - **Sensor fusion** with staleness detection and optional EMA smoothing
 - **Multiple control modes**: Auto (scheduled), Manual, Passive, and Off per room
@@ -24,6 +25,7 @@ PyHeat provides multi-room heating control with:
 - **app.py** - Main AppDaemon application orchestration
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
 - **cycling_protection.py** - Automatic short-cycling prevention via return temperature monitoring
+- **setpoint_ramp.py** - Optional dynamic setpoint ramping to reduce flame cycling
 - **load_sharing_manager.py** - Intelligent load balancing using schedule-aware pre-warming
 - **room_controller.py** - Per-room heating logic and target resolution
 - **trv_controller.py** - TRV valve command and setpoint locking
@@ -48,10 +50,15 @@ PyHeat provides multi-room heating control with:
 7. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
 8. **Short-Cycling Protection**: Dual-temperature overheat detection with automatic cooldown enforcement
    - **Detection**: Triggers on flame-off if flow temp ≥ setpoint+2°C (overheat) OR return temp ≥ setpoint-5°C (fallback)
-   - **DHW filtering**: Ignores flame-offs during hot water demand (multi-sensor check with 12s history buffer)
+   - **DHW filtering**: Ignores flame-offs during hot water demand (multi-sensor check with 60s history buffer)
    - **Cooldown enforcement**: Drops boiler setpoint to 30°C to prevent re-ignition
    - **Recovery**: Exits when max(flow, return) ≤ dynamic threshold (setpoint-15°C, min 45°C)
    - **Monitoring**: 10s interval checks with 30min timeout protection and excessive cycling alerts
+9. **Setpoint Ramping** (optional): Dynamically increases boiler setpoint during heating to reduce flame cycling
+   - **Purpose**: When flow temp approaches setpoint, incrementally raise setpoint to keep boiler running longer
+   - **Configuration**: Enable via `input_boolean.pyheat_setpoint_ramp_enable`, configure delta and step in `boiler.yaml`
+   - **Reset strategy**: On flame-OFF (DHW, cooldown, loss of demand), reset to user's desired baseline setpoint
+   - **Coordination**: Works alongside cycling protection - uses baseline setpoint for cooldown recovery threshold
 
 ## Installation
 

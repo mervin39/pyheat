@@ -28,7 +28,9 @@ pyheat/
 │   └── boiler.yaml
 ├── controllers/                    # Hardware control modules
 │   ├── boiler_controller.py        # Boiler FSM and safety logic
+│   ├── cycling_protection.py       # Short-cycling prevention
 │   ├── room_controller.py          # Per-room heating decisions
+│   ├── setpoint_ramp.py            # Dynamic setpoint ramping
 │   ├── trv_controller.py           # TRV valve management
 │   └── valve_coordinator.py        # Multi-room valve orchestration
 ├── managers/                       # State and monitoring managers
@@ -419,6 +421,7 @@ Multiple mechanisms (events + state polling) can trigger recomputes for the same
 - **trv_controller.py** - TRV valve commands and setpoint locking
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
 - **cycling_protection.py** - Automatic short-cycling prevention via return temperature monitoring
+- **setpoint_ramp.py** - Dynamic setpoint ramping to prevent short-cycling during heating
 - **alert_manager.py** - Error tracking and Home Assistant persistent notifications
 - **service_handler.py** - Home Assistant service registration and handling
 - **status_publisher.py** - Entity creation and status publication to HA
@@ -3998,6 +4001,250 @@ DEBUG: Boiler: saved valve positions: {'pete': 65, 'lounge': 35}
 DEBUG: Boiler: STATE_PENDING_OFF using saved positions: {...}
 DEBUG: Boiler: total valve opening 120% >= min 100%, using valve bands
 ```
+
+---
+
+## Setpoint Ramping
+
+### Overview
+
+The `SetpointRamp` class (`setpoint_ramp.py`) implements dynamic boiler setpoint ramping to prevent short-cycling **within** heating cycles. When enabled, it incrementally raises the boiler setpoint as the flow temperature approaches it, maintaining a healthy temperature differential and preventing premature flame-OFF events.
+
+**Key Features:**
+- Optional feature controlled by `input_boolean.pyheat_setpoint_ramp_enable`
+- Triggered when flow temperature gets within configurable threshold of current setpoint
+- Incremental ramping with configurable step size
+- Maximum setpoint limit for safety
+- Automatic reset to baseline on flame-OFF events
+- Coordination with cycling protection for robust short-cycling prevention
+
+### Configuration
+
+Setpoint ramping is configured in `boiler.yaml`:
+
+```yaml
+boiler:
+  setpoint_ramp:
+    delta_trigger_c: 3.0     # Start ramping when within 3°C of setpoint
+    delta_increase_c: 1.0    # Increase setpoint by 1°C per step
+```
+
+Home Assistant entities control the feature:
+- `input_boolean.pyheat_setpoint_ramp_enable` - Enable/disable feature
+- `input_number.pyheat_opentherm_setpoint` - Baseline setpoint (user's desired value)
+- `input_number.pyheat_opentherm_setpoint_ramp_max` - Maximum ramped setpoint (safety limit)
+
+### Operation
+
+#### Ramp Activation
+
+When setpoint ramping is enabled and the boiler is firing:
+
+1. Monitor flow temperature vs. current setpoint
+2. If `flow_temp >= (setpoint - delta_trigger_c)`, trigger ramp
+3. Increase setpoint by `delta_increase_c` (e.g., 65°C → 66°C)
+4. Repeat as flow temperature continues to rise
+5. Never exceed `setpoint_ramp_max` limit
+
+**Example:**
+```
+Baseline setpoint: 65°C
+Flow temp: 62.5°C
+Trigger threshold: 3.0°C
+
+62.5 >= (65 - 3) → RAMP
+New setpoint: 66°C
+
+Flow continues rising to 63.5°C
+63.5 >= (66 - 3) → RAMP
+New setpoint: 67°C
+```
+
+#### Reset Strategy: Flame-OFF Events
+
+The setpoint is automatically reset to baseline whenever the flame goes OFF:
+
+```python
+# In setpoint_ramp.py:on_flame_off()
+def on_flame_off(self, entity, attribute, old, new, kwargs):
+    if old == "on" and new == "off":
+        self.reset_to_baseline()
+```
+
+**Why flame-OFF?**
+- Flame OFF indicates end of heating cycle (normal completion or DHW interruption)
+- Natural reset point: boiler must restart heating with user's desired baseline
+- Prevents setpoint "creep" across multiple heating cycles
+- Simple and robust: no complex state tracking needed
+
+**Flame-OFF triggers include:**
+- **DHW events**: Hot water tap usage interrupts heating, flame goes OFF
+- **Demand loss**: All rooms satisfied, no further heating needed
+- **Cooldown**: Cycling protection forces cooldown period
+
+#### Coordination with Cycling Protection
+
+Setpoint ramping and cycling protection work together:
+
+**Within a heating cycle:**
+- Setpoint ramp prevents flame cycling by maintaining flow temp differential
+- If flame cycles anyway, cycling protection takes over with cooldown
+
+**Between heating cycles:**
+- Flame-OFF resets ramped setpoint to baseline
+- Next heating cycle starts fresh with user's desired setpoint
+- Cycling protection monitors for excessive flame cycling across burns
+
+**Key insight:** Setpoint ramping prevents **intra-cycle** short-cycling (flame ON→OFF→ON during single demand period). Cycling protection prevents **inter-cycle** short-cycling (rapid successive heating cycles).
+
+### State Management
+
+#### Persistence
+
+Setpoint ramp state is **ephemeral** (not persisted across AppDaemon restarts):
+
+```python
+def initialize_from_ha(self):
+    """Always start at baseline setpoint on restart."""
+    baseline = self.ad.get_state(C.OPENTHERM_SETPOINT)
+    self.current_setpoint = float(baseline)
+    self.is_ramping = False
+```
+
+**Rationale:**
+- On AppDaemon restart, boiler defaults to OFF state
+- When heating resumes, should start with user's current baseline preference
+- No risk of "stuck" ramped setpoint from previous session
+
+#### In-Memory State
+
+During operation, tracks:
+- `current_setpoint`: Current ramped setpoint (float)
+- `is_ramping`: Whether actively ramping (bool)
+- Configuration values (trigger threshold, increase step, max limit)
+
+### Integration Points
+
+**App.py Initialization:**
+```python
+# Create setpoint ramp controller
+self.setpoint_ramp = SetpointRamp(self, self.config)
+
+# Register flame sensor callback
+self.listen_state(
+    self.setpoint_ramp.on_flame_off,
+    C.OPENTHERM_FLAME
+)
+```
+
+**Recompute Cycle:**
+```python
+# In app.py:recompute_all()
+# After boiler controller decides to heat
+if boiler_state == 'STATE_FIRING':
+    self.setpoint_ramp.evaluate_and_apply(
+        flow_temp=sensors['opentherm_flow'],
+        boiler_state=boiler_state,
+        cycling_state=cycling_state
+    )
+```
+
+**Boiler Controller:**
+```python
+# Setpoint ramp operates independently of boiler FSM
+# Boiler FSM sees ramped setpoint as current target
+# Changes applied directly to input_number.pyheat_opentherm_setpoint
+```
+
+### Logging
+
+Setpoint ramp provides detailed logging for debugging:
+
+**Ramp Triggered:**
+```
+INFO: Setpoint ramp: 65.0C -> 66.0C (flow=62.8C, within 3.0C threshold)
+```
+
+**Reset on Flame-OFF:**
+```
+INFO: Setpoint ramp reset: flame OFF (67.0C -> 65.0C)
+```
+
+**Feature Disabled:**
+```
+DEBUG: Setpoint ramp: disabled via input_boolean
+```
+
+**Max Limit Reached:**
+```
+INFO: Setpoint ramp: at maximum 70.0C (not ramping further)
+```
+
+### Use Cases
+
+**Scenario 1: Single Room Heating**
+```
+Pete's room calls for heat
+Boiler starts at 65°C baseline
+Flow temp rises: 60° → 62° → 63°
+At 62°C: ramp to 66°C
+At 63°C: ramp to 67°C
+Pete's room satisfied, demand drops
+Flame goes OFF → reset to 65°C
+```
+
+**Scenario 2: DHW Interruption**
+```
+Multiple rooms heating
+Setpoint ramped to 68°C
+Someone turns on hot water tap
+DHW takes priority, flame goes OFF
+Setpoint resets to 65°C
+DHW finishes, heating resumes at 65°C baseline
+```
+
+**Scenario 3: Cooldown Recovery**
+```
+High return temp triggers cycling protection cooldown
+Flame goes OFF → setpoint reset to 65°C
+Cooldown period: boiler at 30°C, monitoring return temp
+Cooldown exits when return temp drops
+Heating resumes at 65°C baseline (not ramped value)
+```
+
+### Benefits
+
+1. **Prevents intra-cycle flame cycling**: Maintains healthy delta-T during heating
+2. **Simple and predictable**: Always resets on flame-OFF, no complex state preservation
+3. **User-centric**: Each heating cycle starts with user's preferred baseline
+4. **Safe**: Maximum limit prevents excessive setpoint
+5. **Non-invasive**: Optional feature, easily disabled via input_boolean
+6. **Complementary**: Works alongside cycling protection for comprehensive short-cycle prevention
+
+### Implementation Details
+
+**Module:** `controllers/setpoint_ramp.py` (497 lines)
+
+**Key Methods:**
+- `initialize_from_ha()`: Start at baseline on AppDaemon restart
+- `evaluate_and_apply()`: Check conditions and ramp if needed
+- `on_flame_off()`: Reset to baseline on flame OFF events
+- `on_cooldown_exited()`: Verify baseline after cooldown (safety check)
+- `reset_to_baseline()`: Core reset logic
+- `should_trigger_ramp()`: Evaluate ramp conditions
+- `compute_next_setpoint()`: Calculate next ramped value
+
+**Dependencies:**
+- `constants.py`: Entity names and default values
+- `config_loader.py`: Setpoint ramp configuration from boiler.yaml
+- `cycling_protection.py`: Cooldown state coordination
+
+**Home Assistant Entities Used:**
+- `input_boolean.pyheat_setpoint_ramp_enable`
+- `input_number.pyheat_opentherm_setpoint` (read and write)
+- `input_number.pyheat_opentherm_setpoint_ramp_max`
+- `binary_sensor.opentherm_flame` (state listener)
+- `sensor.opentherm_heating_temp` (flow temperature)
 
 ---
 

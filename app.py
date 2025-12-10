@@ -319,12 +319,14 @@ class PyHeat(hass.Hass):
         if opentherm_count > 0:
             self.log(f"Registered {opentherm_count} OpenTherm sensors for monitoring")
         
-        # Flame sensor for cycling protection (triggers cooldown detection)
-        # and boiler pump overrun (timer starts from flame off, not command off)
+        # Flame sensor for cycling protection (triggers cooldown detection),
+        # boiler pump overrun (timer starts from flame off, not command off),
+        # and setpoint ramp reset (reset to baseline on flame off)
         if self.entity_exists(C.OPENTHERM_FLAME):
             self.listen_state(self.cycling.on_flame_off, C.OPENTHERM_FLAME)
             self.listen_state(self.boiler.on_flame_off, C.OPENTHERM_FLAME)
-            self.log("Registered flame sensor for cycling protection and pump overrun")
+            self.listen_state(self.setpoint_ramp.on_flame_off, C.OPENTHERM_FLAME)
+            self.log("Registered flame sensor for cycling protection, pump overrun, and setpoint ramp")
         
         # DHW sensors for cycling protection history tracking
         dhw_sensor_count = 0
@@ -875,8 +877,8 @@ class PyHeat(hass.Hass):
             self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             raise
         
-        # Notify setpoint ramp of boiler state changes
-        self.setpoint_ramp.on_boiler_state_changed(boiler_state)
+        # Note: Setpoint ramp reset is now handled by flame sensor callback
+        # (on_flame_off method) instead of boiler state changes
         
         # Evaluate setpoint ramping (if enabled and conditions met)
         cycling_state = self.cycling.state if hasattr(self.cycling, 'state') else C.CYCLING_STATE_NORMAL

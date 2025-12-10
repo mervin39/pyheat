@@ -1,6 +1,73 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: Implement Flame-OFF Reset Strategy for Setpoint Ramp
+
+**Background:**
+Setpoint ramping prevents short-cycling **within** heating cycles by incrementally raising boiler setpoint as flow temperature approaches it. Initial design question: should we add explicit DHW detection to prevent ramp reset during DHW events?
+
+**Analysis:**
+Reviewed heating logs (2025-11-21.csv) and discovered that flame **always** goes OFF at the end of DHW events. This insight led to a simpler, more robust reset strategy: use flame sensor instead of DHW detection.
+
+**Implementation:**
+Flame-OFF reset strategy leverages existing infrastructure:
+- Listen to `binary_sensor.opentherm_flame` state changes
+- Reset ramped setpoint to baseline whenever flame goes OFF
+- Flame OFF indicates natural reset point: DHW interruption, demand loss, or cooldown
+
+**Key Benefits:**
+1. **Simpler:** No complex DHW detection logic needed
+2. **User-centric:** Each heating cycle starts with user's preferred baseline setpoint
+3. **Robust:** Handles all flame-OFF scenarios (DHW, cooldown, demand loss)
+4. **Non-invasive:** Feature remains optional via `input_boolean.pyheat_setpoint_ramp_enable`
+
+**Files Changed:**
+- `controllers/setpoint_ramp.py`:
+  - Simplified `initialize_from_ha()`: Always start at baseline on restart
+  - Added `on_flame_off()`: Reset to baseline when flame goes OFF
+  - Simplified `on_cooldown_exited()`: Flame-OFF handles reset
+  - Removed `on_boiler_state_changed()`: Superseded by flame sensor
+  
+- `app.py`:
+  - Added flame sensor callback registration: `listen_state(setpoint_ramp.on_flame_off, OPENTHERM_FLAME)`
+  - Removed `setpoint_ramp.on_boiler_state_changed()` call
+  
+- `docs/debug/proposals/setpoint_ramp/proposal.md`:
+  - Updated reset strategy section with flame-OFF approach
+  - Simplified startup behavior documentation
+  - Updated architectural decisions with new rationale
+  - Marked Q1 and Q4 as superseded by flame-OFF strategy
+  
+- `README.md`:
+  - Added setpoint ramping to feature list
+  - Added setpoint_ramp.py to components list
+  - Added comprehensive "Setpoint Ramping" section with:
+    - Purpose and operation
+    - Configuration details
+    - Flame-OFF reset strategy explanation
+    
+- `docs/ARCHITECTURE.md`:
+  - Added setpoint_ramp.py to components list
+  - Added to file structure diagram
+  - Added comprehensive "Setpoint Ramping" section (200+ lines) covering:
+    - Overview and key features
+    - Configuration and operation
+    - Flame-OFF reset strategy rationale
+    - Coordination with cycling protection
+    - State management and persistence
+    - Integration points with app.py and boiler controller
+    - Detailed logging examples
+    - Use case scenarios
+    - Benefits and implementation details
+
+**Testing:**
+Verified in logs: No errors after implementation. System running normally with periodic recompute cycles.
+
+**Architectural Insight:**
+Setpoint ramping prevents **intra-cycle** short-cycling (flame ON→OFF→ON during single demand). Cycling protection prevents **inter-cycle** short-cycling (rapid successive heating cycles). Together they provide comprehensive protection.
+
+---
+
 ## 2025-12-10: DOC - Clarified Cooldown Trigger Logic (EITHER vs BOTH)
 
 **Issue:**
