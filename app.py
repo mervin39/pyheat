@@ -35,6 +35,7 @@ from trv_controller import TRVController
 from valve_coordinator import ValveCoordinator
 from boiler_controller import BoilerController
 from cycling_protection import CyclingProtection
+from setpoint_ramp import SetpointRamp
 from status_publisher import StatusPublisher
 from service_handler import ServiceHandler
 from api_handler import APIHandler
@@ -70,7 +71,8 @@ class PyHeat(hass.Hass):
         self.valve_coordinator.initialize_from_ha()  # Initialize pump overrun state from HA
         self.rooms = RoomController(self, self.config, self.sensors, self.scheduler, self.trvs)
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
-        self.cycling = CyclingProtection(self, self.config, self.alerts, self.boiler, app_ref=self)
+        self.setpoint_ramp = SetpointRamp(self, self.config)
+        self.cycling = CyclingProtection(self, self.config, self.alerts, self.boiler, app_ref=self, setpoint_ramp_ref=self.setpoint_ramp)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.status.load_calculator_ref = self.load_calculator  # Allow status publisher to get capacity data
@@ -132,6 +134,21 @@ class PyHeat(hass.Hass):
         
         # Initialize load sharing manager (Phase 0: disabled by default)
         self.load_sharing.initialize_from_ha()
+        
+        # Initialize setpoint ramp (load config and restore persisted state)
+        try:
+            self.setpoint_ramp.initialize_from_ha()
+        except ValueError as e:
+            self.error(f"SetpointRamp initialization failed: {e}")
+            self.log("PyHeat initialization failed - setpoint ramp configuration error")
+            # Report critical alert for config failure
+            self.alerts.report_error(
+                AlertManager.ALERT_CONFIG_LOAD_FAILURE,
+                AlertManager.SEVERITY_CRITICAL,
+                f"SetpointRamp initialization failed:\n\n{e}",
+                auto_clear=False  # Requires manual intervention
+            )
+            return
         
         # Initialize TRV state from current valve positions
         self.trvs.initialize_from_ha()
@@ -830,8 +847,41 @@ class PyHeat(hass.Hass):
             self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             raise
         
+        # Notify setpoint ramp of boiler state changes
+        self.setpoint_ramp.on_boiler_state_changed(boiler_state)
+        
+        # Evaluate setpoint ramping (if enabled and conditions met)
+        cycling_state = self.cycling.state if hasattr(self.cycling, 'state') else C.CYCLING_STATE_NORMAL
+        try:
+            # Get current temperatures and setpoints
+            flow_temp_str = self.get_state(C.OPENTHERM_HEATING_TEMP)
+            current_setpoint_str = self.get_state(C.OPENTHERM_CLIMATE, attribute='temperature')
+            baseline_setpoint_str = self.get_state(C.HELPER_OPENTHERM_SETPOINT)
+            
+            if all(x not in ['unknown', 'unavailable', None] for x in [flow_temp_str, current_setpoint_str, baseline_setpoint_str]):
+                flow_temp = float(flow_temp_str)
+                current_setpoint = float(current_setpoint_str)
+                baseline_setpoint = float(baseline_setpoint_str)
+                
+                # Evaluate and apply ramp if needed
+                new_setpoint = self.setpoint_ramp.evaluate_and_apply(
+                    flow_temp, current_setpoint, baseline_setpoint, 
+                    boiler_state, cycling_state
+                )
+                
+                # Apply new setpoint if returned
+                if new_setpoint is not None:
+                    self.call_service(
+                        'climate/set_temperature',
+                        entity_id=C.OPENTHERM_CLIMATE,
+                        temperature=new_setpoint
+                    )
+        except Exception as e:
+            self.log(f"ERROR: Exception in setpoint ramp evaluation: {e}", level="ERROR")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+        
         # Evaluate load sharing needs
-        cycling_state = self.cycling.state if hasattr(self.cycling, 'state') else 'NORMAL'
         load_sharing_commands = self.load_sharing.evaluate(room_data, boiler_state, cycling_state)
         
         # Apply load sharing overrides to valve coordinator

@@ -21,6 +21,10 @@ input_boolean:
     name: "PyHeat Holiday Mode"
     icon: mdi:airplane
 
+  pyheat_setpoint_ramp_enable:
+    name: "PyHeat Setpoint Ramp Enable"
+    icon: mdi:chart-line-stacked
+
 # ---------------------------------------------------------------------------
 # Input selects (load sharing mode control + per-room modes)
 # ---------------------------------------------------------------------------
@@ -92,6 +96,25 @@ input_select:
 # Input numbers (manual setpoints and override targets)
 # ---------------------------------------------------------------------------
 input_number:
+  # OpenTherm setpoint control
+  pyheat_opentherm_setpoint:
+    name: "PyHeat OpenTherm Setpoint"
+    min: 30
+    max: 80
+    step: 1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:water-boiler
+
+  pyheat_opentherm_setpoint_ramp_max:
+    name: "PyHeat Setpoint Ramp Maximum"
+    min: 30
+    max: 80
+    step: 1
+    unit_of_measurement: "°C"
+    mode: box
+    icon: mdi:chart-line-stacked
+
   # Override persistence targets
   pyheat_pete_override_target:
     name: "Pete's Room Override Target"

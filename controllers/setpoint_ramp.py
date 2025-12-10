@@ -1,0 +1,479 @@
+# -*- coding: utf-8 -*-
+"""
+setpoint_ramp.py - Dynamic setpoint ramping for short-cycling prevention
+
+Responsibilities:
+- Monitor flow temperature vs setpoint
+- Ramp setpoint upward when flow temp approaches current setpoint
+- Coordinate with cycling protection for cooldown handling
+- Persist ramp state across AppDaemon restarts
+- Validate configuration on startup
+"""
+
+from datetime import datetime
+from typing import Optional, Dict, Tuple
+import constants as C
+
+
+class SetpointRamp:
+    """Manages dynamic setpoint ramping to prevent short-cycling.
+    
+    When flow temperature approaches the current setpoint, incrementally
+    raises the setpoint to keep the boiler running longer and reduce
+    cooldown cycles.
+    
+    State Machine:
+    - INACTIVE: Feature disabled or conditions not met
+    - RAMPING: Actively ramped above baseline setpoint
+    """
+    
+    # State constants
+    STATE_INACTIVE = "INACTIVE"
+    STATE_RAMPING = "RAMPING"
+    
+    def __init__(self, ad, config, cycling_protection_ref=None):
+        """Initialize setpoint ramp controller.
+        
+        Args:
+            ad: AppDaemon API reference
+            config: ConfigLoader instance
+            cycling_protection_ref: Optional CyclingProtection instance for coordination
+        """
+        self.ad = ad
+        self.config = config
+        self.cycling = cycling_protection_ref
+        
+        # Configuration (loaded from boiler.yaml)
+        self.delta_trigger_c: Optional[float] = None  # Flow temp threshold above setpoint to trigger ramp
+        self.delta_increase_c: Optional[float] = None  # Amount to increase setpoint each step
+        
+        # State
+        self.state = self.STATE_INACTIVE
+        self.baseline_setpoint: Optional[float] = None  # User's desired baseline setpoint
+        self.current_ramped_setpoint: Optional[float] = None  # Current ramped value
+        self.ramp_steps_applied: int = 0  # Number of ramp steps applied
+        
+        # Feature control entities
+        self.enable_entity = C.HELPER_SETPOINT_RAMP_ENABLE
+        self.max_entity = C.HELPER_SETPOINT_RAMP_MAX
+        
+    def initialize_from_ha(self) -> None:
+        """Load configuration and restore state from Home Assistant.
+        
+        Validates configuration and restores persisted ramp state if applicable.
+        """
+        # Load and validate configuration from boiler.yaml
+        self._load_and_validate_config()
+        
+        # Check if feature is enabled
+        if not self._is_feature_enabled():
+            self.ad.log(
+                "SetpointRamp: Feature disabled via input_boolean - staying INACTIVE",
+                level="INFO"
+            )
+            self.state = self.STATE_INACTIVE
+            return
+        
+        # Feature is enabled - attempt to restore persisted state
+        # This maintains ramped setpoint across AppDaemon restarts to avoid
+        # sudden setpoint drops that would cause boiler shutdown
+        from persistence import PersistenceManager
+        import os
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
+        persistence = PersistenceManager(persistence_file)
+        
+        try:
+            state_dict = persistence.get_setpoint_ramp_state()
+            
+            # Get current baseline from helper
+            current_baseline = self._get_baseline_setpoint()
+            if current_baseline is None:
+                self.ad.log(
+                    "SetpointRamp: Cannot initialize - baseline setpoint unavailable",
+                    level="WARNING"
+                )
+                return
+            
+            # Check if persisted baseline matches current baseline
+            persisted_baseline = state_dict.get('baseline_setpoint')
+            persisted_ramped = state_dict.get('current_ramped_setpoint')
+            persisted_steps = state_dict.get('ramp_steps_applied', 0)
+            
+            if persisted_baseline is not None and abs(persisted_baseline - current_baseline) < 0.1:
+                # Baseline matches - restore ramped state
+                self.baseline_setpoint = current_baseline
+                self.current_ramped_setpoint = persisted_ramped
+                self.ramp_steps_applied = persisted_steps
+                
+                if persisted_ramped and persisted_ramped > current_baseline:
+                    self.state = self.STATE_RAMPING
+                    self.ad.log(
+                        f"SetpointRamp: Restored ramped state - "
+                        f"baseline={self.baseline_setpoint:.1f}C, "
+                        f"ramped={self.current_ramped_setpoint:.1f}C, "
+                        f"steps={self.ramp_steps_applied}",
+                        level="INFO"
+                    )
+                else:
+                    self.state = self.STATE_INACTIVE
+                    self.ad.log(
+                        f"SetpointRamp: Initialized at baseline - "
+                        f"baseline={self.baseline_setpoint:.1f}C",
+                        level="INFO"
+                    )
+            else:
+                # Baseline changed or no persisted state - start fresh at baseline
+                self.baseline_setpoint = current_baseline
+                self.current_ramped_setpoint = current_baseline
+                self.ramp_steps_applied = 0
+                self.state = self.STATE_INACTIVE
+                self.ad.log(
+                    f"SetpointRamp: Initialized at baseline (no valid persisted state) - "
+                    f"baseline={self.baseline_setpoint:.1f}C",
+                    level="INFO"
+                )
+                
+        except Exception as e:
+            self.ad.log(
+                f"SetpointRamp: Failed to restore state: {e}. Starting fresh at baseline.",
+                level="WARNING"
+            )
+            current_baseline = self._get_baseline_setpoint()
+            if current_baseline:
+                self.baseline_setpoint = current_baseline
+                self.current_ramped_setpoint = current_baseline
+                self.ramp_steps_applied = 0
+                self.state = self.STATE_INACTIVE
+    
+    def _load_and_validate_config(self) -> None:
+        """Load and validate setpoint_ramp configuration from boiler.yaml.
+        
+        Raises:
+            ValueError: If configuration is invalid or missing required values
+        """
+        ramp_config = self.config.boiler_config.get('setpoint_ramp', {})
+        
+        # Check for required configuration
+        if 'delta_trigger_c' not in ramp_config:
+            raise ValueError(
+                "Missing required config: boiler.setpoint_ramp.delta_trigger_c must be defined. "
+                "This sets the flow temperature threshold above setpoint to trigger ramping. "
+                "Example: 3.0 means ramp when flow temp >= setpoint + 3.0C"
+            )
+        
+        if 'delta_increase_c' not in ramp_config:
+            raise ValueError(
+                "Missing required config: boiler.setpoint_ramp.delta_increase_c must be defined. "
+                "This sets how much to increase setpoint each ramp step. "
+                "Example: 1.0 means increase setpoint by 1.0C per step"
+            )
+        
+        # Parse and validate delta_trigger_c
+        try:
+            self.delta_trigger_c = float(ramp_config['delta_trigger_c'])
+            if not (0.1 <= self.delta_trigger_c <= 10.0):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.delta_trigger_c must be between 0.1 and 10.0C "
+                    f"(got {self.delta_trigger_c:.1f}C)"
+                )
+            
+            # Warning if too high (may trigger cooldown before ramping)
+            if self.delta_trigger_c > 4.0:
+                self.ad.log(
+                    f"WARNING: boiler.setpoint_ramp.delta_trigger_c is {self.delta_trigger_c:.1f}C "
+                    f"which is quite high. Cycling protection may trigger before ramping occurs. "
+                    f"Consider reducing to 3.0-4.0C for optimal results.",
+                    level="WARNING"
+                )
+                
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.delta_trigger_c: {ramp_config['delta_trigger_c']}. "
+                f"Must be a number between 0.1 and 10.0. Error: {e}"
+            )
+        
+        # Parse and validate delta_increase_c
+        try:
+            self.delta_increase_c = float(ramp_config['delta_increase_c'])
+            if not (0.1 <= self.delta_increase_c <= 5.0):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.delta_increase_c must be between 0.1 and 5.0C "
+                    f"(got {self.delta_increase_c:.1f}C)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.delta_increase_c: {ramp_config['delta_increase_c']}. "
+                f"Must be a number between 0.1 and 5.0. Error: {e}"
+            )
+        
+        self.ad.log(
+            f"SetpointRamp: Configuration loaded - "
+            f"delta_trigger={self.delta_trigger_c:.1f}C, "
+            f"delta_increase={self.delta_increase_c:.1f}C",
+            level="INFO"
+        )
+    
+    def evaluate_and_apply(self, flow_temp: float, current_setpoint: float, 
+                          baseline_setpoint: float, boiler_state: str, 
+                          cycling_state: str) -> Optional[float]:
+        """Evaluate if ramping needed and return new setpoint.
+        
+        Only evaluates when:
+        - Feature is enabled
+        - Boiler state == STATE_ON (actively heating)
+        - Cycling state == NORMAL (not in cooldown)
+        
+        Args:
+            flow_temp: Current flow temperature from sensor
+            current_setpoint: Current climate entity setpoint
+            baseline_setpoint: User's desired baseline from helper
+            boiler_state: Current boiler FSM state
+            cycling_state: Current cycling protection state
+        
+        Returns:
+            New setpoint to apply, or None if no change needed
+        """
+        # Check if feature enabled
+        if not self._is_feature_enabled():
+            # Feature disabled - reset if currently ramping
+            if self.state == self.STATE_RAMPING:
+                self.ad.log(
+                    "SetpointRamp: Feature disabled - resetting to baseline",
+                    level="INFO"
+                )
+                self._reset_to_baseline(baseline_setpoint)
+                return baseline_setpoint
+            return None
+        
+        # Update baseline if user changed it
+        if self.baseline_setpoint != baseline_setpoint:
+            self.ad.log(
+                f"SetpointRamp: Baseline changed from {self.baseline_setpoint:.1f}C "
+                f"to {baseline_setpoint:.1f}C - resetting ramp",
+                level="INFO"
+            )
+            self._reset_to_baseline(baseline_setpoint)
+            return baseline_setpoint
+        
+        # Only ramp when boiler is actively heating (STATE_ON) and not in cooldown
+        if boiler_state != C.STATE_ON or cycling_state != C.CYCLING_STATE_NORMAL:
+            # Not heating - don't evaluate ramp, but preserve state
+            return None
+        
+        # Get max setpoint
+        max_setpoint = self._get_max_setpoint()
+        if max_setpoint is None:
+            self.ad.log(
+                "SetpointRamp: Cannot evaluate - max setpoint unavailable",
+                level="WARNING"
+            )
+            return None
+        
+        # Check if we should ramp
+        should_ramp = flow_temp >= (current_setpoint + self.delta_trigger_c)
+        
+        if should_ramp:
+            # Calculate new setpoint
+            new_setpoint = current_setpoint + self.delta_increase_c
+            
+            # Cap at max
+            if new_setpoint > max_setpoint:
+                new_setpoint = max_setpoint
+            
+            # Only apply if actually increased
+            if new_setpoint > current_setpoint:
+                self.state = self.STATE_RAMPING
+                self.current_ramped_setpoint = new_setpoint
+                self.ramp_steps_applied += 1
+                
+                self.ad.log(
+                    f"SetpointRamp: Flow temp {flow_temp:.1f}C >= threshold "
+                    f"{current_setpoint + self.delta_trigger_c:.1f}C - "
+                    f"ramping {current_setpoint:.1f}C -> {new_setpoint:.1f}C "
+                    f"(step {self.ramp_steps_applied})",
+                    level="INFO"
+                )
+                
+                # Persist state
+                self._save_state()
+                
+                return new_setpoint
+            elif new_setpoint >= max_setpoint:
+                # At max - log but don't spam
+                if self.ramp_steps_applied % 5 == 0:  # Log every 5th evaluation at max
+                    self.ad.log(
+                        f"SetpointRamp: At maximum setpoint {max_setpoint:.1f}C "
+                        f"(flow temp {flow_temp:.1f}C)",
+                        level="DEBUG"
+                    )
+        
+        return None
+    
+    def on_baseline_setpoint_changed(self, new_baseline: float) -> None:
+        """Handle user changing input_number.pyheat_opentherm_setpoint.
+        
+        Args:
+            new_baseline: New baseline setpoint value
+        """
+        if self.baseline_setpoint is not None and abs(self.baseline_setpoint - new_baseline) > 0.1:
+            self.ad.log(
+                f"SetpointRamp: User changed baseline setpoint "
+                f"{self.baseline_setpoint:.1f}C -> {new_baseline:.1f}C - resetting ramp",
+                level="INFO"
+            )
+            self._reset_to_baseline(new_baseline)
+    
+    def on_cooldown_entered(self) -> None:
+        """Handle cycling protection entering cooldown.
+        
+        Cooldown logic takes over setpoint control (drops to 30C).
+        Save ramp state to restore on cooldown exit.
+        """
+        if self.state == self.STATE_RAMPING:
+            self.ad.log(
+                f"SetpointRamp: Cooldown entered while ramping at {self.current_ramped_setpoint:.1f}C - "
+                f"saving state (will restore to baseline on exit)",
+                level="INFO"
+            )
+            # State is already saved - just need to preserve it through cooldown
+            # Don't reset to baseline yet - that happens on cooldown exit
+    
+    def on_cooldown_exited(self) -> None:
+        """Handle cycling protection exiting cooldown.
+        
+        Reset to baseline setpoint (not ramped value) to allow fresh evaluation.
+        """
+        if self.baseline_setpoint is None:
+            return
+        
+        if self.state == self.STATE_RAMPING:
+            self.ad.log(
+                f"SetpointRamp: Cooldown exited - resetting from {self.current_ramped_setpoint:.1f}C "
+                f"to baseline {self.baseline_setpoint:.1f}C",
+                level="INFO"
+            )
+        
+        # Reset to baseline for fresh start
+        self._reset_to_baseline(self.baseline_setpoint)
+    
+    def on_boiler_state_changed(self, new_state: str) -> None:
+        """Handle boiler state changes.
+        
+        Reset ramp when boiler transitions to OFF or INTERLOCK_BLOCKED.
+        Preserve ramp through PENDING_OFF and PENDING_ON (transient states).
+        
+        Args:
+            new_state: New boiler state
+        """
+        if new_state in [C.STATE_OFF, C.STATE_INTERLOCK_BLOCKED]:
+            if self.state == self.STATE_RAMPING and self.baseline_setpoint is not None:
+                self.ad.log(
+                    f"SetpointRamp: Boiler transitioned to {new_state} - resetting ramp",
+                    level="INFO"
+                )
+                self._reset_to_baseline(self.baseline_setpoint)
+    
+    def _reset_to_baseline(self, baseline: float) -> None:
+        """Reset ramp state to baseline setpoint.
+        
+        Args:
+            baseline: Baseline setpoint to reset to
+        """
+        self.baseline_setpoint = baseline
+        self.current_ramped_setpoint = baseline
+        self.ramp_steps_applied = 0
+        self.state = self.STATE_INACTIVE
+        self._save_state()
+    
+    def _is_feature_enabled(self) -> bool:
+        """Check if setpoint ramp feature is enabled.
+        
+        Returns:
+            True if enabled, False otherwise
+        """
+        try:
+            state = self.ad.get_state(self.enable_entity)
+            return state == "on"
+        except Exception as e:
+            self.ad.log(
+                f"SetpointRamp: Failed to read enable state: {e}",
+                level="WARNING"
+            )
+            return False
+    
+    def _get_baseline_setpoint(self) -> Optional[float]:
+        """Get current baseline setpoint from helper.
+        
+        Returns:
+            Baseline setpoint in C, or None if unavailable
+        """
+        try:
+            state = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
+            if state in ['unknown', 'unavailable', None]:
+                return None
+            return float(state)
+        except (ValueError, TypeError):
+            return None
+    
+    def _get_max_setpoint(self) -> Optional[float]:
+        """Get maximum ramp setpoint from helper.
+        
+        Returns:
+            Maximum setpoint in C, or None if unavailable
+        """
+        try:
+            state = self.ad.get_state(self.max_entity)
+            if state in ['unknown', 'unavailable', None]:
+                return None
+            return float(state)
+        except (ValueError, TypeError):
+            return None
+    
+    def _save_state(self) -> None:
+        """Persist ramp state to persistence file."""
+        from persistence import PersistenceManager
+        import os
+        
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
+        persistence = PersistenceManager(persistence_file)
+        
+        state_dict = {
+            'baseline_setpoint': self.baseline_setpoint,
+            'current_ramped_setpoint': self.current_ramped_setpoint,
+            'ramp_steps_applied': self.ramp_steps_applied
+        }
+        
+        try:
+            persistence.update_setpoint_ramp_state(state_dict)
+        except Exception as e:
+            self.ad.log(
+                f"SetpointRamp: Failed to save state: {e}",
+                level="ERROR"
+            )
+    
+    def is_ramping_active(self) -> bool:
+        """Check if ramping is currently active.
+        
+        Used by cycling protection to skip setpoint validation.
+        
+        Returns:
+            True if actively ramping above baseline
+        """
+        return self.state == self.STATE_RAMPING
+    
+    def get_state_dict(self) -> Dict:
+        """Get current state as dict for logging and status publishing.
+        
+        Returns:
+            Dict with enabled, state, baseline, ramped, max, steps
+        """
+        return {
+            'enabled': self._is_feature_enabled(),
+            'state': self.state,
+            'baseline_setpoint': self.baseline_setpoint if self.baseline_setpoint else '',
+            'current_ramped_setpoint': self.current_ramped_setpoint if self.current_ramped_setpoint else '',
+            'ramp_steps_applied': self.ramp_steps_applied,
+            'max_setpoint': self._get_max_setpoint() if self._is_feature_enabled() else ''
+        }

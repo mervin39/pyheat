@@ -145,7 +145,7 @@ class CyclingProtection:
     STATE_COOLDOWN = "COOLDOWN"
     STATE_TIMEOUT = "TIMEOUT"
     
-    def __init__(self, ad, config, alert_manager=None, boiler_controller=None, app_ref=None):
+    def __init__(self, ad, config, alert_manager=None, boiler_controller=None, app_ref=None, setpoint_ramp_ref=None):
         """Initialize cycling protection controller.
         
         Args:
@@ -154,12 +154,14 @@ class CyclingProtection:
             alert_manager: AlertManager instance for notifications
             boiler_controller: BoilerController instance for state checking
             app_ref: Reference to main app for triggering logs
+            setpoint_ramp_ref: Optional SetpointRamp instance for coordination
         """
         self.ad = ad
         self.config = config
         self.alert_manager = alert_manager
         self.boiler_controller = boiler_controller
         self.app_ref = app_ref
+        self.setpoint_ramp = setpoint_ramp_ref
         # Construct absolute path from app root (same pattern as config_loader)
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
@@ -377,15 +379,19 @@ class CyclingProtection:
         self._set_setpoint(desired_setpoint)
         
     def validate_setpoint_vs_helper(self):
-        """Periodic validation: ensure climate setpoint matches helper (unless in cooldown).
+        """Periodic validation: ensure climate setpoint matches helper (unless in cooldown or ramping).
         
         Called every 60 seconds from periodic recompute to detect and correct setpoint drift.
-        Skips validation when in COOLDOWN state to avoid interfering with protection logic.
+        Skips validation when in COOLDOWN state or when setpoint ramping is active.
         """
         # Don't interfere if we're actively protecting
         if self.state == self.STATE_COOLDOWN:
             return
-            
+        
+        # Don't interfere if setpoint ramping is active
+        if self.setpoint_ramp and self.setpoint_ramp.is_ramping_active():
+            return
+        
         # Read helper setpoint (user's desired value)
         helper_setpoint = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
         if helper_setpoint in ['unknown', 'unavailable', None]:
@@ -556,6 +562,10 @@ class CyclingProtection:
         return_temp = self._get_return_temp()
         threshold = original_setpoint - C.CYCLING_HIGH_RETURN_DELTA_C
         
+        # Notify setpoint ramp about cooldown entry
+        if self.setpoint_ramp:
+            self.setpoint_ramp.on_cooldown_entered()
+        
         # Save state
         self.state = self.STATE_COOLDOWN
         self.saved_setpoint = original_setpoint
@@ -725,6 +735,10 @@ class CyclingProtection:
         
         # Restore setpoint
         self._set_setpoint(self.saved_setpoint)
+        
+        # Notify setpoint ramp about cooldown exit
+        if self.setpoint_ramp:
+            self.setpoint_ramp.on_cooldown_exited()
         
         # Log exit
         return_temp = self._get_return_temp()
