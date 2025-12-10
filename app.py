@@ -586,17 +586,34 @@ class PyHeat(hass.Hass):
             self.run_in(lambda kwargs: self.trvs.lock_setpoint(room_id), 1)
 
     def opentherm_sensor_changed(self, entity, attribute, old, new, kwargs):
-        """OpenTherm sensor changed - log for debugging, no recompute.
+        """OpenTherm sensor changed - log for debugging.
         
-        These sensors are monitored to understand boiler behavior and prepare
-        for future OpenTherm integration features. Changes are logged at DEBUG
-        level and do not trigger heating control recomputation.
+        Flow temperature sensor triggers immediate recompute to allow setpoint
+        ramp to react quickly (within 1-2 seconds) before boiler's internal
+        overheat protection kicks in. Other sensors are logged at DEBUG level
+        and do not trigger recomputation.
         """
         sensor_name = kwargs.get('sensor_name', 'unknown')
         
         # Skip logging if value is unknown or unavailable
         if new in ['unknown', 'unavailable', None]:
             return
+        
+        # Flow temperature sensor triggers immediate recompute for setpoint ramp
+        # This allows ramping to react within 1-2 seconds instead of waiting up to
+        # 60 seconds for periodic recompute. Critical for preventing short-cycling.
+        if sensor_name == 'heating_temp':
+            try:
+                new_temp = float(new)
+                old_temp = float(old) if old not in ['unknown', 'unavailable', None] else None
+                
+                # Only trigger recompute if temperature changed by >= 1C to avoid
+                # excessive recomputes from minor fluctuations (flow temp reports
+                # to 0.1C precision but boiler control operates in whole degrees)
+                if old_temp is None or abs(new_temp - old_temp) >= 1.0:
+                    self.trigger_recompute('flow_temp_changed')
+            except (ValueError, TypeError):
+                pass  # Failed to parse - just log below
         
         # Format the log message based on sensor type
         if sensor_name == "flame":

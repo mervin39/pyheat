@@ -1,6 +1,44 @@
 
 # PyHeat Changelog
 
+## 2025-12-10: BUG FIX - Flow Temperature Sensor Now Triggers Recompute
+
+**Issue:**
+Setpoint ramp feature was failing to react to flow temperature spikes because evaluation only occurred during periodic recomputes (every 60 seconds) or room temperature sensor changes. When flow temperature spiked rapidly (e.g., 48°C → 56°C in 4 seconds), the boiler's internal overheat protection would shut down the flame before the next recompute cycle could evaluate and ramp the setpoint.
+
+**Root Cause Analysis (12:19:31 test):**
+- 12:20:18-22: Boiler burning, flow temp rises 48°C → 52°C → 56°C
+- 12:20:22: Flow hits 56°C (exceeds setpoint 52°C + delta 3°C = 55°C threshold) ✓ Ramp should trigger
+- 12:20:25-26: Boiler reduces modulation to 0%, flow peaks at 57°C
+- 12:20:29: Boiler shuts down (flame OFF)
+- 12:20:52: Next recompute cycle runs (23 seconds too late!), flow already dropped to 48°C
+
+The boiler shut itself down before the next recompute could evaluate and ramp the setpoint.
+
+**Solution:**
+Modified `opentherm_sensor_changed()` to trigger immediate recompute when flow temperature (`sensor.opentherm_heating_temp`) changes by ≥1°C. This allows setpoint ramp evaluation to occur within 1-2 seconds of flow temp changes, preventing boiler shutdown.
+
+**Why 1°C threshold:**
+- Flow temp sensor reports to 0.1°C precision
+- Boiler control operates in whole degrees
+- 1°C threshold avoids excessive recomputes from minor fluctuations while ensuring rapid response to meaningful changes
+- During rapid heating, flow temp typically changes by 1°C every 1-3 seconds
+
+**Impact:**
+- Setpoint ramp can now react in near real-time (1-2 seconds) instead of waiting up to 60 seconds
+- Prevents boiler short-cycling during low-demand heating scenarios
+- No impact on room temperature control (still uses smoothed temps with 0.05°C deadband)
+
+**Files Changed:**
+- `app.py` - Modified `opentherm_sensor_changed()` to trigger recompute on flow temp changes ≥1°C
+
+**Testing Required:**
+- Re-run setpoint ramp test with flow temp sensor triggering recomputes
+- Verify ramp activates before boiler shuts down
+- Monitor recompute frequency (should be 5-10 per minute during active heating)
+
+---
+
 ## 2025-12-10: NEW FEATURE - Setpoint Ramp (Toggleable)
 
 **Summary:**
