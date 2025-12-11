@@ -184,7 +184,12 @@ class CyclingProtection:
         # Circular buffers storing (timestamp, state) tuples
         self.dhw_history_binary = deque(maxlen=C.CYCLING_DHW_HISTORY_BUFFER_SIZE)
         self.dhw_history_flow = deque(maxlen=C.CYCLING_DHW_HISTORY_BUFFER_SIZE)
-        
+
+        # Flow temp history tracking for sensor lag compensation
+        # Circular buffer storing (timestamp, flow_temp, setpoint) tuples
+        # Critical: Store setpoint with flow temp to handle setpoint ramping correctly
+        self.flow_temp_history = deque(maxlen=C.CYCLING_FLOW_TEMP_HISTORY_BUFFER_SIZE)
+
         # Recovery monitoring handle
         self.recovery_handle = None
         
@@ -258,7 +263,49 @@ class CyclingProtection:
                 f"DHW state change: {entity.split('.')[-1]}={new} (tracking in history buffer)",
                 level="DEBUG"
             )
-            
+
+    def on_flow_or_setpoint_change(self, entity, attribute, old, new, kwargs):
+        """Track flow temp and setpoint changes for sensor lag compensation.
+
+        Called whenever flow temp sensor or setpoint changes.
+        Stores (timestamp, flow_temp, setpoint) tuples in circular buffer.
+
+        Critical: Stores BOTH values together at same timestamp to correctly
+        handle setpoint ramping - each historical flow temp is compared to
+        the setpoint that was active at that same moment.
+
+        Args:
+            entity: Entity ID that changed (flow temp sensor or climate/helper)
+            attribute: Attribute that changed (may be 'temperature' for climate entity)
+            old: Previous value
+            new: New value
+            kwargs: Additional callback parameters
+        """
+        timestamp = datetime.now()
+
+        # Read current flow temp and setpoint
+        flow_temp = self._get_flow_temp()
+        setpoint = self._get_current_setpoint()
+
+        # Only append if both values are valid
+        if flow_temp is not None and setpoint is not None:
+            self.flow_temp_history.append((timestamp, flow_temp, setpoint))
+
+            # Debug logging for significant changes (flow temp increases)
+            if old and new:
+                try:
+                    old_val = float(old)
+                    new_val = float(new)
+                    # Log if flow temp increased by more than 2°C
+                    if entity == C.OPENTHERM_HEATING_TEMP and new_val > old_val + 2.0:
+                        self.ad.log(
+                            f"Flow temp increased: {old_val:.1f}C -> {new_val:.1f}C "
+                            f"(setpoint: {setpoint:.1f}C, tracking in history)",
+                            level="DEBUG"
+                        )
+                except (ValueError, TypeError):
+                    pass
+
     def on_flame_off(self, entity, attribute, old, new, kwargs):
         """Flame went OFF - capture DHW state and schedule delayed check.
         
@@ -453,7 +500,53 @@ class CyclingProtection:
         )
         
         return binary_active or flow_active
-            
+
+    def _flow_was_recently_overheating(self, lookback_seconds: int = None) -> Tuple[bool, float, float]:
+        """Check if flow temp exceeded its setpoint+2C threshold in recent history.
+
+        This compensates for flame sensor lag (4-6s). By the time the flame sensor
+        reports OFF, the physical flame has been off for several seconds and flow
+        temp has already dropped. This function looks back at recent history to find
+        the peak flow temp and compares it to the setpoint that was active at that
+        same moment.
+
+        Critical: Each historical flow temp is compared to its corresponding setpoint
+        at the same timestamp. This correctly handles:
+        - Setpoint ramping (dynamic increases during heating)
+        - User setpoint changes
+        - Cooldown transitions (setpoint drops to 30C)
+
+        Args:
+            lookback_seconds: How far back to check history (default: from constants)
+
+        Returns:
+            Tuple of (was_overheating, peak_flow, peak_setpoint):
+            - was_overheating: True if any point in history exceeded threshold
+            - peak_flow: Highest flow temp that triggered overheat (0.0 if none)
+            - peak_setpoint: Setpoint at time of peak_flow (0.0 if none)
+        """
+        if lookback_seconds is None:
+            lookback_seconds = C.CYCLING_FLOW_TEMP_LOOKBACK_S
+
+        cutoff = datetime.now() - timedelta(seconds=lookback_seconds)
+
+        peak_flow = 0.0
+        peak_setpoint = 0.0
+        was_overheating = False
+
+        # Check each historical point: flow_temp vs (setpoint_at_that_time + 2C)
+        for timestamp, flow_temp, setpoint_at_time in self.flow_temp_history:
+            if timestamp >= cutoff:
+                threshold_at_time = setpoint_at_time + C.CYCLING_FLOW_OVERHEAT_MARGIN_C
+                if flow_temp >= threshold_at_time:
+                    was_overheating = True
+                    # Track the highest flow temp that exceeded its threshold
+                    if flow_temp > peak_flow:
+                        peak_flow = flow_temp
+                        peak_setpoint = setpoint_at_time
+
+        return was_overheating, peak_flow, peak_setpoint
+
     def _evaluate_cooldown_need(self, kwargs):
         """Delayed check after flame OFF - sensors have had time to update.
         
@@ -523,30 +616,55 @@ class CyclingProtection:
         # Calculate thresholds for dual-temperature detection
         flow_overheat_threshold = setpoint + C.CYCLING_FLOW_OVERHEAT_MARGIN_C  # Flow ABOVE setpoint
         return_threshold = setpoint - C.CYCLING_HIGH_RETURN_DELTA_C            # Return below setpoint
-        
-        # Check if EITHER temperature indicates overheat (OR logic for cooldown entry)
-        flow_overheat = flow_temp >= flow_overheat_threshold
+
+        # Check current flow temp
+        flow_overheat_now = flow_temp >= flow_overheat_threshold
+
+        # CRITICAL: Also check recent history to compensate for flame sensor lag (4-6s)
+        # By the time flame sensor reports OFF, flow temp may have already dropped
+        flow_overheat_history, peak_flow, peak_setpoint = self._flow_was_recently_overheating()
+
+        # Combine current and historical checks (OR logic)
+        flow_overheat = flow_overheat_now or flow_overheat_history
+
+        # Check return temp (fallback detection)
         return_high = return_temp >= return_threshold
-        
-        self.ad.log(
-            f"Flame OFF: Confirmed CH shutdown | "
-            f"DHW at flame OFF: binary={dhw_binary_at_flame_off}, flow={dhw_flow_at_flame_off} | "
-            f"DHW now: binary={dhw_binary_now}, flow={dhw_flow_now} | "
-            f"Flow: {flow_temp:.1f}C (overheat if >={flow_overheat_threshold:.1f}C) {'OVERHEAT' if flow_overheat else 'OK'} | "
-            f"Return: {return_temp:.1f}C (high if >={return_threshold:.1f}C) {'HIGH' if return_high else 'OK'} | "
-            f"Setpoint: {setpoint:.1f}C",
-            level="INFO"
-        )
-        
+
+        # Build detailed log message
+        log_parts = [
+            f"Flame OFF: Confirmed CH shutdown | ",
+            f"DHW at flame OFF: binary={dhw_binary_at_flame_off}, flow={dhw_flow_at_flame_off} | ",
+            f"DHW now: binary={dhw_binary_now}, flow={dhw_flow_now} | ",
+            f"Flow NOW: {flow_temp:.1f}C (overheat if >={flow_overheat_threshold:.1f}C) {'OVERHEAT' if flow_overheat_now else 'OK'} | "
+        ]
+
+        if flow_overheat_history:
+            log_parts.append(
+                f"Flow HISTORY: Peak {peak_flow:.1f}C (was >={peak_setpoint + C.CYCLING_FLOW_OVERHEAT_MARGIN_C:.1f}C) OVERHEAT | "
+            )
+        else:
+            log_parts.append(f"Flow HISTORY: OK (no overheat in last {C.CYCLING_FLOW_TEMP_LOOKBACK_S}s) | ")
+
+        log_parts.append(f"Return: {return_temp:.1f}C (high if >={return_threshold:.1f}C) {'HIGH' if return_high else 'OK'} | ")
+        log_parts.append(f"Setpoint: {setpoint:.1f}C")
+
+        self.ad.log("".join(log_parts), level="INFO")
+
         if flow_overheat or return_high:
             # Determine trigger reason for logging
-            if flow_overheat and return_high:
-                reason = "flow overheat AND high return temp (both conditions met)"
-            elif flow_overheat:
-                reason = "flow temperature exceeds setpoint"
+            if flow_overheat_now and flow_overheat_history and return_high:
+                reason = "flow overheat (current AND history) AND high return temp"
+            elif flow_overheat_now and return_high:
+                reason = "flow overheat (current) AND high return temp"
+            elif flow_overheat_history and return_high:
+                reason = "flow overheat (history) AND high return temp"
+            elif flow_overheat_now:
+                reason = "flow temperature exceeds setpoint (current)"
+            elif flow_overheat_history:
+                reason = f"flow temperature exceeded setpoint in history (peak {peak_flow:.1f}C at setpoint {peak_setpoint:.1f}C)"
             else:
                 reason = "return temperature high (fallback)"
-            
+
             self.ad.log(f"Entering cooldown: {reason}", level="WARNING")
             self._enter_cooldown(setpoint)
         else:

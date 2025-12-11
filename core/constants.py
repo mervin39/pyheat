@@ -178,6 +178,10 @@ CYCLING_SENSOR_DELAY_S = 2  # Wait for OpenTherm sensors to update after flame O
 CYCLING_DHW_LOOKBACK_S = 60  # How far back to check for DHW activity (increased from 12s to catch slower shutdowns)
 CYCLING_DHW_HISTORY_BUFFER_SIZE = 100  # Number of state changes to track in history buffer
 
+# Flow temperature history tracking (for sensor lag compensation)
+CYCLING_FLOW_TEMP_LOOKBACK_S = 12  # Check last 12s for peak flow temp (compensates for 4-6s flame sensor lag)
+CYCLING_FLOW_TEMP_HISTORY_BUFFER_SIZE = 50  # Buffer size for flow temp history (12s at ~2s intervals = ~6 entries needed, 50 provides margin)
+
 # Cooldown detection thresholds - dual temperature approach
 # Flow temperature overheat detection (flow ABOVE setpoint indicates boiler overheat)
 CYCLING_FLOW_OVERHEAT_MARGIN_C = 2  # Trigger if flow exceeds setpoint by 2°C

@@ -409,6 +409,15 @@ Cooldown triggers on any flame-off event if **EITHER** condition is met (OR logi
 
 **CRITICAL:** Only ONE condition needs to be met to trigger cooldown (not both).
 
+**Sensor Lag Compensation:**
+- Flow temperature sensor reports flame-OFF with 4-6 second delay after physical flame extinction
+- By the time sensor reports OFF, flow temp may have dropped below threshold
+- **Solution:** Tracks flow temp history (last 12 seconds) with timestamps and corresponding setpoints
+- Compares each historical flow temp to the setpoint active at that same moment
+- Correctly handles setpoint ramping (dynamic setpoint changes during heating)
+- Triggers cooldown if flow temp exceeded threshold at ANY point in recent history
+- Example: Peak 54°C at T-5s with setpoint 50°C triggers cooldown even if current flow is 48°C
+
 **DHW Filtering:**
 - Ignores flame-offs during domestic hot water demand
 - Uses quad-check: DHW binary sensor + flow rate sensor, at flame-off and 2s later
@@ -438,8 +447,15 @@ Cooldown ends when **BOTH** temperatures are safe (AND logic):
 
 **Constants (in `constants.py`):**
 ```python
+# Detection thresholds
 CYCLING_FLOW_OVERHEAT_MARGIN_C = 2   # Flow must exceed setpoint by 2°C
 CYCLING_HIGH_RETURN_DELTA_C = 5      # Return threshold: setpoint - 5°C
+
+# Sensor lag compensation
+CYCLING_FLOW_TEMP_LOOKBACK_S = 12    # Check last 12s for peak flow temp
+CYCLING_FLOW_TEMP_HISTORY_BUFFER_SIZE = 50  # Buffer size for history tracking
+
+# Cooldown behavior
 CYCLING_COOLDOWN_SETPOINT = 30       # Setpoint during cooldown
 CYCLING_RECOVERY_DELTA_C = 15        # Recovery threshold: setpoint - 15°C
 CYCLING_RECOVERY_MIN_C = 45          # Absolute minimum recovery temp

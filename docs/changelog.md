@@ -1,6 +1,93 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Add Sensor Lag Compensation to Cooldown Detection
+
+**Issue:**
+Cooldown detection was missing short-cycling events due to flame sensor lag (4-6 seconds). When the physical boiler flame extinguished due to overheat, the flow temperature would drop 4-6°C before the flame sensor reported OFF. By the time PyHeat evaluated cooldown conditions, the flow temp had already fallen below the threshold, causing missed triggers.
+
+**Evidence from 2025-12-11 logs:**
+- 07:25:29: Peak flow 54°C (threshold 52°C), but sensor-off flow 48°C - missed
+- 07:51:37: Peak flow 53°C (threshold 53°C), but sensor-off flow 48°C - missed
+- 08:18:25: Peak flow 54°C (threshold 52°C), but sensor-off flow 50°C - missed
+
+**Root Cause:**
+The flame sensor (`binary_sensor.opentherm_flame`) reports state changes 4-6 seconds after the physical event. Flow temperature drops rapidly during this lag period:
+```
+T-5s: Flame ON,  Flow 54C  <- Physical overheat
+T-4s: Flame ON,  Flow 53C  <- Physical flame OFF (modulation 0%)
+T-3s: Flame ON,  Flow 51C  <- Flow dropping
+T-2s: Flame ON,  Flow 49C  <- Flow dropping
+T-0s: Flame OFF, Flow 48C  <- Sensor finally reports (too late!)
+```
+
+**Solution:**
+Implemented flow temperature history tracking with sensor lag compensation:
+
+1. **Flow Temp History Buffer** (12-second lookback):
+   - Stores `(timestamp, flow_temp, setpoint)` tuples in circular buffer
+   - Captures BOTH flow temp AND setpoint at same moment
+   - Critical for handling setpoint ramping (dynamic setpoint changes)
+
+2. **Historical Overheat Check**:
+   - Compares each historical flow temp to its corresponding setpoint
+   - Triggers cooldown if ANY point in last 12s exceeded threshold
+   - Correctly handles setpoint ramping by comparing temps at matching timestamps
+
+3. **Dual Check Strategy**:
+   - Check current flow temp (as before)
+   - ALSO check recent history (new)
+   - Trigger if EITHER indicates overheat (OR logic)
+
+**Implementation:**
+
+**New Methods:**
+- `on_flow_or_setpoint_change()`: Populates history buffer on sensor updates
+- `_flow_was_recently_overheating()`: Checks 12s history for peak overheat
+
+**Modified Methods:**
+- `_evaluate_cooldown_need()`: Now checks both current and historical flow temps
+- Enhanced logging to show both current and historical analysis
+
+**New Constants:**
+- `CYCLING_FLOW_TEMP_LOOKBACK_S = 12`: Lookback window (covers 4-6s lag with margin)
+- `CYCLING_FLOW_TEMP_HISTORY_BUFFER_SIZE = 50`: Buffer capacity
+
+**Registered Listeners (app.py):**
+- `sensor.opentherm_heating_temp`: Flow temp changes
+- `climate.opentherm_heating` (temperature attribute): Setpoint changes
+- `input_number.pyheat_opentherm_setpoint`: Helper setpoint changes
+
+**Log Output Example:**
+```
+Flow NOW: 48.0C (overheat if >=52.0C) OK |
+Flow HISTORY: Peak 54.0C (was >=52.0C) OVERHEAT |
+Return: 40.0C (high if >=45.0C) OK |
+Setpoint: 50.0C
+Entering cooldown: flow temperature exceeded setpoint in history (peak 54.0C at setpoint 50.0C)
+```
+
+**Verification:**
+- All three missed events (07:25:29, 07:51:37, 08:18:25) would now trigger correctly
+- Events that correctly triggered (07:22:04, 07:53:41) still trigger
+- No false positives introduced
+
+**Benefits:**
+- ✅ Catches all genuine overheat events despite sensor lag
+- ✅ Correctly handles setpoint ramping (compares temps at matching timestamps)
+- ✅ Improves boiler protection effectiveness
+- ✅ Reduces undetected short-cycling damage risk
+
+**Files Changed:**
+- `core/constants.py` - Added flow temp history constants
+- `controllers/cycling_protection.py` - Flow temp history tracking and lookback checker
+- `app.py` - Registered flow temp and setpoint listeners
+- `README.md` - Updated cooldown documentation with sensor lag compensation
+- `docs/ARCHITECTURE.md` - Updated module description
+- `docs/changelog.md` - This entry
+
+---
+
 ## 2025-12-10: Fix Setpoint Ramp Flame-OFF Reset Logic
 
 **Issue:**

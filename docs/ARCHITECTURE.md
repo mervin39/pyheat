@@ -420,7 +420,7 @@ Multiple mechanisms (events + state polling) can trigger recomputes for the same
 - **valve_coordinator.py** - Single authority for valve command decisions with priority handling
 - **trv_controller.py** - TRV valve commands and setpoint locking
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
-- **cycling_protection.py** - Automatic short-cycling prevention via return temperature monitoring
+- **cycling_protection.py** - Automatic short-cycling prevention via dual-temperature monitoring (flow + return) with sensor lag compensation using 12-second flow temp history tracking
 - **setpoint_ramp.py** - Dynamic setpoint ramping to prevent short-cycling during heating
 - **alert_manager.py** - Error tracking and Home Assistant persistent notifications
 - **service_handler.py** - Home Assistant service registration and handling

@@ -343,7 +343,23 @@ class PyHeat(hass.Hass):
         if self.entity_exists(C.HELPER_OPENTHERM_SETPOINT):
             self.listen_state(self.cycling.on_setpoint_changed, C.HELPER_OPENTHERM_SETPOINT)
             self.log("Registered OpenTherm setpoint control")
-        
+
+        # Flow temp and setpoint sensors for cycling protection history tracking (sensor lag compensation)
+        history_sensor_count = 0
+        if self.entity_exists(C.OPENTHERM_HEATING_TEMP):
+            self.listen_state(self.cycling.on_flow_or_setpoint_change, C.OPENTHERM_HEATING_TEMP)
+            history_sensor_count += 1
+        if self.entity_exists(C.OPENTHERM_CLIMATE):
+            # Listen to temperature attribute changes (setpoint changes)
+            self.listen_state(self.cycling.on_flow_or_setpoint_change, C.OPENTHERM_CLIMATE, attribute='temperature')
+            history_sensor_count += 1
+        if self.entity_exists(C.HELPER_OPENTHERM_SETPOINT):
+            # Also track helper changes for history (in addition to on_setpoint_changed above)
+            self.listen_state(self.cycling.on_flow_or_setpoint_change, C.HELPER_OPENTHERM_SETPOINT)
+            history_sensor_count += 1
+        if history_sensor_count > 0:
+            self.log(f"Registered {history_sensor_count} sensors for cycling protection flow temp history tracking")
+
         # ====================================================================
         # Timer event listeners (immediate response to timer completion)
         # ====================================================================
