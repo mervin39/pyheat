@@ -266,6 +266,7 @@ class RoomController:
             'manual_setpoint': manual_setpoint,
             'passive_min_temp': target if operating_mode == 'passive' else None,  # For backwards compat in status
             'passive_max_temp': passive_max_temp,  # NEW: upper limit for passive mode
+            'passive_valve_percent': passive_valve_percent,  # Scheduled valve percent for passive mode
             'comfort_mode': False,
         }
         

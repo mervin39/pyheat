@@ -821,6 +821,8 @@ class StatusPublisher:
             'load_sharing': f"T{load_sharing_info.get('tier', 1)}" if (load_sharing_info and load_sharing_info.get('active')) else "off",
             'valve': data.get('valve_percent', 0),
             'passive_low': data.get('passive_min_temp') if data.get('operating_mode') == 'passive' else None,
+            'passive_high': round(data.get('passive_max_temp'), precision) if (data.get('operating_mode') == 'passive' and data.get('passive_max_temp') is not None) else None,
+            'passive_valve': data.get('passive_valve_percent') if data.get('operating_mode') == 'passive' else None,  # Scheduled valve percent
             'calling': data.get('calling', False),
         }
         

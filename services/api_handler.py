@@ -355,39 +355,11 @@ class APIHandler:
                         # No feedback sensor, use commanded percent
                         actual_valve_percent = room_data.get("valve_percent", 0)
                 
-                # Get passive mode settings from input_number helper entities
-                passive_max_temp = None
-                passive_min_temp = None
-                passive_valve_percent = None
-                
-                passive_max_entity = C.HELPER_ROOM_PASSIVE_MAX_TEMP.format(room=room_id)
-                if self.ad.entity_exists(passive_max_entity):
-                    try:
-                        max_temp_str = self.ad.get_state(passive_max_entity)
-                        if max_temp_str not in [None, "unknown", "unavailable"]:
-                            passive_max_temp = float(max_temp_str)
-                    except (ValueError, TypeError):
-                        pass
-                
-                passive_min_entity = C.HELPER_ROOM_PASSIVE_MIN_TEMP.format(room=room_id)
-                if self.ad.entity_exists(passive_min_entity):
-                    try:
-                        min_temp_str = self.ad.get_state(passive_min_entity)
-                        if min_temp_str not in [None, "unknown", "unavailable"]:
-                            passive_min_temp = float(min_temp_str)
-                    except (ValueError, TypeError):
-                        pass
-                
-                # Get passive valve percent from HA entity (runtime value)
-                # Note: schedule's default_valve_percent is only for initialization, not display
-                passive_valve_entity = C.HELPER_ROOM_PASSIVE_VALVE_PERCENT.format(room=room_id)
-                if self.ad.entity_exists(passive_valve_entity):
-                    try:
-                        valve_str = self.ad.get_state(passive_valve_entity)
-                        if valve_str not in [None, "unknown", "unavailable"]:
-                            passive_valve_percent = int(float(valve_str))
-                    except (ValueError, TypeError):
-                        pass
+                # Get passive mode settings from state attributes (scheduled values, not entity config)
+                # These reflect the actual active passive block's min/max/valve values
+                passive_max_temp = state_attrs.get("passive_high")  # Scheduled/active max temp
+                passive_min_temp = state_attrs.get("passive_low")   # Scheduled/active min temp (comfort floor)
+                passive_valve_percent = state_attrs.get("passive_valve")  # Scheduled/active valve percent
                 
                 # Build combined room status
                 room_status = {
