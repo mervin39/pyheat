@@ -27,28 +27,28 @@ class APIHandler:
         self.service_handler = service_handler
     
     def _strip_time_from_status(self, status: str) -> str:
-        """Strip time information from formatted_status for pyheat-web.
-        
-        Auto mode: Keep full status with times (same as HA)
+        """Strip time information from formatted_next_schedule for pyheat-web.
+
         Override: Strip " until HH:MM" only (web will show live countdown)
-        
+        Auto mode: Keep full status with times
+
         Args:
-            status: Formatted status string from status_publisher
-            
+            status: Formatted next schedule string from status_publisher
+
         Returns:
             Status with times stripped only for Override (not Auto)
         """
         if not status:
             return status
-        
+
         import re
-        
+
         # Strip " until HH:MM" from Override only
-        # Auto mode has different structure: "until HH:MM on Day (T°)" - won't match this pattern
-        # Override: "Override: T° (ΔD°) until HH:MM" - matches and strips
+        # Auto mode: "until HH:MM..." or "until HH:MM tomorrow..." - don't strip
+        # Override: "Override: T° until HH:MM" - matches and strips
         if status.startswith("Override:"):
             status = re.sub(r' until \d{2}:\d{2}', '', status)
-        
+
         return status
         
     def register_all(self) -> None:
@@ -373,7 +373,7 @@ class APIHandler:
                     "valve_percent": actual_valve_percent,
                     "is_stale": room_data.get("is_stale", True),
                     "status_text": status_text,
-                    "formatted_status": self._strip_time_from_status(state_attrs.get("formatted_status")),  # Strip times for web
+                    "formatted_next_schedule": self._strip_time_from_status(state_attrs.get("formatted_next_schedule")),  # Strip times for web
                     "manual_setpoint": manual_setpoint,
                     "valve_feedback_consistent": valve_fb_consistent,
                     "override_end_time": override_end_time,  # ISO 8601 timestamp or null

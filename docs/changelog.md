@@ -1,6 +1,57 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Replace formatted_status with formatted_next_schedule
+
+**Change:**
+Renamed and simplified the status line display attribute from `formatted_status` to `formatted_next_schedule` to focus exclusively on future schedule information.
+
+**Motivation:**
+The previous `formatted_status` contained too much information and was trying to show both current state and future schedule details. Now that current state information (temp, target, valve %, etc.) is properly displayed in separate card areas, the status line can focus solely on showing what comes next in the schedule.
+
+**New Behavior:**
+- **Off mode**: "Heating Off"
+- **Manual mode**: "Manual"
+- **Passive mode**: "Passive"
+- **Auto with override**: "Override: XX.X° until HH:MM" (unchanged behavior - web UI still adds countdown timer)
+- **Auto without override**:
+  - If no schedule changes found: "Forever"
+  - If next change is active: "until HH:MM [day]: XX.XC"
+  - If next change is passive: "until HH:MM [day]: [V%] L-UC (passive)"
+  - Day shown as: (omit if today), "tomorrow" (if tomorrow), "on Monday" etc (if later)
+
+**Improved Schedule Finding Logic:**
+Rewrote the schedule finding logic to be more reliable and handle edge cases:
+- Correctly handles blocks ending at 23:59 (looks to next day at 00:00)
+- Properly detects "forever" schedules (no blocks in entire week)
+- Handles gaps between scheduled blocks (reverts to default mode)
+- Loops through entire week to find next change
+
+**Implementation:**
+1. **services/status_publisher.py**:
+   - Added `_get_next_schedule_info()` method with improved schedule finding logic
+   - Renamed `_format_status_text()` to `_format_next_schedule_text()` and simplified
+   - Added helper methods `_build_schedule_info_dict()` and `_build_schedule_info_dict_default()`
+   - Updated `publish_room_entities()` to use new `formatted_next_schedule` attribute
+   - Added `Optional` to imports
+
+2. **services/api_handler.py**:
+   - Updated `_strip_time_from_status()` docstring
+   - Updated `api_get_status()` to use `formatted_next_schedule`
+
+**Benefits:**
+- Cleaner, simpler status text focused on future information
+- More reliable schedule finding with proper edge case handling
+- Easier to understand at a glance what will happen next
+- Consistent format across all modes
+
+**Breaking Change:**
+pyheat-web must be updated to use `formatted_next_schedule` instead of `formatted_status`.
+
+**Files Changed:**
+- [services/status_publisher.py](services/status_publisher.py): Renamed method, added new schedule finding logic
+- [services/api_handler.py](services/api_handler.py): Updated to use new attribute name
+
 ## 2025-12-11: Fix File Permissions for Created Files
 
 **Issue:**

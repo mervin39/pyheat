@@ -9,7 +9,7 @@ Responsibilities:
 """
 
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import json
 import constants as C
 
@@ -86,346 +86,341 @@ class StatusPublisher:
     
     def _check_if_forever(self, room_id: str) -> bool:
         """Check if schedule is set to run forever (no blocks on any day).
-        
+
         Args:
             room_id: Room identifier
-            
+
         Returns:
             True if all days have no schedule blocks
         """
         if not hasattr(self, 'scheduler_ref') or not self.scheduler_ref:
             return False
-        
+
         schedule = self.scheduler_ref.config.schedules.get(room_id)
         if not schedule:
             return True  # No schedule = forever
-        
+
         week_schedule = schedule.get('week', {})
         day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-        
+
         # Check if all days have empty blocks
         for day in day_names:
             blocks = week_schedule.get(day, [])
             if blocks:  # If any day has blocks, not forever
                 return False
-        
+
         return True
+
+    def _get_next_schedule_info(self, room_id: str, now: datetime, holiday_mode: bool) -> Optional[Dict]:
+        """Get next schedule change information for display purposes.
+
+        Implements the complete schedule finding logic:
+        1. Determine if in a schedule block or default mode
+        2. If in block: Find end time and what comes next (block or default)
+        3. If in default: Find next scheduled block (may be days ahead)
+        4. Loop through entire week if necessary
+        5. Return None if no changes found (forever)
+
+        Args:
+            room_id: Room identifier
+            now: Current datetime
+            holiday_mode: Whether holiday mode is active
+
+        Returns:
+            Dict with keys:
+                'time': str (HH:MM)
+                'day_offset': int (0=today, 1=tomorrow, etc)
+                'mode': str ('active' or 'passive')
+                'target': float (setpoint for active, min_temp for passive)
+                'passive_max_temp': Optional[float] (for passive only)
+                'valve_percent': Optional[int] (for passive only)
+            Or None if forever/no schedule/holiday mode
+        """
+        if not hasattr(self, 'scheduler_ref') or not self.scheduler_ref:
+            return None
+
+        schedule = self.scheduler_ref.config.schedules.get(room_id)
+        if not schedule or holiday_mode:
+            return None
+
+        week_schedule = schedule.get('week', {})
+        day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        current_day_idx = now.weekday()
+        current_time = now.strftime("%H:%M")
+
+        # Get default mode settings
+        default_mode = schedule.get('default_mode', 'active')
+        default_target = schedule.get('default_target', 16.0)
+
+        # Step 1: Determine current state - are we in a schedule block?
+        current_day_name = day_names[current_day_idx]
+        blocks_today = week_schedule.get(current_day_name, [])
+
+        in_block = False
+        current_block = None
+        current_block_end = None
+
+        for block in blocks_today:
+            block_start = block['start']
+            block_end = block.get('end', '23:59')
+            # Convert 23:59 to 24:00 for comparison
+            if block_end == '23:59':
+                block_end = '24:00'
+
+            if block_start <= current_time < block_end:
+                in_block = True
+                current_block = block
+                current_block_end = block_end
+                break
+
+        if in_block:
+            # Step 2a: We're in a scheduled block - find what comes next at block end
+
+            # Check if block ends at 24:00 (end of day)
+            if current_block_end == '24:00':
+                # Block goes to end of day - check next day at 00:00
+                next_day_offset = 1
+                next_day_idx = (current_day_idx + next_day_offset) % 7
+                next_day_name = day_names[next_day_idx]
+                next_day_blocks = week_schedule.get(next_day_name, [])
+
+                # Check if there's a block at 00:00 on next day
+                if next_day_blocks and next_day_blocks[0]['start'] == '00:00':
+                    # Block defined at 00:00 tomorrow
+                    next_block = next_day_blocks[0]
+                    return self._build_schedule_info_dict('00:00', next_day_offset, next_block, schedule)
+                else:
+                    # Gap at midnight - revert to default
+                    return self._build_schedule_info_dict_default('00:00', next_day_offset, schedule)
+            else:
+                # Block ends before end of day - check if there's a block starting at end time
+                block_at_end = None
+                for block in blocks_today:
+                    if block['start'] == current_block_end:
+                        block_at_end = block
+                        break
+
+                if block_at_end:
+                    # New block defined at end time
+                    return self._build_schedule_info_dict(current_block_end, 0, block_at_end, schedule)
+                else:
+                    # No block at end time - revert to default
+                    return self._build_schedule_info_dict_default(current_block_end, 0, schedule)
+
+        else:
+            # Step 2b: We're in default mode - find next scheduled block
+
+            # First, check remaining blocks today (after current time)
+            for block in blocks_today:
+                if block['start'] > current_time:
+                    # Found next block today
+                    return self._build_schedule_info_dict(block['start'], 0, block, schedule)
+
+            # No more blocks today - search future days
+            for day_offset in range(1, 8):  # Check next 7 days
+                day_idx = (current_day_idx + day_offset) % 7
+                day_name = day_names[day_idx]
+                day_blocks = week_schedule.get(day_name, [])
+
+                if day_blocks:
+                    # Found a block on this day - use the first one
+                    first_block = day_blocks[0]
+                    return self._build_schedule_info_dict(first_block['start'], day_offset, first_block, schedule)
+
+            # After checking entire week, no blocks found - this is "forever"
+            return None
+
+    def _build_schedule_info_dict(self, time_str: str, day_offset: int, block: Dict, schedule: Dict) -> Dict:
+        """Build schedule info dict from a schedule block.
+
+        Args:
+            time_str: HH:MM time string
+            day_offset: Days from now (0=today, 1=tomorrow, etc)
+            block: Schedule block dict
+            schedule: Full schedule dict (for defaults)
+
+        Returns:
+            Dict with schedule info
+        """
+        block_mode = block.get('mode', 'active')
+
+        if block_mode == 'passive':
+            # For passive: target is max_temp, need to get min_temp
+            max_temp = block['target']
+            min_temp = block.get('min_target')
+            if min_temp is None:
+                # Fall back to default or entity value
+                min_temp = schedule.get('default_min_temp', 8.0)
+            valve_percent = block.get('valve_percent', 30)
+
+            return {
+                'time': time_str,
+                'day_offset': day_offset,
+                'mode': 'passive',
+                'target': min_temp,  # Display min as target
+                'passive_max_temp': max_temp,
+                'valve_percent': valve_percent
+            }
+        else:
+            # Active mode
+            return {
+                'time': time_str,
+                'day_offset': day_offset,
+                'mode': 'active',
+                'target': block['target'],
+                'passive_max_temp': None,
+                'valve_percent': None
+            }
+
+    def _build_schedule_info_dict_default(self, time_str: str, day_offset: int, schedule: Dict) -> Dict:
+        """Build schedule info dict from default schedule settings.
+
+        Args:
+            time_str: HH:MM time string
+            day_offset: Days from now (0=today, 1=tomorrow, etc)
+            schedule: Full schedule dict
+
+        Returns:
+            Dict with schedule info
+        """
+        default_mode = schedule.get('default_mode', 'active')
+        default_target = schedule.get('default_target', 16.0)
+
+        if default_mode == 'passive':
+            # Default passive mode
+            max_temp = default_target
+            min_temp = schedule.get('default_min_temp', 8.0)
+            valve_percent = schedule.get('default_valve_percent', 30)
+
+            return {
+                'time': time_str,
+                'day_offset': day_offset,
+                'mode': 'passive',
+                'target': min_temp,
+                'passive_max_temp': max_temp,
+                'valve_percent': valve_percent
+            }
+        else:
+            # Default active mode
+            return {
+                'time': time_str,
+                'day_offset': day_offset,
+                'mode': 'active',
+                'target': default_target,
+                'passive_max_temp': None,
+                'valve_percent': None
+            }
     
-    def _format_status_text(self, room_id: str, data: Dict, scheduled_info: Dict = None) -> str:
-        """Format human-readable status text for a room.
-        
-        Implements STATUS_FORMAT_SPEC.md formats:
-        - Frost Protection (highest priority): "FROST PROTECTION: T° -> TT°"
-        - Load Sharing (priority): "Pre-warming for HH:MM" or "Fallback heating P{N}"
-        - Auto: "Auto: T° until HH:MM on $DAY (S°)" or "Auto: T° forever"
-        - Auto + Scheduled Passive: "Auto (passive): X-Y°, Z% until HH:MM on $DAY (A°)"
-        - Override: "Override: T° (ΔD°) until HH:MM" - delta calculated on-the-fly
-        - Manual: "Manual: T°"
-        - Passive: "Passive: X-Y°, Z%"
+    def _format_next_schedule_text(self, room_id: str, data: Dict, now: datetime) -> str:
+        """Format next schedule information for display.
+
+        NEW SIMPLIFIED LOGIC:
         - Off: "Heating Off"
-        
+        - Manual: "Manual"
+        - Passive: "Passive"
+        - Auto with override: Keep current override display (with countdown)
+        - Auto without override: Show next schedule change details
+
         Args:
             room_id: Room identifier
             data: Room state dictionary
-            scheduled_info: Currently scheduled info dict from scheduler (includes target, mode, is_default_mode, block_end_time)
-            
+            now: Current datetime
+
         Returns:
-            Formatted status string
+            Formatted next schedule string
         """
         mode = data.get('mode', 'off')
-        operating_mode = data.get('operating_mode', mode)  # Get actual operating mode
-        scheduled_temp = scheduled_info['target'] if scheduled_info else None
-        
-        # Check frost protection FIRST (highest priority)
-        if data.get('frost_protection', False):
-            temp = data.get('temp', 0)
-            target = data.get('target', 0)
-            return f"FROST PROTECTION: {temp:.1f}C -> {target:.1f}C (emergency heating)"
-        
-        # Check comfort mode SECOND (passive mode below minimum temperature)
-        if data.get('comfort_mode', False):
-            temp = data.get('temp', 0)
-            min_temp = data.get('passive_min_temp', 0)
-            return f"Comfort heating (below {min_temp:.1f}C)"
-        
-        # Check load sharing SECOND (takes priority over override)
-        if hasattr(self.ad, 'load_sharing') and self.ad.load_sharing:
-            load_sharing_context = self.ad.load_sharing.context
-            if load_sharing_context and load_sharing_context.active_rooms:
-                for room_id_key, activation in load_sharing_context.active_rooms.items():
-                    if activation.room_id == room_id:
-                        # Room is in load sharing
-                        if activation.tier == 1:
-                            # Tier 1: Schedule-aware pre-warming
-                            # Get next schedule block time
-                            if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
-                                try:
-                                    from datetime import datetime
-                                    now = datetime.now()
-                                    # Look ahead up to 2 hours
-                                    next_block = self.scheduler_ref.get_next_schedule_block(
-                                        room_id, now, within_minutes=120
-                                    )
-                                    if next_block:
-                                        block_start_dt, _, _ = next_block
-                                        return f"Pre-warming for {block_start_dt.strftime('%H:%M')}"
-                                except Exception as e:
-                                    self.ad.log(f"Error getting schedule for load sharing status: {e}", level="WARNING")
-                            # Fallback if can't get schedule time
-                            return "Pre-warming for schedule"
-                        elif activation.tier == 2:
-                            # Tier 2: Fallback (passive rooms + priority list)
-                            room_config = self.config.rooms.get(room_id, {})
-                            load_sharing_config = room_config.get('load_sharing', {})
-                            priority = load_sharing_config.get('fallback_priority', '?')
-                            valve_pct = activation.valve_pct
-                            return f"Fallback heating P{priority} ({valve_pct}%)"
-                        break
-        
-        # Check if override is active
-        timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
-        override_active = False
-        override_target = None
-        end_time_str = ""
-        
-        if self.ad.entity_exists(timer_entity):
-            timer_state = self.ad.get_state(timer_entity)
-            if timer_state in ["active", "paused"]:
-                override_active = True
-                
+
+        # Simple modes - no schedule info needed
+        if mode == 'off':
+            return 'Heating Off'
+
+        if mode == 'manual':
+            return 'Manual'
+
+        if mode == 'passive':
+            return 'Passive'
+
+        # Auto mode - check for override first
+        if mode == 'auto':
+            # Check if override is active
+            timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
+            override_active = False
+
+            if self.ad.entity_exists(timer_entity):
+                timer_state = self.ad.get_state(timer_entity)
+                if timer_state in ["active", "paused"]:
+                    override_active = True
+
+            # Handle override (keep existing display with countdown)
+            if override_active:
                 # Get override target
                 target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
+                override_target = None
                 if self.ad.entity_exists(target_entity):
                     try:
                         override_target = float(self.ad.get_state(target_entity))
                     except (ValueError, TypeError):
                         pass
-                
+
                 # Get end time from timer
                 finishes_at = self.ad.get_state(timer_entity, attribute="finishes_at")
+                end_time_str = ""
                 if finishes_at:
                     try:
-                        from datetime import datetime
                         end_dt = datetime.fromisoformat(finishes_at.replace('Z', '+00:00'))
                         end_time_str = f" until {end_dt.strftime('%H:%M')}"
                     except Exception as e:
                         self.ad.log(f"Error formatting override end time for {room_id}: {e}", level="WARNING")
                         end_time_str = " until ??:??"
-        
-        # Handle override (in auto mode)
-        if override_active and override_target is not None and mode == 'auto':
-            # Calculate delta if we have scheduled temp
-            delta_str = ""
-            if scheduled_temp is not None:
-                delta = override_target - scheduled_temp
-                delta_str = f" ({delta:+.1f}°)"
-            
-            return f"Override: {override_target:.1f}°{delta_str}{end_time_str}"
-        
-        # Handle manual mode
-        if mode == 'manual':
-            manual_setpoint = data.get('manual_setpoint', data.get('target', 0))
-            return f'Manual: {manual_setpoint:.1f}°'
-        
-        # Handle off mode
-        if mode == 'off':
-            return 'Heating Off'
-        
-        # Handle passive mode (not in comfort mode)
-        if mode == 'passive':
-            min_temp = data.get('target')  # FIXED: target is now min_temp (comfort floor)
-            max_temp = data.get('passive_max_temp')  # Upper limit for valve control
 
-            if max_temp is None or min_temp is None:
-                return 'Passive (opportunistic)'
-
-            # Get passive valve percent from HA entity (runtime value)
-            passive_valve_percent = self._get_passive_valve_percent(room_id)
-
-            return f'Passive: {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%'
-        
-        # Handle auto mode (no override)
-        if mode == 'auto':
-            target = data.get('target')
-            
-            if target is None:
-                return 'Auto: ??°'
-            
-            # Check if we're in a scheduled passive block (auto mode but operating in passive)
-            if operating_mode == 'passive':
-                min_temp = target  # FIXED: target is now min_temp (comfort floor)
-                max_temp = data.get('passive_max_temp')  # Upper limit for valve control
-                
-                # Get passive valve percent from HA entity (runtime value)
-                passive_valve_percent = self._get_passive_valve_percent(room_id)
-                
-                # Check if we're in a scheduled block (not default mode)
-                is_in_block = scheduled_info and not scheduled_info.get('is_default_mode', True)
-                
-                if is_in_block and 'block_end_time' in scheduled_info:
-                    # In a scheduled passive block - show when THIS BLOCK ends
-                    block_end = scheduled_info['block_end_time']
-                    if block_end == '23:59':
-                        block_end = '24:00'
-                    
-                    # Get what temperature will be active when this block ends
-                    # This will be the default_target (not necessarily the next scheduled block)
-                    if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
-                        from datetime import datetime
-                        now = datetime.now()
-                        
-                        holiday_mode = False
-                        if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
-                            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
-                        
-                        # Parse block end time and get schedule at that moment
-                        schedule = self.scheduler_ref.config.schedules.get(room_id)
-                        default_target = schedule.get('default_target') if schedule else None
-                        
-                        # Simulate what temperature will be at block end time
-                        end_hour, end_min = map(int, block_end.replace('24:00', '23:59').split(':'))
-                        simulated_time = now.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
-                        
-                        # Get what would be scheduled at block end time
-                        future_scheduled = self.scheduler_ref.get_scheduled_target(room_id, simulated_time, holiday_mode)
-                        
-                        if future_scheduled and min_temp is not None:
-                            # Check if next mode is also passive
-                            if future_scheduled.get('mode') == 'passive':
-                                next_max = future_scheduled['target']
-                                next_min = future_scheduled.get('min_target', 8.0)
-                                next_valve = future_scheduled.get('valve_percent', 30)
-                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} (passive {next_min:.0f}-{next_max:.0f}°, {next_valve}%)"
-                            else:
-                                # Next mode is active
-                                temp_after_block = future_scheduled['target']
-                                return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end} ({temp_after_block:.1f}°)"
-                    
-                    # Fallback if can't get next temperature
-                    if min_temp is not None:
-                        return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {block_end}"
-                    else:
-                        return f"Auto (passive): max {max_temp:.0f}°, {passive_valve_percent}% until {block_end}"
+                if override_target is not None:
+                    return f"Override: {override_target:.1f}°{end_time_str}"
                 else:
-                    # In default passive mode - show when next block starts
-                    if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
-                        from datetime import datetime
-                        now = datetime.now()
-                        
-                        holiday_mode = False
-                        if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
-                            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
-                        
-                        next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
-                        
-                        if next_change and min_temp is not None:
-                            next_time, next_temp, day_offset = next_change
-                            
-                            # Get what mode will be active at the next change
-                            next_hour, next_min = map(int, next_time.split(':'))
-                            future_time = now.replace(hour=next_hour, minute=next_min, second=0, microsecond=0)
-                            if day_offset > 0:
-                                from datetime import timedelta
-                                future_time = future_time + timedelta(days=day_offset)
-                            
-                            future_scheduled = self.scheduler_ref.get_scheduled_target(room_id, future_time, holiday_mode)
-                            
-                            if day_offset == 0:
-                                if future_scheduled and future_scheduled.get('mode') == 'passive':
-                                    # Next change is to another passive mode
-                                    next_max = future_scheduled['target']
-                                    next_min_temp = future_scheduled.get('min_target', 8.0)
-                                    next_valve = future_scheduled.get('valve_percent', 30)
-                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} (passive {next_min_temp:.0f}-{next_max:.0f}°, {next_valve}%)"
-                                else:
-                                    # Next change is to active mode
-                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} ({next_temp:.1f}°)"
-                            else:
-                                day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                                future_day_idx = (now.weekday() + day_offset) % 7
-                                day_name = day_names_display[future_day_idx]
-                                
-                                if future_scheduled and future_scheduled.get('mode') == 'passive':
-                                    # Next change is to another passive mode
-                                    next_max = future_scheduled['target']
-                                    next_min_temp = future_scheduled.get('min_target', 8.0)
-                                    next_valve = future_scheduled.get('valve_percent', 30)
-                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} (passive {next_min_temp:.0f}-{next_max:.0f}°, {next_valve}%)"
-                                else:
-                                    # Next change is to active mode
-                                    return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}% until {next_time} on {day_name} ({next_temp:.1f}°)"
-                    
-                    # Fallback for auto passive without next change info - check if forever
-                    forever_suffix = " forever" if self._check_if_forever(room_id) else ""
-                    if min_temp is not None:
-                        return f"Auto (passive): {min_temp:.0f}-{max_temp:.0f}°, {passive_valve_percent}%{forever_suffix}"
-                    else:
-                        return f"Auto (passive): max {max_temp:.0f}°, {passive_valve_percent}%{forever_suffix}"
-            
-            # Standard auto mode (active heating)
-            # Check if schedule is forever
-            if self._check_if_forever(room_id):
-                return f"Auto: {target:.1f}° forever"
-            
-            # Get next schedule change
-            if hasattr(self, 'scheduler_ref') and self.scheduler_ref:
-                from datetime import datetime
-                now = datetime.now()
-                
-                # Get holiday mode
-                holiday_mode = False
-                if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
-                    holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
-                
-                next_change = self.scheduler_ref.get_next_schedule_change(room_id, now, holiday_mode)
-                
-                if next_change:
-                    next_time, next_temp, day_offset = next_change
-                    
-                    # Get what mode will be active at the next change
-                    # Simulate the future time to check if it's passive
-                    next_hour, next_min = map(int, next_time.split(':'))
-                    future_time = now.replace(hour=next_hour, minute=next_min, second=0, microsecond=0)
-                    if day_offset > 0:
-                        from datetime import timedelta
-                        future_time = future_time + timedelta(days=day_offset)
-                    
-                    future_scheduled = self.scheduler_ref.get_scheduled_target(room_id, future_time, holiday_mode)
-                    
-                    # Determine day name based on day_offset
-                    if day_offset == 0:
-                        # Today - no day name needed
-                        if future_scheduled and future_scheduled.get('mode') == 'passive':
-                            # Next change is to passive mode
-                            next_max = future_scheduled['target']
-                            next_min = future_scheduled.get('min_target', 8.0)
-                            next_valve = future_scheduled.get('valve_percent', 30)
-                            return f"Auto: {target:.1f}° until {next_time} (passive {next_min:.0f}-{next_max:.0f}°, {next_valve}%)"
-                        else:
-                            # Next change is to active mode
-                            return f"Auto: {target:.1f}° until {next_time} ({next_temp:.1f}°)"
-                    else:
-                        # Future day - include day name
-                        day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                        future_day_idx = (now.weekday() + day_offset) % 7
-                        day_name = day_names_display[future_day_idx]
-                        
-                        if future_scheduled and future_scheduled.get('mode') == 'passive':
-                            # Next change is to passive mode
-                            next_max = future_scheduled['target']
-                            next_min = future_scheduled.get('min_target', 8.0)
-                            next_valve = future_scheduled.get('valve_percent', 30)
-                            return f"Auto: {target:.1f}° until {next_time} on {day_name} (passive {next_min:.0f}-{next_max:.0f}°, {next_valve}%)"
-                        else:
-                            # Next change is to active mode
-                            return f"Auto: {target:.1f}° until {next_time} on {day_name} ({next_temp:.1f}°)"
-                else:
-                    # No next change found - treat as forever
-                    return f"Auto: {target:.1f}° forever"
-            
-            # Fallback: no scheduler available
-            return f"Auto: {target:.1f}°"
-        
+                    return f"Override{end_time_str}"
+
+            # Auto mode without override - show next schedule
+            # Get holiday mode
+            holiday_mode = False
+            if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on"
+
+            # Get next schedule info
+            next_info = self._get_next_schedule_info(room_id, now, holiday_mode)
+
+            if next_info is None:
+                # Forever (no schedule changes)
+                return "Forever"
+
+            # Build time string with day suffix
+            time_str = next_info['time']
+            day_offset = next_info['day_offset']
+
+            if day_offset == 0:
+                # Today - no suffix
+                day_str = ""
+            elif day_offset == 1:
+                # Tomorrow
+                day_str = " tomorrow"
+            else:
+                # Future day - use day name
+                day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                future_day_idx = (now.weekday() + day_offset) % 7
+                day_name = day_names_display[future_day_idx]
+                day_str = f" on {day_name}"
+
+            # Build status based on next mode
+            if next_info['mode'] == 'passive':
+                # Next is passive: "until HH:MM [D]: [V%] L-U° (passive)"
+                valve_pct = next_info['valve_percent']
+                min_temp = next_info['target']
+                max_temp = next_info['passive_max_temp']
+                return f"until {time_str}{day_str}: [{valve_pct}%] {min_temp:.0f}-{max_temp:.0f}C (passive)"
+            else:
+                # Next is active: "until HH:MM [D]: S°"
+                target = next_info['target']
+                return f"until {time_str}{day_str}: {target:.1f}C"
+
         return 'Unknown'
         
     def publish_system_status(self, any_calling: bool, active_rooms: List[str],
@@ -799,10 +794,10 @@ class StatusPublisher:
         # Build structured state string for reliable history entries
         # Format: "$mode, $load_sharing, $calling, $valve"
         state_str = self._build_room_state_string(room_id, data_with_override, load_sharing_info)
-        
-        # Generate human-readable formatted status
-        formatted_status = self._format_status_text(room_id, data, scheduled_info)
-        
+
+        # Generate next schedule information for display
+        formatted_next_schedule = self._format_next_schedule_text(room_id, data, now)
+
         # Build comprehensive attributes
         attributes = {
             'friendly_name': f"{room_name} State",
@@ -815,7 +810,7 @@ class StatusPublisher:
             'is_stale': data.get('is_stale', False),
             'frost_protection': data.get('frost_protection', False),
             'manual_setpoint': data.get('manual_setpoint'),
-            'formatted_status': formatted_status,  # Human-readable status
+            'formatted_next_schedule': formatted_next_schedule,  # Next schedule information for display
             'scheduled_temp': round(scheduled_temp, precision) if scheduled_temp is not None else None,
             # Additional convenience attributes
             'load_sharing': f"T{load_sharing_info.get('tier', 1)}" if (load_sharing_info and load_sharing_info.get('active')) else "off",
