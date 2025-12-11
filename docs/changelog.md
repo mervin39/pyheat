@@ -1,6 +1,32 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Fix setpoint ramp CSV logging
+
+**Bug Fix:**
+Fixed setpoint ramp columns in CSV logs not being populated even though ramping was working correctly.
+
+**Root Cause:**
+The heating_logger was trying to read setpoint ramp data from `sensor.pyheat_system_status`, but the actual entity name is `sensor.pyheat_status` (defined in constants.py as `STATUS_ENTITY`).
+
+**Impact:**
+- Setpoint ramping was working correctly (logs showed proper 0.5°C increments per `delta_increase_c` config)
+- CSV columns `setpoint_ramp_enabled`, `setpoint_ramp_state`, `setpoint_ramp_baseline`, `setpoint_ramp_current`, and `setpoint_ramp_steps` were stuck at default values (False, INACTIVE, blank, blank, 0)
+- Made it appear that ramping wasn't enabled when analyzing CSV data
+
+**Fix:**
+Changed `heating_logger.py` line 512 from `sensor.pyheat_system_status` to `sensor.pyheat_status` to match the actual entity name.
+
+**Verification:**
+- `delta_increase_c: 0.5` config is working correctly (verified in AppDaemon logs: `55.0C -> 55.5C -> 56.0C`)
+- Climate entity supports fractional setpoints to 0.1°C precision
+- Future CSV logs will now correctly show setpoint ramp state
+
+**Files Changed:**
+- [services/heating_logger.py](../services/heating_logger.py): Fixed entity name in line 512
+
+---
+
 ## 2025-12-11: Replace formatted_status with formatted_next_schedule
 
 **Change:**

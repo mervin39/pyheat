@@ -509,7 +509,7 @@ class HeatingLogger:
         
         # Extract setpoint ramp data from system status entity
         try:
-            system_status_attrs = self.ad.get_state('sensor.pyheat_system_status', attribute='all')
+            system_status_attrs = self.ad.get_state('sensor.pyheat_status', attribute='all')
             if system_status_attrs and 'attributes' in system_status_attrs:
                 ramp_data = system_status_attrs['attributes'].get('setpoint_ramp', {})
                 if ramp_data:

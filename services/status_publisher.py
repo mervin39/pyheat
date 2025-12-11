@@ -423,7 +423,7 @@ class StatusPublisher:
                 valve_pct = next_info['valve_percent']
                 min_temp = next_info['target']
                 max_temp = next_info['passive_max_temp']
-                return f"At {time_str}{day_str}: [{valve_pct}%] {min_temp:.0f}-{max_temp:.0f}° (passive)"
+                return f"At {time_str}{day_str}: {min_temp:.0f}-{max_temp:.0f}° ({valve_pct}%)"
             else:
                 # Next is active: "At HH:MM [D]: S°"
                 target = next_info['target']
