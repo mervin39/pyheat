@@ -1,6 +1,40 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Fix setpoint ramp persistence being overwritten on restart
+
+**Bug Fix:**
+Fixed setpoint ramp persistence being immediately overwritten by cycling protection's startup sync, preventing ramped setpoints from being restored after AppDaemon restarts during active heating.
+
+**Root Cause:**
+During initialization, `cycling_protection.sync_setpoint_on_startup()` was always syncing the climate entity to the baseline helper (50°C), even when the flame was ON and a ramped setpoint (e.g., 58°C) should have been restored. This happened BEFORE `setpoint_ramp.initialize_from_ha()` could restore the persisted state.
+
+**Evidence from logs (15:18:02 restart):**
+```
+15:18:02: SetpointRamp: Flame ON - restoring ramped setpoint 58.0C (step 16)
+15:18:02: SetpointRamp: HA setpoint already at 58.0C - no update needed
+15:18:05: SetpointRamp: Flow temp 61.0C >= threshold 53.0C - ramping 50.0C -> 50.5C (step 17)
+```
+
+The setpoint ramp thought it preserved 58°C, but the first evaluation after restart shows it's at 50°C and restarting from step 17 (should have continued from step 16).
+
+**Impact:**
+- Ramped setpoints were lost on every AppDaemon restart during active heating
+- Boiler had to re-ramp from baseline, wasting the previous ramp progress
+- Defeats the purpose of setpoint ramp persistence
+
+**Fix:**
+Modified `cycling_protection.sync_setpoint_on_startup()` to check if setpoint ramping will restore a ramped state before overwriting. Now skips the baseline sync when:
+1. Flame is ON (boiler actively heating), AND
+2. Persisted ramp state exists with a ramped setpoint
+
+This allows setpoint_ramp to restore its state without interference, while still syncing to baseline when appropriate (flame OFF or no persisted ramp state).
+
+**Files Changed:**
+- [controllers/cycling_protection.py](../controllers/cycling_protection.py): Added ramp state check to `sync_setpoint_on_startup()`
+
+---
+
 ## 2025-12-11: Fix setpoint ramp CSV logging
 
 **Bug Fix:**

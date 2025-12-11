@@ -391,10 +391,12 @@ class CyclingProtection:
             self._set_setpoint(new_setpoint)
             
     def sync_setpoint_on_startup(self):
-        """Sync climate entity to helper value on startup (unless in cooldown).
+        """Sync climate entity to helper value on startup (unless in cooldown or ramping).
         
         Should be called after initialize_from_ha() during app initialization.
         Ensures climate entity matches user's desired setpoint from helper.
+        
+        Skips sync if setpoint ramping will restore ramped state (flame ON with persisted ramp).
         """
         if self.state == self.STATE_COOLDOWN:
             # Already at 30°C protecting - don't interfere
@@ -403,6 +405,35 @@ class CyclingProtection:
                 level="INFO"
             )
             return
+        
+        # Don't interfere if setpoint ramping will restore ramped state
+        # Check: flame ON + persisted ramp state exists
+        if self.setpoint_ramp:
+            # Check if flame is ON (boiler actively heating)
+            try:
+                flame_state = self.ad.get_state(C.OPENTHERM_FLAME)
+                if flame_state == 'on':
+                    # Check if persisted ramp state exists
+                    from persistence import PersistenceManager
+                    import os
+                    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
+                    persistence = PersistenceManager(persistence_file)
+                    persisted_state = persistence.get_setpoint_ramp_state()
+                    
+                    # If we have valid persisted ramped state, let setpoint_ramp handle it
+                    if persisted_state.get('current_ramped_setpoint'):
+                        self.ad.log(
+                            "Startup: Flame ON with persisted ramp state - skipping sync "
+                            "(setpoint_ramp will restore ramped setpoint)",
+                            level="INFO"
+                        )
+                        return
+            except Exception as e:
+                self.ad.log(
+                    f"Startup: Failed to check ramp state: {e} - proceeding with sync",
+                    level="WARNING"
+                )
             
         # Read desired setpoint from helper
         helper_setpoint = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
