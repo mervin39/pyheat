@@ -145,6 +145,18 @@ class SetpointRamp:
         self.current_ramped_setpoint = desired_setpoint
         self.state = desired_state
 
+        # CRITICAL: Check if cycling protection is in COOLDOWN
+        # If so, DO NOT update the setpoint - cooldown owns it
+        if self.cycling:
+            cycling_state = getattr(self.cycling, 'state', None)
+            if cycling_state == C.CYCLING_STATE_COOLDOWN:
+                self.ad.log(
+                    f"SetpointRamp: Cycling protection in COOLDOWN - skipping setpoint update "
+                    f"(cooldown owns setpoint control)",
+                    level="INFO"
+                )
+                return
+
         # Only update HA climate entity if it differs from desired setpoint
         # This avoids unnecessary boiler reactions on unrelated config changes
         if current_ha_setpoint is None:
