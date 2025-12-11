@@ -9,6 +9,7 @@ PyHeat provides multi-room heating control with:
 - **Smart TRV control** via zigbee2mqtt (TRVZB devices)
 - **Boiler management** with safety interlocks and anti-cycling
 - **Short-cycling protection** via return temperature monitoring and setpoint manipulation
+- **Setpoint ramping** - optional dynamic setpoint increase during heating to prevent premature flame-off
 - **Load sharing** - intelligent multi-room heating to prevent boiler short-cycling
 - **Sensor fusion** with staleness detection and optional EMA smoothing
 - **Multiple control modes**: Auto (scheduled), Manual, Passive, and Off per room
@@ -24,6 +25,7 @@ PyHeat provides multi-room heating control with:
 - **app.py** - Main AppDaemon application orchestration
 - **boiler_controller.py** - 6-state FSM boiler control with safety interlocks
 - **cycling_protection.py** - Automatic short-cycling prevention via return temperature monitoring
+- **setpoint_ramp.py** - Optional dynamic setpoint ramping to reduce flame cycling
 - **load_sharing_manager.py** - Intelligent load balancing using schedule-aware pre-warming
 - **room_controller.py** - Per-room heating logic and target resolution
 - **trv_controller.py** - TRV valve command and setpoint locking
@@ -48,10 +50,15 @@ PyHeat provides multi-room heating control with:
 7. **Boiler Control**: Full 6-state FSM with anti-cycling timers, TRV feedback validation, and pump overrun
 8. **Short-Cycling Protection**: Dual-temperature overheat detection with automatic cooldown enforcement
    - **Detection**: Triggers on flame-off if flow temp ≥ setpoint+2°C (overheat) OR return temp ≥ setpoint-5°C (fallback)
-   - **DHW filtering**: Ignores flame-offs during hot water demand (multi-sensor check with 12s history buffer)
+   - **DHW filtering**: Ignores flame-offs during hot water demand (multi-sensor check with 60s history buffer)
    - **Cooldown enforcement**: Drops boiler setpoint to 30°C to prevent re-ignition
    - **Recovery**: Exits when max(flow, return) ≤ dynamic threshold (setpoint-15°C, min 45°C)
    - **Monitoring**: 10s interval checks with 30min timeout protection and excessive cycling alerts
+9. **Setpoint Ramping** (optional): Dynamically increases boiler setpoint during heating to reduce flame cycling
+   - **Purpose**: When flow temp approaches setpoint, incrementally raise setpoint to keep boiler running longer
+   - **Configuration**: Enable via `input_boolean.pyheat_setpoint_ramp_enable`, configure delta and step in `boiler.yaml`
+   - **Reset strategy**: On flame-OFF (DHW, cooldown, loss of demand), reset to user's desired baseline setpoint
+   - **Coordination**: Works alongside cycling protection - uses baseline setpoint for cooldown recovery threshold
 
 ## Installation
 
@@ -388,7 +395,7 @@ system:
 #### How It Works
 
 **Detection (Dual-Temperature Approach):**
-Cooldown triggers on any flame-off event if **either** condition is met:
+Cooldown triggers on any flame-off event if **EITHER** condition is met (OR logic):
 
 1. **Flow Temperature Overheat** (Primary): `flow_temp >= setpoint + 2°C`
    - Detects actual overheat condition (flow exceeding target)
@@ -399,6 +406,17 @@ Cooldown triggers on any flame-off event if **either** condition is met:
    - Backup detection if flow sensor fails
    - Example: With 55°C setpoint, triggers if return ≥ 50°C
    - Maintains existing protection behavior
+
+**CRITICAL:** Only ONE condition needs to be met to trigger cooldown (not both).
+
+**Sensor Lag Compensation:**
+- Flow temperature sensor reports flame-OFF with 4-6 second delay after physical flame extinction
+- By the time sensor reports OFF, flow temp may have dropped below threshold
+- **Solution:** Tracks flow temp history (last 12 seconds) with timestamps and corresponding setpoints
+- Compares each historical flow temp to the setpoint active at that same moment
+- Correctly handles setpoint ramping (dynamic setpoint changes during heating)
+- Triggers cooldown if flow temp exceeded threshold at ANY point in recent history
+- Example: Peak 54°C at T-5s with setpoint 50°C triggers cooldown even if current flow is 48°C
 
 **DHW Filtering:**
 - Ignores flame-offs during domestic hot water demand
@@ -413,10 +431,11 @@ Cooldown triggers on any flame-off event if **either** condition is met:
 - Monitors recovery every 10 seconds
 
 **Recovery Exit:**
-Cooldown ends when **both** temperatures are safe:
+Cooldown ends when **BOTH** temperatures are safe (AND logic):
 - Check: `max(flow_temp, return_temp) <= threshold`
 - Threshold: `max(setpoint - 15°C, 45°C)` (dynamic, based on saved setpoint)
 - Example: With 55°C setpoint, exits when both flow and return ≤ 45°C
+- **CRITICAL:** BOTH temperatures must be safe to exit (opposite of entry logic)
 - Restores original setpoint automatically
 
 **Safety Features:**
@@ -428,8 +447,15 @@ Cooldown ends when **both** temperatures are safe:
 
 **Constants (in `constants.py`):**
 ```python
+# Detection thresholds
 CYCLING_FLOW_OVERHEAT_MARGIN_C = 2   # Flow must exceed setpoint by 2°C
 CYCLING_HIGH_RETURN_DELTA_C = 5      # Return threshold: setpoint - 5°C
+
+# Sensor lag compensation
+CYCLING_FLOW_TEMP_LOOKBACK_S = 12    # Check last 12s for peak flow temp
+CYCLING_FLOW_TEMP_HISTORY_BUFFER_SIZE = 50  # Buffer size for history tracking
+
+# Cooldown behavior
 CYCLING_COOLDOWN_SETPOINT = 30       # Setpoint during cooldown
 CYCLING_RECOVERY_DELTA_C = 15        # Recovery threshold: setpoint - 15°C
 CYCLING_RECOVERY_MIN_C = 45          # Absolute minimum recovery temp

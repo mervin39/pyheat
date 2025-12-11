@@ -166,12 +166,21 @@ STATE_INTERLOCK_BLOCKED = "interlock_blocked"
 # Short-Cycling Protection (OpenTherm Return Temperature Monitoring)
 # ============================================================================
 
+# Cycling protection states
+CYCLING_STATE_NORMAL = "NORMAL"
+CYCLING_STATE_COOLDOWN = "COOLDOWN"
+CYCLING_STATE_TIMEOUT = "TIMEOUT"
+
 # DHW detection - sensor delay for state stabilization
 CYCLING_SENSOR_DELAY_S = 2  # Wait for OpenTherm sensors to update after flame OFF
 
 # DHW detection parameters
 CYCLING_DHW_LOOKBACK_S = 60  # How far back to check for DHW activity (increased from 12s to catch slower shutdowns)
 CYCLING_DHW_HISTORY_BUFFER_SIZE = 100  # Number of state changes to track in history buffer
+
+# Flow temperature history tracking (for sensor lag compensation)
+CYCLING_FLOW_TEMP_LOOKBACK_S = 12  # Check last 12s for peak flow temp (compensates for 4-6s flame sensor lag)
+CYCLING_FLOW_TEMP_HISTORY_BUFFER_SIZE = 50  # Buffer size for flow temp history (12s at ~2s intervals = ~6 entries needed, 50 provides margin)
 
 # Cooldown detection thresholds - dual temperature approach
 # Flow temperature overheat detection (flow ABOVE setpoint indicates boiler overheat)
@@ -264,6 +273,10 @@ TRV_FEEDBACK_ALERT_DELAY_S = 300    # 5 minutes - trigger alert if still unavail
 # Master control
 HELPER_MASTER_ENABLE = "input_boolean.pyheat_master_enable"
 HELPER_HOLIDAY_MODE = "input_boolean.pyheat_holiday_mode"
+
+# Setpoint ramp control
+HELPER_SETPOINT_RAMP_ENABLE = "input_boolean.pyheat_setpoint_ramp_enable"
+HELPER_SETPOINT_RAMP_MAX = "input_number.pyheat_opentherm_setpoint_ramp_max"
 
 # Per-room helpers (format strings - use .format(room=room_id))
 HELPER_ROOM_MODE = "input_select.pyheat_{room}_mode"  # auto, manual, passive, off

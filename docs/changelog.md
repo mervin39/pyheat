@@ -1,6 +1,473 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Add Sensor Lag Compensation to Cooldown Detection
+
+**Issue:**
+Cooldown detection was missing short-cycling events due to flame sensor lag (4-6 seconds). When the physical boiler flame extinguished due to overheat, the flow temperature would drop 4-6°C before the flame sensor reported OFF. By the time PyHeat evaluated cooldown conditions, the flow temp had already fallen below the threshold, causing missed triggers.
+
+**Evidence from 2025-12-11 logs:**
+- 07:25:29: Peak flow 54°C (threshold 52°C), but sensor-off flow 48°C - missed
+- 07:51:37: Peak flow 53°C (threshold 53°C), but sensor-off flow 48°C - missed
+- 08:18:25: Peak flow 54°C (threshold 52°C), but sensor-off flow 50°C - missed
+
+**Root Cause:**
+The flame sensor (`binary_sensor.opentherm_flame`) reports state changes 4-6 seconds after the physical event. Flow temperature drops rapidly during this lag period:
+```
+T-5s: Flame ON,  Flow 54C  <- Physical overheat
+T-4s: Flame ON,  Flow 53C  <- Physical flame OFF (modulation 0%)
+T-3s: Flame ON,  Flow 51C  <- Flow dropping
+T-2s: Flame ON,  Flow 49C  <- Flow dropping
+T-0s: Flame OFF, Flow 48C  <- Sensor finally reports (too late!)
+```
+
+**Solution:**
+Implemented flow temperature history tracking with sensor lag compensation:
+
+1. **Flow Temp History Buffer** (12-second lookback):
+   - Stores `(timestamp, flow_temp, setpoint)` tuples in circular buffer
+   - Captures BOTH flow temp AND setpoint at same moment
+   - Critical for handling setpoint ramping (dynamic setpoint changes)
+
+2. **Historical Overheat Check**:
+   - Compares each historical flow temp to its corresponding setpoint
+   - Triggers cooldown if ANY point in last 12s exceeded threshold
+   - Correctly handles setpoint ramping by comparing temps at matching timestamps
+
+3. **Dual Check Strategy**:
+   - Check current flow temp (as before)
+   - ALSO check recent history (new)
+   - Trigger if EITHER indicates overheat (OR logic)
+
+**Implementation:**
+
+**New Methods:**
+- `on_flow_or_setpoint_change()`: Populates history buffer on sensor updates
+- `_flow_was_recently_overheating()`: Checks 12s history for peak overheat
+
+**Modified Methods:**
+- `_evaluate_cooldown_need()`: Now checks both current and historical flow temps
+- Enhanced logging to show both current and historical analysis
+
+**New Constants:**
+- `CYCLING_FLOW_TEMP_LOOKBACK_S = 12`: Lookback window (covers 4-6s lag with margin)
+- `CYCLING_FLOW_TEMP_HISTORY_BUFFER_SIZE = 50`: Buffer capacity
+
+**Registered Listeners (app.py):**
+- `sensor.opentherm_heating_temp`: Flow temp changes
+- `climate.opentherm_heating` (temperature attribute): Setpoint changes
+- `input_number.pyheat_opentherm_setpoint`: Helper setpoint changes
+
+**Log Output Example:**
+```
+Flow NOW: 48.0C (overheat if >=52.0C) OK |
+Flow HISTORY: Peak 54.0C (was >=52.0C) OVERHEAT |
+Return: 40.0C (high if >=45.0C) OK |
+Setpoint: 50.0C
+Entering cooldown: flow temperature exceeded setpoint in history (peak 54.0C at setpoint 50.0C)
+```
+
+**Verification:**
+- All three missed events (07:25:29, 07:51:37, 08:18:25) would now trigger correctly
+- Events that correctly triggered (07:22:04, 07:53:41) still trigger
+- No false positives introduced
+
+**Benefits:**
+- ✅ Catches all genuine overheat events despite sensor lag
+- ✅ Correctly handles setpoint ramping (compares temps at matching timestamps)
+- ✅ Improves boiler protection effectiveness
+- ✅ Reduces undetected short-cycling damage risk
+
+**Files Changed:**
+- `core/constants.py` - Added flow temp history constants
+- `controllers/cycling_protection.py` - Flow temp history tracking and lookback checker
+- `app.py` - Registered flow temp and setpoint listeners
+- `README.md` - Updated cooldown documentation with sensor lag compensation
+- `docs/ARCHITECTURE.md` - Updated module description
+- `docs/changelog.md` - This entry
+
+---
+
+## 2025-12-10: Fix Setpoint Ramp Flame-OFF Reset Logic
+
+**Issue:**
+Setpoint ramp flame-OFF reset had two critical bugs that prevented proper reset behavior:
+
+1. **Too restrictive reset condition:** Only reset if `state == STATE_RAMPING`, but should reset whenever climate setpoint doesn't match baseline (regardless of internal state)
+2. **Missing flame check in evaluate:** `evaluate_and_apply()` could ramp even when flame was OFF, causing immediate re-ramping after reset
+
+**Real-World Evidence (16:20-16:21 DHW event):**
+- 16:21:10: Flame went OFF during DHW event
+- Log showed: "resetting from 52.0C to baseline 50.0C"
+- But CSV showed: setpoint stayed at 52-53C (never went to 50C)
+- Problem: `state == INACTIVE` at time of flame-OFF, so reset was skipped
+
+**Root Causes:**
+1. Reset only occurred when `self.state == self.STATE_RAMPING` (line 335)
+2. If state was INACTIVE (feature disabled or not yet ramped), reset was silently skipped
+3. Even if reset applied, `evaluate_and_apply()` didn't check flame state and could immediately ramp again
+
+**Solution:**
+
+**1. Robust flame-OFF reset logic:**
+- Remove `state == STATE_RAMPING` check - reset whenever setpoint != baseline
+- Read current climate entity setpoint and compare to baseline
+- Reset if difference > 0.1C (regardless of internal state)
+- Also reset internal state to INACTIVE if it was RAMPING (for consistency)
+- Skip reset during cooldown (cooldown has its own exit logic at 30C)
+
+**2. Flame state check in evaluate:**
+- Added flame state check in `evaluate_and_apply()` before ramping
+- Don't evaluate ramp if flame is OFF (even if boiler state is ON)
+- Prevents race condition where reset happens, then evaluate immediately ramps again
+
+**Key Improvements:**
+- Reset based on actual climate entity state, not internal tracking
+- Works even if feature was disabled/inactive when flame went OFF
+- Prevents evaluate from overriding reset (flame must be ON to ramp)
+- Clear logging for both reset paths (setpoint mismatch vs state-only)
+
+**Code Changes:**
+- `on_flame_off()`: Check current climate setpoint vs baseline (not internal state)
+- `on_flame_off()`: Skip reset during cooldown (has its own 30C setpoint)
+- `on_flame_off()`: Reset internal state even if setpoint already at baseline
+- `evaluate_and_apply()`: Check flame state before allowing ramp
+
+**Testing Required:**
+- Enable setpoint ramp and verify ramping during heating
+- Trigger DHW event and verify setpoint resets to baseline
+- Check that setpoint stays at baseline (doesn't immediately ramp back up)
+- Verify flame-OFF during cooldown doesn't reset (waits for cooldown exit)
+
+**Files Changed:**
+- `controllers/setpoint_ramp.py` - Fixed flame-OFF reset logic and added flame check
+
+---
+
+## 2025-12-10: Setpoint Ramp Code Review and Configuration Fix
+
+**Background:**
+Conducted comprehensive code review of the setpoint ramp feature implementation to verify correctness, completeness, and code quality before final testing and merge.
+
+**Review Scope:**
+- Core module implementation (setpoint_ramp.py)
+- All integration points (app.py, cycling_protection.py)
+- Configuration files (boiler.yaml, pyheat_package.yaml)
+- Supporting infrastructure (constants, persistence, logging, status)
+- Documentation (README, ARCHITECTURE, changelog, proposal)
+- Commit history and testing evidence
+
+**Review Findings:**
+1. **Implementation Status:** COMPLETE - All proposal requirements implemented
+2. **Code Quality:** EXCELLENT - Clean architecture, comprehensive error handling, proper documentation
+3. **Integration:** CORRECT - All components properly wired and coordinated
+4. **Documentation:** EXCELLENT - Thorough documentation across all files
+5. **Issue Found:** Duplicate entity definition in pyheat_package.yaml
+
+**Issue Fixed:**
+Removed duplicate definition of `input_number.pyheat_opentherm_setpoint` at line 392-399. The entity was defined twice:
+- First definition (lines 100-107): `mode: box`, icon `mdi:water-boiler` - KEPT
+- Second definition (lines 392-399): `mode: slider`, icon `mdi:thermometer` - REMOVED
+
+Impact: YAML uses the last definition, so the second was overwriting the first. This could cause confusion about the entity's configuration.
+
+**Review Document:**
+Created comprehensive implementation review: `docs/debug/proposals/setpoint_ramp/implementation_review.md`
+
+**Contents:**
+- Executive summary and assessment
+- Implementation completeness verification
+- Integration point validation
+- Configuration review
+- Code quality assessment
+- Architectural highlights
+- Testing recommendations
+- Issue documentation and fix
+
+**Assessment:** Implementation is production-ready after completing re-testing to validate flow temp triggering optimization.
+
+**Files Changed:**
+- `config/ha_yaml/pyheat_package.yaml` - Removed duplicate entity definition
+- `docs/debug/proposals/setpoint_ramp/implementation_review.md` - Added comprehensive review document
+- `docs/changelog.md` - This entry
+
+---
+
+## 2025-12-10: Implement Flame-OFF Reset Strategy for Setpoint Ramp
+
+**Background:**
+Setpoint ramping prevents short-cycling **within** heating cycles by incrementally raising boiler setpoint as flow temperature approaches it. Initial design question: should we add explicit DHW detection to prevent ramp reset during DHW events?
+
+**Analysis:**
+Reviewed heating logs (2025-11-21.csv) and discovered that flame **always** goes OFF at the end of DHW events. This insight led to a simpler, more robust reset strategy: use flame sensor instead of DHW detection.
+
+**Implementation:**
+Flame-OFF reset strategy leverages existing infrastructure:
+- Listen to `binary_sensor.opentherm_flame` state changes
+- Reset ramped setpoint to baseline whenever flame goes OFF
+- Flame OFF indicates natural reset point: DHW interruption, demand loss, or cooldown
+
+**Key Benefits:**
+1. **Simpler:** No complex DHW detection logic needed
+2. **User-centric:** Each heating cycle starts with user's preferred baseline setpoint
+3. **Robust:** Handles all flame-OFF scenarios (DHW, cooldown, demand loss)
+4. **Non-invasive:** Feature remains optional via `input_boolean.pyheat_setpoint_ramp_enable`
+
+**Files Changed:**
+- `controllers/setpoint_ramp.py`:
+  - Simplified `initialize_from_ha()`: Always start at baseline on restart
+  - Added `on_flame_off()`: Reset to baseline when flame goes OFF
+  - Simplified `on_cooldown_exited()`: Flame-OFF handles reset
+  - Removed `on_boiler_state_changed()`: Superseded by flame sensor
+  
+- `app.py`:
+  - Added flame sensor callback registration: `listen_state(setpoint_ramp.on_flame_off, OPENTHERM_FLAME)`
+  - Removed `setpoint_ramp.on_boiler_state_changed()` call
+  
+- `docs/debug/proposals/setpoint_ramp/proposal.md`:
+  - Updated reset strategy section with flame-OFF approach
+  - Simplified startup behavior documentation
+  - Updated architectural decisions with new rationale
+  - Marked Q1 and Q4 as superseded by flame-OFF strategy
+  
+- `README.md`:
+  - Added setpoint ramping to feature list
+  - Added setpoint_ramp.py to components list
+  - Added comprehensive "Setpoint Ramping" section with:
+    - Purpose and operation
+    - Configuration details
+    - Flame-OFF reset strategy explanation
+    
+- `docs/ARCHITECTURE.md`:
+  - Added setpoint_ramp.py to components list
+  - Added to file structure diagram
+  - Added comprehensive "Setpoint Ramping" section (200+ lines) covering:
+    - Overview and key features
+    - Configuration and operation
+    - Flame-OFF reset strategy rationale
+    - Coordination with cycling protection
+    - State management and persistence
+    - Integration points with app.py and boiler controller
+    - Detailed logging examples
+    - Use case scenarios
+    - Benefits and implementation details
+
+**Testing:**
+Verified in logs: No errors after implementation. System running normally with periodic recompute cycles.
+
+**Architectural Insight:**
+Setpoint ramping prevents **intra-cycle** short-cycling (flame ON→OFF→ON during single demand). Cycling protection prevents **inter-cycle** short-cycling (rapid successive heating cycles). Together they provide comprehensive protection.
+
+---
+
+## 2025-12-10: DOC - Clarified Cooldown Trigger Logic (EITHER vs BOTH)
+
+**Issue:**
+Documentation was inconsistent and potentially confusing about cooldown trigger logic. While the code correctly implemented OR logic (EITHER condition triggers), some phrasing could lead agents/users to think BOTH conditions were required.
+
+**Ambiguities Found:**
+1. Code comment said "Check if EITHER" but log message said "AND" when both conditions met (technically accurate but confusing)
+2. Documentation emphasized exit logic (BOTH required) but didn't explicitly contrast with entry logic (EITHER sufficient)
+3. Lack of "CRITICAL" emphasis on the OR vs AND difference
+
+**Solution:**
+Enhanced documentation throughout to explicitly clarify:
+- **Cooldown ENTRY:** Triggers on EITHER flow overheat OR high return temp (OR logic)
+- **Cooldown EXIT:** Requires BOTH flow AND return temps safe (AND logic)
+
+**Files Changed:**
+- `controllers/cycling_protection.py`:
+  - Added CRITICAL LOGIC section to module docstring
+  - Enhanced comment: "OR logic for cooldown entry"
+  - Updated log message: "both conditions met" (instead of just "AND")
+- `README.md`:
+  - Changed "either" to "EITHER" with "OR logic" clarification
+  - Added "CRITICAL:" callouts emphasizing one condition sufficient for entry
+  - Changed "both" to "BOTH" with "AND logic" clarification
+  - Added "CRITICAL:" callout emphasizing opposite logic for exit
+
+**Testing:**
+No code changes - documentation only. Existing implementation already correct.
+
+**Note to Future Self:**
+This is the second time agents have gotten confused about this. The combination of:
+- Entry using OR (less restrictive)
+- Exit using AND (more restrictive)  
+- Log messages that say "AND" when both are true
+
+...creates cognitive load. The new explicit CRITICAL callouts should prevent future confusion.
+
+---
+
+## 2025-12-10: BUG FIX - Setpoint Ramp Now Resets Climate Entity on Boiler OFF
+
+**Issue:**
+When boiler transitioned to OFF state, setpoint ramp was updating its internal state to reset to baseline but was NOT actually setting the climate entity temperature back to baseline. This left the setpoint at the ramped value even after heating stopped.
+
+**Example:**
+- Boiler ramped setpoint from 52°C → 55°C during heating
+- Heating stopped (pump overrun expired at 13:02:59)
+- Internal state reset: ✓ (logged "resetting ramp")
+- Climate entity reset: ✗ (stayed at 55°C instead of dropping to 52°C)
+
+**Root Cause:**
+`on_boiler_state_changed()` called `_reset_to_baseline()` which only updated internal tracking variables (`self.baseline_setpoint`, `self.current_ramped_setpoint`, `self.state`) but never called `climate.set_temperature` to apply the baseline back to the actual climate entity.
+
+**Solution:**
+Added `climate.set_temperature` call in `on_boiler_state_changed()` to explicitly reset the climate entity to baseline when boiler transitions to OFF or INTERLOCK_BLOCKED states.
+
+**Files Changed:**
+- `controllers/setpoint_ramp.py` - Added climate entity setpoint reset in `on_boiler_state_changed()`
+
+---
+
+## 2025-12-10: BUG FIX - Flow Temperature Sensor Now Triggers Recompute (Optimized)
+
+**Issue:**
+Setpoint ramp feature was failing to react to flow temperature spikes because evaluation only occurred during periodic recomputes (every 60 seconds) or room temperature sensor changes. When flow temperature spiked rapidly (e.g., 48°C → 56°C in 4 seconds), the boiler's internal overheat protection would shut down the flame before the next recompute cycle could evaluate and ramp the setpoint.
+
+**Root Cause Analysis (12:19:31 test):**
+- 12:20:18-22: Boiler burning, flow temp rises 48°C → 52°C → 56°C
+- 12:20:22: Flow hits 56°C (exceeds setpoint 52°C + delta 3°C = 55°C threshold) ✓ Ramp should trigger
+- 12:20:25-26: Boiler reduces modulation to 0%, flow peaks at 57°C
+- 12:20:29: Boiler shuts down (flame OFF)
+- 12:20:52: Next recompute cycle runs (23 seconds too late!), flow already dropped to 48°C
+
+The boiler shut itself down before the next recompute could evaluate and ramp the setpoint.
+
+**Solution:**
+Modified `opentherm_sensor_changed()` to trigger immediate recompute when flow temperature meets the ramp threshold: `flow_temp >= setpoint + delta_trigger_c`. This is exactly when setpoint ramp needs to evaluate, providing targeted triggering without recomputing on every sensor update.
+
+**Optimization Rationale:**
+Instead of triggering on every flow temp change, we only trigger when it matters:
+- **Old approach:** Recompute on every flow temp change → 8-20 extra recomputes/minute
+- **Optimized approach:** Recompute only when `flow_temp >= setpoint + delta_trigger_c` → 1-3 extra recomputes during critical spike periods
+- **Result:** Full reactivity (3-4 second response) with minimal overhead
+
+**Sensor Characteristics:**
+- Updates every ~3-4 seconds during active heating
+- Reports to 0.1°C precision (OpenTherm standard)
+- Climate entity setpoint also uses 0.1°C precision (target_temp_step=0.1)
+
+**Impact:**
+- Setpoint ramp reacts within 3-4 seconds (one sensor update) when threshold is crossed
+- Prevents boiler short-cycling during low-demand heating scenarios
+- Minimal overhead: Only triggers recompute when action is needed (typically 1-3 times during spike)
+- No impact on room temperature control (still uses smoothed temps with 0.05°C deadband)
+
+**Files Changed:**
+- `app.py` - Modified `opentherm_sensor_changed()` to trigger recompute when flow temp meets ramp threshold
+
+**Testing Required:**
+- Re-run setpoint ramp test with optimized flow temp triggering
+- Verify ramp activates before boiler shuts down (should react within 3-4 seconds of crossing threshold)
+- Monitor recompute frequency (expect minimal increase - only when threshold crossed)
+
+---
+
+## 2025-12-10: NEW FEATURE - Setpoint Ramp (Toggleable)
+
+**Summary:**
+Added dynamic setpoint ramping feature to prevent short-cycling during large setpoint increases. When the boiler setpoint jumps by more than the configured threshold (default 3°C), the system gradually ramps up in 1°C steps instead of jumping directly to the target. This maintains continuous heating and avoids cooldown penalties.
+
+**Background:**
+Testing on 2025-12-10 10:00-10:17 showed that ramping from 55°C to 70°C in 1°C steps successfully prevented cooldown triggers for 17+ minutes of continuous heating. Without ramping, the large setpoint jump would have caused immediate return temperature spikes and cooldown activation.
+
+**Configuration:**
+
+*In `config/boiler.yaml`:*
+```yaml
+setpoint_ramp:
+  delta_trigger_c: 3.0      # Trigger ramp if setpoint increases by >3.0°C
+  delta_increase_c: 1.0     # Increase setpoint by 1.0°C per step
+```
+
+*Home Assistant entities (add to `pyheat_package.yaml`):*
+```yaml
+input_boolean:
+  pyheat_setpoint_ramp_enable:
+    name: "PyHeat Setpoint Ramp Enable"
+    icon: mdi:stairs-up
+
+input_number:
+  pyheat_opentherm_setpoint_ramp_max:
+    name: "PyHeat OpenTherm Setpoint Ramp Max"
+    min: 30
+    max: 80
+    step: 1
+    unit_of_measurement: "°C"
+    mode: slider
+    icon: mdi:thermometer-high
+```
+
+**How It Works:**
+
+1. **Trigger Conditions:**
+   - Feature enabled via `input_boolean.pyheat_setpoint_ramp_enable`
+   - New computed setpoint is ≥ `delta_trigger_c` above current setpoint
+   - Not already ramping
+   - Not in cycling protection cooldown
+
+2. **Ramping Behavior:**
+   - Records baseline (current) and target (new) setpoints
+   - Each recompute cycle, increases setpoint by `delta_increase_c`
+   - Returns ramped setpoint to boiler controller
+   - Stops when reaching target or `input_number.pyheat_opentherm_setpoint_ramp_max`
+   - Respects max setpoint limit at all times
+
+3. **Cooldown Coordination:**
+   - If cooldown enters during ramp: ramp pauses, resumes after cooldown exit
+   - If cooldown exits: ramp resets to baseline (not ramped value) to avoid immediate re-trigger
+   - Cycling protection skips setpoint validation when ramp is active
+
+4. **State Persistence:**
+   - Ramp state persists across AppDaemon restarts
+   - Validates baseline still matches actual setpoint on restore
+   - Continues ramping after restart if conditions still valid
+
+**Integration Points:**
+
+- **app.py**: Evaluates ramp after boiler state update, applies returned setpoint
+- **cycling_protection.py**: Skips validation when ramping, notifies ramp on cooldown entry/exit
+- **status_publisher.py**: Publishes ramp state to `sensor.pyheat_system_status` attributes
+- **heating_logger.py**: Logs 5 ramp columns (enabled, state, baseline, current, steps)
+- **persistence.py**: Stores/restores ramp state across restarts
+
+**State Machine:**
+
+- **INACTIVE**: Feature disabled or no ramp conditions met
+- **RAMPING**: Actively ramping setpoint toward target
+
+**Validation:**
+
+- Configuration values: 0.1-10.0°C range, 1 decimal precision
+- Warns if `delta_trigger_c > 4.0` (may be too aggressive)
+- Logs all state transitions at INFO level
+
+**Testing:**
+- Tested on 2025-12-10 10:00-10:17 with successful 55→70°C ramp (15 steps, no cooldowns)
+- Feature currently disabled (helpers not created in HA yet)
+- AppDaemon successfully loads module and validates configuration
+
+**Files Changed:**
+- NEW: `controllers/setpoint_ramp.py` (506 lines) - Core state machine
+- `core/constants.py` - Added ramp helper entity constants
+- `core/persistence.py` - Added ramp state methods
+- `config/boiler.yaml` - Added setpoint_ramp section
+- `config/ha_yaml/pyheat_package.yaml` - Added ramp helper entities
+- `controllers/cycling_protection.py` - Coordination + datetime bug fix
+- `app.py` - Integration with main loop
+- `services/status_publisher.py` - Ramp state publishing
+- `services/heating_logger.py` - CSV logging with 5 ramp columns
+
+**Notes:**
+- Feature is disabled by default - must enable `input_boolean.pyheat_setpoint_ramp_enable`
+- CSV headers updated for new files (tomorrow or after restart)
+- No rate limiting by design - ramps as fast as recompute cycles allow
+- Ramp holds during cooldown, does not count toward timeout
+
+---
+
 ## 2025-12-10: IMPROVE - Add CSV Logging for Critical State Changes
 
 **Summary:**

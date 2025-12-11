@@ -192,3 +192,27 @@ class PersistenceManager:
         else:
             data['cycling_protection']['cooldowns_count'] = count
         self.save(data)
+    
+    def get_setpoint_ramp_state(self) -> Dict[str, Any]:
+        """Get setpoint ramp state.
+        
+        Returns:
+            Dict with setpoint ramp state
+            Format: {'baseline_setpoint': float|None, 'current_ramped_setpoint': float|None, 'ramp_steps_applied': int}
+        """
+        data = self.load()
+        return data.get('setpoint_ramp', {
+            'baseline_setpoint': None,
+            'current_ramped_setpoint': None,
+            'ramp_steps_applied': 0
+        })
+    
+    def update_setpoint_ramp_state(self, state: Dict[str, Any]) -> None:
+        """Update setpoint ramp state.
+        
+        Args:
+            state: Complete setpoint ramp state dict
+        """
+        data = self.load()
+        data['setpoint_ramp'] = state
+        self.save(data)
