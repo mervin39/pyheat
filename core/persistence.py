@@ -68,10 +68,10 @@ class PersistenceManager:
     
     def save(self, data: Dict[str, Any]) -> None:
         """Save all persistence data to file using atomic write.
-        
+
         Uses temp file + rename for atomicity to prevent corruption
         if write interrupted.
-        
+
         Args:
             data: Complete persistence data dictionary
         """
@@ -82,12 +82,16 @@ class PersistenceManager:
                 prefix='.persistence_tmp_',
                 suffix='.json'
             )
-            
+
             try:
                 # Write to temp file
                 with os.fdopen(fd, 'w') as f:
                     json.dump(data, f, separators=(',', ':'))
-                
+
+                # Set permissions to 0o666 (rw-rw-rw-) for easy inspection/debugging
+                # Actual permissions will be 0o666 & ~umask
+                os.chmod(temp_path, 0o666)
+
                 # Atomic rename
                 os.replace(temp_path, self.file_path)
             except Exception:
@@ -97,7 +101,7 @@ class PersistenceManager:
                 except OSError:
                     pass
                 raise
-                
+
         except (IOError, OSError) as e:
             print(f"ERROR: Failed to save persistence file: {e}")
     

@@ -1,6 +1,31 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Fix File Permissions for Created Files
+
+**Issue:**
+Files created by pyheat had overly restrictive permissions that made debugging difficult:
+- `persistence.json` created with 0600 (owner-only read/write)
+- `rooms.yaml` had unnecessary execute bit set (0775)
+
+**Solution:**
+Set all pyheat-created files to 0666 (rw-rw-rw-) for easy inspection and debugging:
+
+1. **PersistenceManager**: Added explicit `os.chmod(0o666)` after creating persistence.json
+2. **ServiceHandler**: Added `os.chmod(0o666)` after writing schedules.yaml (in both `set_default_target` and `replace_schedules` services)
+3. Fixed existing rooms.yaml permissions manually
+
+**Benefits:**
+- Persistence state can be inspected without sudo
+- Config files have consistent, sensible permissions
+- No unnecessary execute bits on data files
+- Easier debugging and troubleshooting
+
+**Files Changed:**
+- [core/persistence.py](core/persistence.py#L91-L93): chmod after tempfile creation
+- [services/service_handler.py](services/service_handler.py#L499-L500): chmod after yaml.dump
+- [services/service_handler.py](services/service_handler.py#L622-L623): chmod after yaml.dump
+
 ## 2025-12-11: Fix Setpoint Ramp Initialization to Preserve State Across Config Reloads
 
 **Issue:**

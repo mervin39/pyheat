@@ -492,10 +492,13 @@ class ServiceHandler:
             
             # Save as 'rooms' key structure to match format
             schedules_data = {'rooms': list(self.config.schedules.values())}
-            
+
             with open(schedules_file, 'w') as f:
                 yaml.dump(schedules_data, f, default_flow_style=False, sort_keys=False)
-            
+
+            # Set permissions to 0o666 (rw-rw-rw-) for easy inspection/debugging
+            os.chmod(schedules_file, 0o666)
+
             self.ad.log(f"Updated schedules.yaml: {room} default_target = {target}C")
             
             # Trigger immediate recompute
@@ -612,10 +615,13 @@ class ServiceHandler:
             
             # Save with 'rooms' list structure
             schedules_data = {'rooms': rooms_list}
-            
+
             with open(schedules_file, 'w') as f:
                 yaml.dump(schedules_data, f, default_flow_style=False, sort_keys=False)
-            
+
+            # Set permissions to 0o666 (rw-rw-rw-) for easy inspection/debugging
+            os.chmod(schedules_file, 0o666)
+
             # Reload configuration
             self.config.reload()
             
