@@ -1,6 +1,63 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Fix cooldown not triggering when flame restarts during existing cooldown
+
+**Bug Fix:**
+Fixed critical bug where short-cycling detection was disabled if the flame came back ON during an existing cooldown period and then went OFF again.
+
+**Root Cause:**
+The `on_flame_off()` method had a guard to prevent re-evaluating cooldown if already in COOLDOWN state:
+
+```python
+if self.state == self.STATE_COOLDOWN:
+    self.ad.log("Flame OFF detected during cooldown - ignoring", level="DEBUG")
+    return
+```
+
+This guard was intended to prevent double-triggering when flame briefly flickers during cooldown. However, it created a critical vulnerability:
+
+1. System enters COOLDOWN (flow temp high, flame OFF)
+2. During cooldown recovery, demand returns and flame comes back ON
+3. System remains in COOLDOWN state (no handler for flame ON)
+4. Flow temp rises again to dangerous levels (e.g., 55.1°C vs 50°C setpoint)
+5. Flame goes OFF again (actual short-cycling event!)
+6. Guard prevents new cooldown evaluation because state is still COOLDOWN
+7. **Dangerous short-cycling goes undetected!**
+
+**Evidence from logs (15:30:40-15:30:46):**
+```
+15:27:42: Cooldown check: Flow=46.6C ... COOLING [555s elapsed]
+15:30:40: Flame OFF -> ON (demand returned during cooldown recovery)
+15:30:40: Flow temp rose from 46.1C to 51.6C
+15:30:44: Flow temp reached 55.1C (5.1C above 50C setpoint!)
+15:30:46: Flame OFF (modulation 0% - short-cycling!)
+15:30:45: "Flame OFF detected during cooldown - ignoring"
+```
+
+The flame came back ON during cooldown, heated to dangerous levels, then went OFF again. The second flame-OFF was ignored, allowing unprotected short-cycling.
+
+**Impact:**
+- Short-cycling events went undetected if they occurred during cooldown recovery
+- Boiler could overheat repeatedly without triggering protection
+- Defeats the primary purpose of cycling protection
+
+**Solution:**
+Added `on_flame_on()` handler that exits cooldown when flame comes back ON:
+
+1. Detects flame ON during COOLDOWN state
+2. Cancels recovery monitoring
+3. Exits cooldown and returns to NORMAL state
+4. Logs the premature exit with duration
+
+This ensures that when flame restarts (even during cooldown), the system returns to NORMAL state and can properly detect the next short-cycling event.
+
+**Implementation:**
+- [controllers/cycling_protection.py](../controllers/cycling_protection.py): Added `on_flame_on()` method
+- [app.py](../app.py): Registered flame ON listener for cycling protection
+
+---
+
 ## 2025-12-11: Fix setpoint ramp persistence being overwritten on restart
 
 **Bug Fix:**

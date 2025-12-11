@@ -323,6 +323,7 @@ class PyHeat(hass.Hass):
         # boiler pump overrun (timer starts from flame off, not command off),
         # and setpoint ramp reset (reset to baseline on flame off)
         if self.entity_exists(C.OPENTHERM_FLAME):
+            self.listen_state(self.cycling.on_flame_on, C.OPENTHERM_FLAME)
             self.listen_state(self.cycling.on_flame_off, C.OPENTHERM_FLAME)
             self.listen_state(self.boiler.on_flame_off, C.OPENTHERM_FLAME)
             self.listen_state(self.setpoint_ramp.on_flame_off, C.OPENTHERM_FLAME)
