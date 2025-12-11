@@ -156,6 +156,9 @@ class StatusPublisher:
         current_day_name = day_names[current_day_idx]
         blocks_today = week_schedule.get(current_day_name, [])
 
+        # IMPORTANT: Sort blocks by start time (blocks may not be in order in YAML)
+        blocks_today = sorted(blocks_today, key=lambda b: b['start'])
+
         in_block = False
         current_block = None
         current_block_end = None
@@ -183,6 +186,9 @@ class StatusPublisher:
                 next_day_idx = (current_day_idx + next_day_offset) % 7
                 next_day_name = day_names[next_day_idx]
                 next_day_blocks = week_schedule.get(next_day_name, [])
+
+                # Sort blocks by start time (blocks may not be in order in YAML)
+                next_day_blocks = sorted(next_day_blocks, key=lambda b: b['start']) if next_day_blocks else []
 
                 # Check if there's a block at 00:00 on next day
                 if next_day_blocks and next_day_blocks[0]['start'] == '00:00':
@@ -223,6 +229,8 @@ class StatusPublisher:
                 day_blocks = week_schedule.get(day_name, [])
 
                 if day_blocks:
+                    # Sort blocks by start time (blocks may not be in order in YAML)
+                    day_blocks = sorted(day_blocks, key=lambda b: b['start'])
                     # Found a block on this day - use the first one
                     first_block = day_blocks[0]
                     return self._build_schedule_info_dict(first_block['start'], day_offset, first_block, schedule)

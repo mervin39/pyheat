@@ -22,6 +22,7 @@ The previous `formatted_status` contained too much information and was trying to
 
 **Improved Schedule Finding Logic:**
 Rewrote the schedule finding logic to be more reliable and handle edge cases:
+- **Sorts blocks by start time** before processing (blocks may not be in chronological order in schedules.yaml)
 - Correctly handles blocks ending at 23:59 (looks to next day at 00:00)
 - Properly detects "forever" schedules (no blocks in entire week)
 - Handles gaps between scheduled blocks (reverts to default mode)
