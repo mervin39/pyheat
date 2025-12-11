@@ -16,8 +16,8 @@ The previous `formatted_status` contained too much information and was trying to
 - **Auto with override**: "Override: XX.X° until HH:MM" (unchanged behavior - web UI still adds countdown timer)
 - **Auto without override**:
   - If no schedule changes found: "Forever"
-  - If next change is active: "until HH:MM [day]: XX.XC"
-  - If next change is passive: "until HH:MM [day]: [V%] L-UC (passive)"
+  - If next change is active: "At HH:MM [day]: XX.X°"
+  - If next change is passive: "At HH:MM [day]: [V%] L-U° (passive)"
   - Day shown as: (omit if today), "tomorrow" (if tomorrow), "on Monday" etc (if later)
 
 **Improved Schedule Finding Logic:**

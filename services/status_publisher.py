@@ -419,15 +419,15 @@ class StatusPublisher:
 
             # Build status based on next mode
             if next_info['mode'] == 'passive':
-                # Next is passive: "until HH:MM [D]: [V%] L-U° (passive)"
+                # Next is passive: "At HH:MM [D]: [V%] L-U° (passive)"
                 valve_pct = next_info['valve_percent']
                 min_temp = next_info['target']
                 max_temp = next_info['passive_max_temp']
-                return f"until {time_str}{day_str}: [{valve_pct}%] {min_temp:.0f}-{max_temp:.0f}C (passive)"
+                return f"At {time_str}{day_str}: [{valve_pct}%] {min_temp:.0f}-{max_temp:.0f}° (passive)"
             else:
-                # Next is active: "until HH:MM [D]: S°"
+                # Next is active: "At HH:MM [D]: S°"
                 target = next_info['target']
-                return f"until {time_str}{day_str}: {target:.1f}C"
+                return f"At {time_str}{day_str}: {target:.1f}°"
 
         return 'Unknown'
         
