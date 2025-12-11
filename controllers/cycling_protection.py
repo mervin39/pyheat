@@ -306,39 +306,6 @@ class CyclingProtection:
                 except (ValueError, TypeError):
                     pass
 
-    def on_flame_on(self, entity, attribute, old, new, kwargs):
-        """Flame came ON - exit cooldown if currently in cooldown state.
-        
-        When flame turns ON during cooldown, it means the boiler has restarted
-        heating (due to demand returning). We need to exit cooldown and return
-        to NORMAL state so that the next flame-OFF event will be properly
-        evaluated for short-cycling.
-        
-        Without this, if flame comes ON during cooldown and then goes OFF again
-        quickly (short-cycling), the on_flame_off guard would prevent the new
-        cooldown from being triggered.
-        """
-        if new == 'on' and old == 'off':
-            if self.state == self.STATE_COOLDOWN:
-                # Cancel recovery monitoring
-                if self.recovery_handle:
-                    self.ad.cancel_timer(self.recovery_handle)
-                    self.recovery_handle = None
-                
-                # Calculate cooldown duration
-                duration = 0
-                if self.cooldown_entry_time:
-                    duration = (datetime.now() - self.cooldown_entry_time).total_seconds()
-                
-                self.ad.log(
-                    f"Flame ON during cooldown - exiting cooldown "
-                    f"(duration: {int(duration)}s, state: COOLDOWN -> NORMAL)",
-                    level="INFO"
-                )
-                
-                # Exit cooldown and restore setpoint
-                self._exit_cooldown()
-
     def on_flame_off(self, entity, attribute, old, new, kwargs):
         """Flame went OFF - capture DHW state and schedule delayed check.
         
