@@ -11,7 +11,7 @@ Responsibilities:
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any
 import constants as C
 
 
@@ -59,14 +59,16 @@ class SetpointRamp:
         
     def initialize_from_ha(self) -> None:
         """Load configuration and initialize state.
-        
-        Validates configuration and always starts at baseline setpoint.
-        Rationale: Flame is typically OFF during startup, and flame-OFF
-        reset strategy naturally handles this case.
+
+        Restores persisted ramped setpoint if flame is ON, otherwise starts at baseline.
+        Only updates HA climate entity if necessary to avoid unnecessary boiler reactions.
+
+        Rationale: Config changes (schedules, etc.) trigger app restart but should
+        not cause physical boiler responses. Preserve ramped state across restarts.
         """
         # Load and validate configuration from boiler.yaml
         self._load_and_validate_config()
-        
+
         # Check if feature is enabled
         if not self._is_feature_enabled():
             self.ad.log(
@@ -75,9 +77,8 @@ class SetpointRamp:
             )
             self.state = self.STATE_INACTIVE
             return
-        
-        # Always start at baseline on startup
-        # Flame-OFF reset strategy will handle ramp state naturally
+
+        # Get current baseline from HA helper
         current_baseline = self._get_baseline_setpoint()
         if current_baseline is None:
             self.ad.log(
@@ -85,24 +86,96 @@ class SetpointRamp:
                 level="WARNING"
             )
             return
-        
+
+        # Load persisted state
+        persisted_state = self._load_persisted_state()
+        persisted_baseline = persisted_state.get('baseline_setpoint')
+        persisted_ramped = persisted_state.get('current_ramped_setpoint')
+        persisted_steps = persisted_state.get('ramp_steps_applied', 0)
+
+        # Get current HA climate entity setpoint (before we change it!)
+        current_ha_setpoint = self._get_current_ha_setpoint()
+
+        # Check flame state
+        flame_is_on = self._is_flame_on()
+
+        # Determine correct setpoint and state
+        desired_setpoint = None
+        desired_state = self.STATE_INACTIVE
+
+        # If baseline changed while app was down, discard persisted ramp state
+        if persisted_baseline is not None and abs(persisted_baseline - current_baseline) > 0.1:
+            self.ad.log(
+                f"SetpointRamp: Baseline changed from {persisted_baseline:.1f}C to "
+                f"{current_baseline:.1f}C while app was down - resetting to new baseline",
+                level="INFO"
+            )
+            desired_setpoint = current_baseline
+            desired_state = self.STATE_INACTIVE
+
+        # If flame is ON and we have valid persisted ramped state, restore it
+        elif flame_is_on and persisted_ramped is not None and persisted_ramped > current_baseline:
+            self.ad.log(
+                f"SetpointRamp: Flame ON - restoring ramped setpoint "
+                f"{persisted_ramped:.1f}C (step {persisted_steps})",
+                level="INFO"
+            )
+            desired_setpoint = persisted_ramped
+            desired_state = self.STATE_RAMPING
+            self.ramp_steps_applied = persisted_steps
+
+        # Otherwise, start at baseline
+        else:
+            if flame_is_on:
+                self.ad.log(
+                    f"SetpointRamp: Flame ON but no valid persisted ramp state - "
+                    f"starting at baseline {current_baseline:.1f}C",
+                    level="INFO"
+                )
+            else:
+                self.ad.log(
+                    f"SetpointRamp: Flame OFF - starting at baseline {current_baseline:.1f}C",
+                    level="INFO"
+                )
+            desired_setpoint = current_baseline
+            desired_state = self.STATE_INACTIVE
+
+        # Set internal state
         self.baseline_setpoint = current_baseline
-        self.current_ramped_setpoint = current_baseline
-        self.ramp_steps_applied = 0
-        self.state = self.STATE_INACTIVE
-        
-        self.ad.log(
-            f"SetpointRamp: Initialized at baseline - "
-            f"baseline={self.baseline_setpoint:.1f}C",
-            level="INFO"
-        )
-        
-        # Sync climate entity to baseline
-        self.ad.call_service(
-            'climate/set_temperature',
-            entity_id=C.OPENTHERM_CLIMATE,
-            temperature=self.baseline_setpoint
-        )
+        self.current_ramped_setpoint = desired_setpoint
+        self.state = desired_state
+
+        # Only update HA climate entity if it differs from desired setpoint
+        # This avoids unnecessary boiler reactions on unrelated config changes
+        if current_ha_setpoint is None:
+            # Can't read current setpoint - set it to be safe
+            self.ad.log(
+                f"SetpointRamp: Cannot read current HA setpoint - setting to {desired_setpoint:.1f}C",
+                level="WARNING"
+            )
+            self.ad.call_service(
+                'climate/set_temperature',
+                entity_id=C.OPENTHERM_CLIMATE,
+                temperature=desired_setpoint
+            )
+        elif abs(current_ha_setpoint - desired_setpoint) > 0.1:
+            self.ad.log(
+                f"SetpointRamp: HA setpoint {current_ha_setpoint:.1f}C != desired {desired_setpoint:.1f}C - updating",
+                level="INFO"
+            )
+            self.ad.call_service(
+                'climate/set_temperature',
+                entity_id=C.OPENTHERM_CLIMATE,
+                temperature=desired_setpoint
+            )
+        else:
+            self.ad.log(
+                f"SetpointRamp: HA setpoint already at {desired_setpoint:.1f}C - no update needed",
+                level="DEBUG"
+            )
+
+        # Save state to persistence
+        self._save_state()
     
     def _load_and_validate_config(self) -> None:
         """Load and validate setpoint_ramp configuration from boiler.yaml.
@@ -489,14 +562,66 @@ class SetpointRamp:
     
     def is_ramping_active(self) -> bool:
         """Check if ramping is currently active.
-        
+
         Used by cycling protection to skip setpoint validation.
-        
+
         Returns:
             True if actively ramping above baseline
         """
         return self.state == self.STATE_RAMPING
-    
+
+    def _load_persisted_state(self) -> Dict[str, Any]:
+        """Load persisted setpoint ramp state from persistence file.
+
+        Returns:
+            Dict with baseline_setpoint, current_ramped_setpoint, ramp_steps_applied
+            Returns empty dict with defaults if persistence unavailable
+        """
+        from persistence import PersistenceManager
+        import os
+
+        try:
+            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
+            persistence = PersistenceManager(persistence_file)
+            return persistence.get_setpoint_ramp_state()
+        except Exception as e:
+            self.ad.log(
+                f"SetpointRamp: Failed to load persisted state: {e} - using defaults",
+                level="WARNING"
+            )
+            return {
+                'baseline_setpoint': None,
+                'current_ramped_setpoint': None,
+                'ramp_steps_applied': 0
+            }
+
+    def _get_current_ha_setpoint(self) -> Optional[float]:
+        """Get current setpoint from HA climate entity.
+
+        Returns:
+            Current setpoint in C, or None if unavailable
+        """
+        try:
+            state = self.ad.get_state(C.OPENTHERM_CLIMATE, attribute='temperature')
+            if state in ['unknown', 'unavailable', None]:
+                return None
+            return float(state)
+        except (ValueError, TypeError):
+            return None
+
+    def _is_flame_on(self) -> bool:
+        """Check if boiler flame is currently ON.
+
+        Returns:
+            True if flame is ON, False otherwise (including errors)
+        """
+        try:
+            state = self.ad.get_state(C.OPENTHERM_FLAME)
+            return state == 'on'
+        except Exception:
+            return False
+
     def get_state_dict(self) -> Dict:
         """Get current state as dict for logging and status publishing.
         

@@ -1,6 +1,54 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Fix Setpoint Ramp Initialization to Preserve State Across Config Reloads
+
+**Issue:**
+Config file changes (including unrelated changes like schedule updates) trigger an AppDaemon app restart, which was always resetting the setpoint to baseline (50C) regardless of whether the boiler was actively heating with a ramped setpoint. This caused immediate physical boiler responses (setpoint drops) for unrelated config changes.
+
+**Example from 2025-12-11 logs:**
+- 09:42:30: Heating actively with ramped setpoint 62C (flame ON)
+- 09:43:04: User changed `delta_increase_c` from 1.0 to 0.5 in boiler.yaml
+- 09:43:04: App restarted, immediately dropped setpoint to baseline 50C
+- 09:43:06: Had to ramp back up from 50C with new 0.5C increments
+- Result: Unnecessary 12C setpoint drop and re-ramp during active heating
+
+**Root Cause:**
+The `initialize_from_ha()` method always reset to baseline setpoint on startup, ignoring:
+1. Current flame state (ON vs OFF)
+2. Persisted ramped setpoint from previous run
+3. Current HA climate entity setpoint
+
+This violated the principle: **unrelated config changes should not cause physical boiler responses**.
+
+**Solution:**
+Modified initialization to preserve ramped state across restarts when appropriate:
+
+1. **Load Persisted State**: Read `persistence.json` for last known baseline/ramped setpoint
+2. **Check Current State First**: Read current HA climate entity setpoint BEFORE changing it
+3. **Check Flame State**: Determine if boiler is actively heating
+4. **Smart Decision Logic**:
+   - If baseline changed: reset to new baseline (user changed desired temp)
+   - If flame ON + valid persisted ramp state: restore ramped setpoint
+   - If flame OFF: use baseline (fresh heating cycle)
+5. **Minimize Updates**: Only call `set_temperature` if HA setpoint differs from desired
+
+**Benefits:**
+- Config reloads during active heating preserve ramped setpoint
+- No unnecessary boiler reactions for unrelated config changes
+- Respects flame state (still resets to baseline when flame is OFF)
+- Handles baseline changes correctly (user changed desired temp)
+- Fractional `delta_increase_c` values work correctly (confirmed 0.5C increments)
+
+**Implementation:**
+- Modified `initialize_from_ha()` to load and restore persisted state intelligently
+- Added `_load_persisted_state()` to read from persistence.json
+- Added `_get_current_ha_setpoint()` to read current HA value before changing
+- Added `_is_flame_on()` to check flame state during initialization
+
+**Files Changed:**
+- [controllers/setpoint_ramp.py](controllers/setpoint_ramp.py#L60-L178): Smart initialization logic
+
 ## 2025-12-11: Add Sensor Lag Compensation to Cooldown Detection
 
 **Issue:**
