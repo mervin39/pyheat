@@ -789,8 +789,20 @@ class CyclingProtection:
         )
         
     def _resume_cooldown_monitoring(self):
-        """Resume cooldown monitoring after AppDaemon restart."""
+        """Resume cooldown monitoring after AppDaemon restart.
+        
+        CRITICAL: Must restore cooldown setpoint (30C) to prevent flame restart.
+        Without this, the boiler can restart during cooldown and cause short-cycling.
+        """
         if self.state == self.STATE_COOLDOWN:
+            # Restore cooldown setpoint (critical for preventing flame restart)
+            self._set_setpoint(C.CYCLING_COOLDOWN_SETPOINT)
+            self.ad.log(
+                f"Restored cooldown setpoint to {C.CYCLING_COOLDOWN_SETPOINT}C "
+                f"(saved setpoint: {self.saved_setpoint}C)",
+                level="INFO"
+            )
+            # Start recovery monitoring
             self._start_recovery_monitoring()
             
     def _check_recovery(self, kwargs):

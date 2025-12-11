@@ -1,6 +1,56 @@
 
 # PyHeat Changelog
 
+## 2025-12-11: Fix cooldown setpoint not restored after AppDaemon restart
+
+**Critical Bug Fix:**
+Fixed dangerous bug where cooldown setpoint (30°C) was not restored after AppDaemon restart, allowing the boiler flame to restart during cooldown and cause unprotected short-cycling.
+
+**Root Cause:**
+When AppDaemon restarted during an active COOLDOWN:
+1. `initialize_from_ha()` correctly restored COOLDOWN state from persistence
+2. Called `_resume_cooldown_monitoring()` to restart recovery monitoring
+3. **BUT** never restored the cooldown setpoint to 30°C
+4. Boiler setpoint remained at baseline (50°C) instead of cooldown temp (30°C)
+5. This allowed the flame to restart during cooldown (setpoint not suppressed)
+6. When flame went OFF again, the on_flame_off guard prevented re-evaluation (already in COOLDOWN)
+7. **Result: Unprotected short-cycling with flow temps reaching 55.1°C (5.1°C above setpoint)**
+
+**Evidence from logs (15:21:01 restart during cooldown):**
+```
+15:18:26: COOLDOWN STARTED | Saved setpoint: 50.0C -> New: 30C
+15:18:32: OpenTherm setpoint confirmed at 30.0C
+15:21:01: AppDaemon restart
+15:21:01: Restored COOLDOWN state from persistence - resuming monitoring
+15:21:01: Startup: In COOLDOWN state - skipping setpoint sync
+15:21:11: OpenTherm setpoint at 50.0C (should be 30C!)
+15:30:40: Flame came ON (allowed because setpoint was 50C not 30C)
+15:30:44: Flow temp reached 55.1C (dangerous!)
+15:30:46: Flame OFF - but guard prevented cooldown re-evaluation
+```
+
+The CSV showed `cycling_state=COOLDOWN` but `ot_setpoint_temp=50.0` when it should have been 30.0°C.
+
+**Impact:**
+- Extremely dangerous: defeats the primary purpose of cooldown protection
+- Allows boiler to restart and overheat during cooldown recovery
+- Short-cycling goes undetected because state machine thinks it's already protecting
+- Only occurs after AppDaemon restarts during active cooldown
+
+**Solution:**
+Modified `_resume_cooldown_monitoring()` to restore the cooldown setpoint (30°C) when resuming after restart:
+```python
+self._set_setpoint(C.CYCLING_COOLDOWN_SETPOINT)  # Restore 30C cooldown setpoint
+self._start_recovery_monitoring()                 # Resume monitoring
+```
+
+This ensures the boiler setpoint is properly suppressed to prevent flame restart during cooldown recovery.
+
+**Files Changed:**
+- [controllers/cycling_protection.py](../controllers/cycling_protection.py): Fixed `_resume_cooldown_monitoring()` to restore cooldown setpoint
+
+---
+
 ## 2025-12-11: Fix setpoint ramp persistence being overwritten on restart
 
 **Bug Fix:**
