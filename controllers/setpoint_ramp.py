@@ -56,6 +56,17 @@ class SetpointRamp:
         # Feature control entities
         self.enable_entity = C.HELPER_SETPOINT_RAMP_ENABLE
         self.max_entity = C.HELPER_SETPOINT_RAMP_MAX
+    
+    def set_cycling_protection_ref(self, cycling_protection_ref) -> None:
+        """Set cycling protection reference after initialization.
+        
+        This allows cycling protection to be created after setpoint ramp,
+        avoiding circular dependency issues during initialization.
+        
+        Args:
+            cycling_protection_ref: CyclingProtection instance
+        """
+        self.cycling = cycling_protection_ref
         
     def initialize_from_ha(self) -> None:
         """Load configuration and initialize state.

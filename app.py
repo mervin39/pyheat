@@ -73,6 +73,8 @@ class PyHeat(hass.Hass):
         self.boiler = BoilerController(self, self.config, self.alerts, self.valve_coordinator, self.trvs)
         self.setpoint_ramp = SetpointRamp(self, self.config)
         self.cycling = CyclingProtection(self, self.config, self.alerts, self.boiler, app_ref=self, setpoint_ramp_ref=self.setpoint_ramp)
+        # Wire cycling protection reference back to setpoint ramp (avoids circular dependency during init)
+        self.setpoint_ramp.set_cycling_protection_ref(self.cycling)
         self.status = StatusPublisher(self, self.config)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.status.load_calculator_ref = self.load_calculator  # Allow status publisher to get capacity data

@@ -1,6 +1,55 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Fix setpoint ramping reacting to DHW flame events during cooldown
+
+**Critical Bug Fix:**
+Fixed bug where setpoint ramping reset the setpoint from 30°C to baseline (55°C) during an active cooldown when DHW flame events occurred.
+
+**Root Cause:**
+1. The flame sensor (`binary_sensor.opentherm_flame`) is shared between CH (Central Heating) and DHW (Domestic Hot Water)
+2. SetpointRamp registers a callback on flame OFF events to reset ramped setpoints back to baseline
+3. During cooldown (setpoint at 30°C), if a DHW cycle occurs:
+   - DHW activates and flame turns ON
+   - DHW finishes and flame turns OFF
+   - SetpointRamp's `on_flame_off()` callback triggers
+4. **The cooldown check in `on_flame_off()` never executed because `self.cycling` was None**
+5. SetpointRamp saw current setpoint (30°C) != baseline (55°C) and "helpfully" reset it to 55°C
+6. This broke cooldown protection, allowing the boiler to restart prematurely
+
+**Evidence from logs (2025-12-12 07:47-07:48):**
+```
+07:41:32: System enters COOLDOWN, setpoint drops to 30°C (correct)
+07:47:29: DHW turns on (unrelated to CH cooldown)
+07:47:48: Flame ON (for DHW)
+07:47:53: Flame OFF (DHW cycle ends)
+07:47:53: cycling_protection: "Flame OFF during cooldown - ignoring" (correct)
+07:47:53: setpoint_ramp: "Flame OFF detected - resetting from 30.0C to baseline 55.0C" (BUG!)
+07:48:01: OpenTherm setpoint jumps to 55.0°C (should stay at 30°C during cooldown)
+07:48:05: Flame ON again for more DHW
+```
+
+**Why the cooldown check didn't work:**
+- In [app.py](app.py#L74-L75), SetpointRamp was created **before** CyclingProtection
+- SetpointRamp was initialized without the cycling_protection_ref parameter (defaulted to None)
+- The cooldown safety check at [setpoint_ramp.py](controllers/setpoint_ramp.py#L443-L451) never executed because `if self.cycling:` was False
+
+**Solution:**
+Added proper wiring of the cycling protection reference to setpoint ramp:
+
+1. Added `set_cycling_protection_ref()` method to SetpointRamp to set the reference after initialization
+2. Updated [app.py](app.py#L76) to call `setpoint_ramp.set_cycling_protection_ref(self.cycling)` after creating cycling protection
+3. This ensures the cooldown check in `on_flame_off()` properly prevents setpoint changes during cooldown
+
+**Expected behavior:**
+- When system is in cooldown, setpoint should remain at 30°C regardless of flame events
+- Only cooldown exit logic should restore the setpoint to baseline
+- DHW flame events (or any other flame activity) should not affect CH cooldown state
+
+**Files changed:**
+- [controllers/setpoint_ramp.py](controllers/setpoint_ramp.py): Added `set_cycling_protection_ref()` method
+- [app.py](app.py): Wire cycling protection reference after initialization
+
 ## 2025-12-11: Fix cooldown setpoint overwritten by setpoint_ramp initialization
 
 **Critical Bug Fix:**
