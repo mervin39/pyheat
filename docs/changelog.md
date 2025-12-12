@@ -1,6 +1,38 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Add trigger events for flame and cycling_state changes
+
+**Enhancement:**
+Added flame and cycling_state changes as explicit trigger events in CSV heating logs for better debugging and analysis.
+
+**Motivation:**
+While analyzing the DHW/cooldown bug (2025-12-12), we noticed that flame OFF/ON events were detected in `should_log()` but weren't showing up in the `trigger` column of the CSV. This made it harder to trace the sequence of events. Similarly, cycling state changes (entering/exiting cooldown) weren't triggering dedicated log entries.
+
+**Changes:**
+1. **Flame sensor logging:** Added `'flame'` to the OpenTherm sensor list that triggers heating logs
+   - Flame changes now generate log entries with trigger `opentherm_flame`
+   - Marked as `force_log=True` so flame events always appear (bypass should_log filtering)
+   
+2. **Climate state logging:** Added `'climate_state'` to the OpenTherm sensor list
+   - Climate state changes (heat/idle/off) now generate dedicated log entries
+   - Also marked as `force_log=True`
+
+3. **Cycling state logging:** Added recompute trigger when entering cooldown
+   - When cooldown starts, triggers `recompute_and_publish('cycling_cooldown_entered')`
+   - Matches existing behavior when cooldown exits (`cycling_cooldown_ended`)
+   - Creates explicit CSV entries for cooldown state transitions
+
+**Benefits:**
+- Easier to trace flame ON/OFF sequences in CSV (especially DHW vs CH)
+- Clear visibility of cooldown entry/exit timing
+- Better correlation between flame events and cycling protection state
+- Improved debugging for setpoint changes during DHW events
+
+**Files changed:**
+- [app.py](app.py): Added `'flame'` and `'climate_state'` to OpenTherm logging sensor list
+- [controllers/cycling_protection.py](controllers/cycling_protection.py): Added recompute trigger on cooldown entry
+
 ## 2025-12-12: Fix setpoint ramping reacting to DHW flame events during cooldown
 
 **Critical Bug Fix:**

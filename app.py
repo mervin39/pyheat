@@ -674,8 +674,8 @@ class PyHeat(hass.Hass):
                 self.log(f"OpenTherm [{sensor_name}]: {new}", level="DEBUG")
         
         # Trigger heating log for significant sensor changes
-        # (setpoint, modulation, heating temp, return temp, dhw, dhw_flow_rate)
-        if self.heating_logger and sensor_name in ['heating_setpoint_temp', 'modulation', 'heating_temp', 'heating_return_temp', 'dhw', 'dhw_flow_rate']:
+        # (setpoint, modulation, heating temp, return temp, dhw, dhw_flow_rate, flame, climate_state)
+        if self.heating_logger and sensor_name in ['heating_setpoint_temp', 'modulation', 'heating_temp', 'heating_return_temp', 'dhw', 'dhw_flow_rate', 'flame', 'climate_state']:
             try:
                 now = datetime.now()
                 
@@ -704,8 +704,8 @@ class PyHeat(hass.Hass):
                     }
                 # Let should_log() filter heating_temp/return_temp (only log on whole degree changes)
                 # dhw_flow_rate will be filtered by should_log() to detect zero/nonzero transitions
-                # Force log for important state changes and counters
-                force_log = sensor_name in ['heating_setpoint_temp', 'modulation', 'dhw', 'climate_state', 'burner_starts', 'dhw_burner_starts']
+                # Force log for important state changes and counters (including flame for debugging cooldown issues)
+                force_log = sensor_name in ['heating_setpoint_temp', 'modulation', 'dhw', 'climate_state', 'burner_starts', 'dhw_burner_starts', 'flame']
                 self._log_heating_state(f"opentherm_{sensor_name}", boiler_state, room_data, now, force_log=force_log)
             except Exception as e:
                 self.log(f"ERROR in OpenTherm logging: {e}", level="ERROR")

@@ -724,6 +724,10 @@ class CyclingProtection:
         self.saved_setpoint = original_setpoint
         self.cooldown_entry_time = now
         
+        # Trigger CSV log for state change
+        if self.app_ref and hasattr(self.app_ref, 'recompute_and_publish'):
+            self.app_ref.recompute_and_publish('cycling_cooldown_entered', now)
+        
         # Add to history for excessive cycling detection
         self.cooldown_history.append((now, return_temp, original_setpoint))
         
