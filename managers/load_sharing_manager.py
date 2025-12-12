@@ -237,10 +237,10 @@ class LoadSharingManager:
             
             # Add room at initial valve percentage
             self._activate_schedule_room(room_id, valve_pct, reason, target_temp, now, minutes_until)
-            
-            # Trigger recompute if this was the first activation
-            if was_inactive and self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
-                self.app_ref.trigger_recompute('load_sharing_activated')
+
+            # Queue CSV log event if this was the first activation
+            if was_inactive and self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+                self.app_ref.queue_csv_event('load_sharing_activated')
             
             # Check if sufficient
             total_capacity = self._calculate_total_system_capacity(room_states)
@@ -380,11 +380,10 @@ class LoadSharingManager:
         )
         self.context.reset()
         self.context.state = LoadSharingState.INACTIVE
-        
-        # Trigger CSV log for load sharing deactivation
-        if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
-            from datetime import datetime
-            self.app_ref.trigger_recompute('load_sharing_deactivated')
+
+        # Queue CSV log event for load sharing deactivation
+        if self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+            self.app_ref.queue_csv_event('load_sharing_deactivated')
     
     def get_status(self) -> Dict:
         """Get current status for publishing to Home Assistant.

@@ -362,12 +362,12 @@ class HeatingLogger:
         # No significant changes
         return False
     
-    def log_state(self, trigger: str, opentherm_data: Dict, boiler_state: str, 
+    def log_state(self, trigger: str, opentherm_data: Dict, boiler_state: str,
                   pump_overrun_active: bool, room_data: Dict, total_valve_pct: int,
-                  cycling_data: Dict = None, load_data: Dict = None, 
-                  load_sharing_data: Dict = None):
+                  cycling_data: Dict = None, load_data: Dict = None,
+                  load_sharing_data: Dict = None, override_timestamp: datetime = None):
         """Log current heating system state to CSV.
-        
+
         Args:
             trigger: What triggered this log entry (e.g., "boiler_state_change", "flame_on")
             opentherm_data: Dict with OpenTherm sensor values
@@ -378,6 +378,7 @@ class HeatingLogger:
             cycling_data: Optional dict with cycling protection state
             load_data: Optional dict with load calculator data (total_estimated_capacity, estimated_capacities)
             load_sharing_data: Optional dict with load sharing state from get_status()
+            override_timestamp: Optional timestamp to use instead of datetime.now() (for queued events)
         """
         # Check date rotation
         self._check_date_rotation()
@@ -413,8 +414,8 @@ class HeatingLogger:
             except (ValueError, TypeError):
                 return ''
         
-        # Get current datetime
-        now = datetime.now()
+        # Get current datetime (or use override for queued events)
+        now = override_timestamp if override_timestamp is not None else datetime.now()
         
         # Extract trigger value based on trigger name
         trigger_val = ''

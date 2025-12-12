@@ -250,11 +250,10 @@ class ValveCoordinator:
             f"ValveCoordinator: Pump overrun enabled, persisting: {self.pump_overrun_snapshot}",
             level="INFO"
         )
-        
-        # Trigger CSV log for pump overrun start
-        if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
-            from datetime import datetime
-            self.app_ref.trigger_recompute('pump_overrun_started')
+
+        # Queue CSV log event for pump overrun start
+        if self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+            self.app_ref.queue_csv_event('pump_overrun_started')
     
     def disable_pump_overrun_persistence(self) -> None:
         """Disable pump overrun persistence.
@@ -263,12 +262,11 @@ class ValveCoordinator:
         """
         self.pump_overrun_active = False
         self.pump_overrun_snapshot = {}
-        
-        # Trigger CSV log for pump overrun end
-        if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
-            from datetime import datetime
-            self.app_ref.trigger_recompute('pump_overrun_ended')
-        
+
+        # Queue CSV log event for pump overrun end
+        if self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+            self.app_ref.queue_csv_event('pump_overrun_ended')
+
         # Clear persistence file
         self._clear_valve_positions_in_persistence()
         

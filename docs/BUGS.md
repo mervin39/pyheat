@@ -6,9 +6,9 @@ This document tracks known bugs and their resolutions.
 
 ## BUG #18: Runaway Feedback Loop - Timer Cancellation Storm Causes Rapid Cycling
 
-**Status:** ACTIVE 🔴
+**Status:** FIXED ✅
 **Date Discovered:** 2025-12-12
-**Date Fixed:** Not yet fixed
+**Date Fixed:** 2025-12-12
 **Severity:** CRITICAL - System becomes completely unresponsive, climate entity rapidly cycles
 **Category:** Boiler State Machine / Desync Detection / Timer Management
 
@@ -164,7 +164,50 @@ Pump overrun timer started at 13:50:06 for 2:30 (150s) but finished at 13:51:32 
 
 ### Resolution
 
-Not yet implemented. Requires careful fix to prevent breaking anti-cycling protection while eliminating feedback loop.
+**Fix Implemented:** Event Queue System
+
+The root cause was that state transition triggers (added 2025-12-12 08:47 in commit 9af72d5) were calling `trigger_recompute()` from **inside an existing recompute cycle**, creating nested recomputes and feedback loops. The fix replaces these redundant recomputes with an event queue that logs state transitions without retriggering computation.
+
+**Solution:** CSV Event Queue
+- Added `csv_event_queue` list to [app.py](../app.py:95)
+- Implemented `queue_csv_event(reason)` method in [app.py](../app.py:823-837)
+- Updated `recompute_all()` to process queued events after main logging in [app.py](../app.py:1144-1160)
+- Modified `HeatingLogger.log_state()` to accept `override_timestamp` parameter in [services/heating_logger.py](../services/heating_logger.py:365-382)
+
+**Changes to Components:**
+1. **[boiler_controller.py:767-769](../controllers/boiler_controller.py:767)**: Changed `trigger_recompute()` → `queue_csv_event()`
+2. **[valve_coordinator.py:254-256, 266-268](../controllers/valve_coordinator.py:254)**: Changed `trigger_recompute()` → `queue_csv_event()`
+3. **[setpoint_ramp.py:352-354, 482-484](../controllers/setpoint_ramp.py:352)**: Changed `trigger_recompute()` → `queue_csv_event()`
+4. **[load_sharing_manager.py:241-243, 384-386](../managers/load_sharing_manager.py:241)**: Changed `trigger_recompute()` → `queue_csv_event()`
+
+**How It Works:**
+1. During recompute, state transitions call `queue_csv_event(reason)` instead of `trigger_recompute()`
+2. Events are queued with their exact timestamp and reason
+3. After main CSV log, queued events are logged with captured timestamps but current consistent state
+4. No additional recomputes are triggered, breaking the feedback loop
+
+**Benefits:**
+- ✅ Exact timestamps for state transitions (captured at moment of change)
+- ✅ Consistent system state (all columns show post-recompute values)
+- ✅ No feedback loops (events queued, not executed)
+- ✅ No extra recomputes (minimal overhead)
+- ✅ Better observability (dedicated CSV rows for state transitions)
+
+**Test Results:**
+- Created and cancelled override in lounge room
+- Before fix: 90+ recomputes in 30 seconds, hundreds of timer cancellations
+- After fix: 2 recomputes (timer changed + timer cancelled), clean shutdown
+- No errors in error.log
+- CSV correctly shows queued events (e.g., "boiler_state_pump_overrun" at 14:26:49)
+
+**Alternative Approaches Not Chosen:**
+- Option 1 (Debounce timer restarts): Would add complexity to timer management
+- Option 2 (Service call tracking): Wouldn't solve the redundant recompute problem
+- Option 3 (Remove timer cancellation triggers): Would lose legitimate timer event handling
+- Option 4 (Fix override clearing): Addresses symptom, not root cause
+- Option 5 (Rate limit recomputes): Band-aid solution, doesn't prevent redundant work
+
+The event queue approach was chosen because it completely eliminates the root cause (redundant recomputes during recompute) while preserving all observability benefits.
 
 ---
 

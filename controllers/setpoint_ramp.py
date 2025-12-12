@@ -348,10 +348,10 @@ class SetpointRamp:
                     f"(step {self.ramp_steps_applied})",
                     level="INFO"
                 )
-                
-                # Trigger CSV log if state transitioned from INACTIVE to RAMPING
-                if old_state == self.STATE_INACTIVE and self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
-                    self.app_ref.trigger_recompute('setpoint_ramp_started')
+
+                # Queue CSV log event if state transitioned from INACTIVE to RAMPING
+                if old_state == self.STATE_INACTIVE and self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+                    self.app_ref.queue_csv_event('setpoint_ramp_started')
 
                 # No persistence needed - state inferred from physical boiler on next restart
 
@@ -478,10 +478,10 @@ class SetpointRamp:
                     entity_id=C.OPENTHERM_CLIMATE,
                     temperature=self.baseline_setpoint
                 )
-                
-                # Trigger CSV log if state transitioned from RAMPING to INACTIVE
-                if old_state == self.STATE_RAMPING and self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
-                    self.app_ref.trigger_recompute('setpoint_ramp_reset')
+
+                # Queue CSV log event if state transitioned from RAMPING to INACTIVE
+                if old_state == self.STATE_RAMPING and self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+                    self.app_ref.queue_csv_event('setpoint_ramp_reset')
             elif self.state == self.STATE_RAMPING:
                 # Setpoint already at baseline, but internal state is RAMPING
                 # Reset internal state to INACTIVE for consistency

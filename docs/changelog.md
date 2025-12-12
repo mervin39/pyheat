@@ -1,6 +1,68 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Fix critical runaway feedback loop (BUG #18)
+
+**Fix:**
+Eliminated catastrophic feedback loop that caused 90+ recomputes per 30 seconds and system unresponsiveness.
+
+**Root Cause:**
+State transition triggers (added this morning in commit 9af72d5) were calling `trigger_recompute()` from **inside an existing recompute cycle**. This created nested recomputes that amplified timer cancellation events into a runaway feedback storm.
+
+**Solution - Event Queue System:**
+
+Implemented CSV event queue that logs state transitions without triggering additional recomputes:
+
+1. **Added event queue** in [app.py](app.py:95):
+   - `csv_event_queue` list stores events with timestamp and reason
+   - `queue_csv_event(reason)` method captures events during recompute
+
+2. **Process queued events** in [app.py](app.py:1144-1160):
+   - After main CSV log, iterate through queued events
+   - Log each with captured timestamp but current consistent state
+   - Clear queue after processing
+
+3. **Updated heating logger** in [services/heating_logger.py](services/heating_logger.py:365-382):
+   - Added `override_timestamp` optional parameter
+   - Uses override timestamp if provided, otherwise `datetime.now()`
+
+4. **Replaced trigger_recompute with queue_csv_event**:
+   - [boiler_controller.py:767-769](controllers/boiler_controller.py:767): Boiler state transitions
+   - [valve_coordinator.py:254-256, 266-268](controllers/valve_coordinator.py:254): Pump overrun start/end
+   - [setpoint_ramp.py:352-354, 482-484](controllers/setpoint_ramp.py:352): Ramp start/reset
+   - [load_sharing_manager.py:241-243, 384-386](managers/load_sharing_manager.py:241): Load sharing activate/deactivate
+
+**How It Works:**
+1. State transition occurs during recompute
+2. Component calls `queue_csv_event(reason)` instead of `trigger_recompute()`
+3. Event queued with exact timestamp
+4. After main CSV log, queued events logged with captured timestamps
+5. No additional recomputes triggered - feedback loop broken
+
+**Benefits:**
+- System stability restored - no more feedback cascades
+- Exact timestamps for state transitions (captured at moment of change)
+- Consistent CSV state (all columns show post-recompute values)
+- Better observability (dedicated rows for each state transition)
+- Minimal overhead (just writing extra CSV rows, no recomputes)
+
+**Test Results:**
+- Override creation and cancellation: Clean 2-recompute sequence
+- Before fix: 90+ recomputes in 30 seconds, hundreds of timer cancellations
+- After fix: 2 recomputes, no cascade, no errors
+- CSV correctly logs queued events with precise timestamps
+
+**Files Modified:**
+- [app.py](app.py): Event queue system and processing logic
+- [services/heating_logger.py](services/heating_logger.py): Timestamp override support
+- [controllers/boiler_controller.py](controllers/boiler_controller.py): Queue instead of trigger
+- [controllers/valve_coordinator.py](controllers/valve_coordinator.py): Queue instead of trigger
+- [controllers/setpoint_ramp.py](controllers/setpoint_ramp.py): Queue instead of trigger
+- [managers/load_sharing_manager.py](managers/load_sharing_manager.py): Queue instead of trigger
+- [docs/BUGS.md](BUGS.md): Updated BUG #18 with resolution details
+
+---
+
 ## 2025-12-12: Documented critical runaway feedback loop bug (BUG #18)
 
 **Bug Documentation:**

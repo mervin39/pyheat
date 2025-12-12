@@ -89,7 +89,11 @@ class PyHeat(hass.Hass):
         # Track last published rounded temperature per room
         # Used to skip recomputes when sensor changes don't affect displayed value
         self.last_published_temps = {}  # {room_id: rounded_temp}
-        
+
+        # CSV event queue for state transition logging
+        # Queues events during recompute to log after with accurate timestamps
+        self.csv_event_queue = []
+
         # Load configuration
         try:
             self.config.load_all()
@@ -816,9 +820,25 @@ class PyHeat(hass.Hass):
         self.first_boot = False
         self.recompute_all(datetime.now(), "second_boot")
 
+    def queue_csv_event(self, reason: str):
+        """Queue an event for CSV logging without triggering recompute.
+
+        Events are logged after current recompute completes with accurate
+        timestamp but consistent final state. This allows capturing exact
+        timing of state transitions without the overhead and feedback loops
+        of additional recomputes.
+
+        Args:
+            reason: Event description for CSV trigger column
+        """
+        self.csv_event_queue.append({
+            'reason': reason,
+            'timestamp': datetime.now()
+        })
+
     def trigger_recompute(self, reason: str):
         """Trigger an immediate recompute.
-        
+
         Args:
             reason: Description of why recompute was triggered
         """
@@ -1120,4 +1140,22 @@ class PyHeat(hass.Hass):
                 load_data=load_data,
                 load_sharing_data=load_sharing_data
             )
+
+            # Process queued CSV events (state transitions during this recompute)
+            # Log with captured timestamps but current consistent state
+            if self.csv_event_queue:
+                for event in self.csv_event_queue:
+                    self.heating_logger.log_state(
+                        trigger=event['reason'],
+                        opentherm_data=opentherm_data,
+                        boiler_state=boiler_state,
+                        pump_overrun_active=pump_overrun_active,
+                        room_data=log_room_data,
+                        total_valve_pct=total_valve_pct,
+                        cycling_data=cycling_data,
+                        load_data=load_data,
+                        load_sharing_data=load_sharing_data,
+                        override_timestamp=event['timestamp']
+                    )
+                self.csv_event_queue.clear()
 

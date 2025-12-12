@@ -763,10 +763,10 @@ class BoilerController:
             self.ad.log(f"Boiler: {self.boiler_state} -> {new_state} ({reason})")
             self.boiler_state = new_state
             self.boiler_state_entry_time = now
-            
-            # Trigger CSV log for boiler state change
-            if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
-                self.app_ref.trigger_recompute(f'boiler_state_{new_state.lower()}')
+
+            # Queue CSV log event for boiler state change
+            if self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+                self.app_ref.queue_csv_event(f'boiler_state_{new_state.lower()}')
     
     def _get_min_on_time(self) -> int:
         """Get minimum on time from config."""
