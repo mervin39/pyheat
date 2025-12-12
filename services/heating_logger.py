@@ -459,9 +459,9 @@ class HeatingLogger:
         
         # Build row data
         row = {
-            # Timestamp (separate date and time)
+            # Timestamp (separate date and time with microsecond precision)
             'date': now.strftime('%Y-%m-%d'),
-            'time': now.strftime('%H:%M:%S'),
+            'time': f"{now.strftime('%H:%M:%S')}.{now.microsecond:06d}",
             'trigger': trigger,
             'trigger_val': trigger_val,
             

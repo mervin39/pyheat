@@ -1,6 +1,25 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Add microsecond precision to CSV timestamps
+
+**Enhancement:**
+Increased CSV timestamp precision from seconds to microseconds to uniquely identify rapid events.
+
+**Change:**
+- Updated CSV time column format from `HH:MM:SS` to `HH:MM:SS.microseconds` in [services/heating_logger.py](services/heating_logger.py:464)
+- Example: `14:30:08.415883` instead of `14:30:08`
+
+**Benefits:**
+- Queued state transition events now have unique timestamps even when occurring within the same second
+- Better temporal resolution for analysis of rapid state changes
+- Preserves existing date/time column structure (no new columns added)
+
+**Files Modified:**
+- [services/heating_logger.py](services/heating_logger.py): Added microsecond formatting to time field
+
+---
+
 ## 2025-12-12: Fix critical runaway feedback loop (BUG #18)
 
 **Fix:**
