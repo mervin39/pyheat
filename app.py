@@ -110,12 +110,9 @@ class PyHeat(hass.Hass):
         if C.ENABLE_HEATING_LOGS:
             self.heating_logger = HeatingLogger(self, self.config)
         
-        # Initialize cycling protection state from persistence
+        # Initialize cycling protection (infers cooldown state from physical boiler setpoint)
         self.cycling.initialize_from_ha()
-        
-        # Sync climate setpoint to helper (unless in cooldown)
-        self.cycling.sync_setpoint_on_startup()
-        
+
         # Initialize sensor values from current state
         self.sensors.initialize_from_ha()
         
@@ -137,7 +134,7 @@ class PyHeat(hass.Hass):
         # Initialize load sharing manager (Phase 0: disabled by default)
         self.load_sharing.initialize_from_ha()
         
-        # Initialize setpoint ramp (load config and restore persisted state)
+        # Initialize setpoint ramp (infers ramping state from physical boiler setpoint)
         try:
             self.setpoint_ramp.initialize_from_ha()
         except ValueError as e:
@@ -445,10 +442,9 @@ class PyHeat(hass.Hass):
             # Don't trigger recompute - system is disabled and recompute would overwrite status
         
         elif new == "on":
-            # System being re-enabled - sync setpoint, lock TRVs, and resume normal operation
-            self.log("Master enable ON - syncing OpenTherm setpoint, locking TRV setpoints to 35C and resuming operation")
-            # Sync OpenTherm setpoint from helper (unless in cooldown)
-            self.cycling.sync_setpoint_on_startup()
+            # System being re-enabled - lock TRVs and resume normal operation
+            # Setpoint will be synced by next recompute (inferred from physical state)
+            self.log("Master enable ON - locking TRV setpoints to 35C and resuming operation")
             self.run_in(self.lock_all_trv_setpoints, 1)
             # Trigger recompute to resume normal heating operation
             self.trigger_recompute("master_enable_changed")

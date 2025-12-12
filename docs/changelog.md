@@ -1,6 +1,147 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Major architectural improvement - physical state as source of truth
+
+**Major Refactor:**
+Fundamentally changed initialization strategy to use physical boiler state as the source of truth instead of persisted internal state. This eliminates entire classes of desync bugs that have plagued initialization logic.
+
+**The Problem:**
+Previous approach tried to restore complex internal state from persistence, then sync the physical boiler to match. This led to numerous bugs:
+- Cooldown setpoint overwritten during restart (Dec 11, 2025) - dangerous!
+- Setpoint ramp persistence overwritten by startup sync (Dec 11, 2025)
+- Setpoint ramp ignoring flame state on restart (Dec 11, 2025)
+- Complex order-dependent initialization with circular dependencies
+- Multiple "sources of truth" that could desync
+
+**The Solution:**
+**Infer internal state from physical boiler, not the other way around.**
+
+### Setpoint Ramp Changes
+
+**Before:**
+- Persisted baseline_setpoint, current_ramped_setpoint, ramp_steps_applied
+- Complex restoration logic checking flame state, persisted state, baseline changes
+- Had to coordinate with cycling protection init order
+- Multiple historical bugs in restoration logic
+
+**After:**
+- **No persistence needed at all!**
+- Read physical boiler setpoint on every restart
+- Simple detection: `if boiler > helper and flame ON: we're ramping`
+- Self-correcting on every recompute
+- No desync possible - physical state is truth
+
+**Logic:**
+```python
+boiler_setpoint = climate.opentherm_heating.temperature
+helper_setpoint = input_number.pyheat_opentherm_setpoint
+flame_on = binary_sensor.opentherm_flame == 'on'
+
+if cycling_state == COOLDOWN:
+    # Cooldown owns setpoint, stay inactive
+    state = INACTIVE
+elif boiler > helper + 0.1 and flame_on:
+    # Actively ramping - continue
+    state = RAMPING
+elif boiler > helper + 0.1 and not flame_on:
+    # Stale ramp - reset to helper
+    _set_setpoint(helper)
+    state = INACTIVE
+else:
+    # Normal operation
+    state = INACTIVE
+```
+
+### Cycling Protection Changes
+
+**Before:**
+- Persisted mode, saved_setpoint, cooldown_start
+- Trusted persisted `mode` as source of truth
+- Complex logic to sync physical boiler to match internal state
+- Multiple bugs where setpoint got overwritten during init
+
+**After:**
+- **Detect COOLDOWN from physical boiler setpoint**
+- If `abs(boiler - 30.0) < 0.5`: we're in COOLDOWN
+- Load metadata (entry_time, saved_setpoint) for history
+- Use defaults if missing (conservative)
+- Immediately check exit conditions
+- Resume recovery monitoring
+
+**Still persisted (for history):**
+- `entry_time`: When cooldown started
+- `saved_setpoint`: What to restore on exit
+- `cooldowns_count`: Total count for alerts
+
+**Not persisted (inferred from physical):**
+- `state`: NORMAL vs COOLDOWN (detected from boiler == 30°C)
+
+**Logic:**
+```python
+boiler_setpoint = climate.opentherm_heating.temperature
+
+if abs(boiler_setpoint - 30.0) < 0.5:
+    # We're in COOLDOWN
+    # Load metadata (entry_time, saved_setpoint) from persistence
+    # Use defaults if missing
+    # Check if we can exit immediately (temps cooled while we were down)
+    # Resume recovery monitoring if still needed
+else:
+    # We're in NORMAL
+    # Clear any stale state
+```
+
+### App.py Simplification
+
+**Removed:**
+- `cycling.sync_setpoint_on_startup()` call (no longer needed!)
+- Entire complex sequence of "restore state, then sync physical to match"
+
+**Result:**
+- Simpler, more robust initialization
+- Physical state always wins
+- No order dependencies between components
+
+### New Feature: Boiler Unavailability Alerting
+
+Added tracking in `cycling_protection._get_current_setpoint()`:
+- If boiler entity unavailable for 5+ minutes, send CRITICAL alert
+- Helps diagnose integration issues quickly
+- Auto-clears when entity available again
+
+**Alert message includes:**
+- How long unavailable
+- Which entity is missing
+- Checklist: HA running, OpenTherm integration, boiler powered on
+
+### Benefits
+
+1. **Eliminates desync bugs**: Internal state can't disagree with physical boiler
+2. **Self-correcting**: Every restart, every recompute detects fresh from physical state
+3. **Simpler code**: No complex restoration logic, no order dependencies
+4. **More robust**: Handles edge cases naturally (manual changes, failed commands, etc.)
+5. **Easier to understand**: "What does the boiler say?" is the only question
+6. **Less persistence**: Setpoint ramp needs zero persistence now
+
+### Trade-offs
+
+**Lost information:**
+- Setpoint ramp steps count (not critical - can estimate if needed)
+- Exact ramping history (but can infer from boiler vs helper delta)
+
+**Gained reliability:**
+- Cannot have internal state say COOLDOWN while boiler at 50°C
+- Cannot have internal state say NOT RAMPING while boiler at 60°C
+- Self-heals from any physical state, including manual changes
+
+### Files Changed
+
+- [controllers/setpoint_ramp.py](controllers/setpoint_ramp.py): Completely rewrote `initialize_from_ha()` to infer from physical state, removed `_save_state()` and `_load_persisted_state()` methods
+- [controllers/cycling_protection.py](controllers/cycling_protection.py): Rewrote `initialize_from_ha()` to detect COOLDOWN from physical boiler setpoint, added `_check_recovery_immediate()`, added boiler unavailability tracking
+- [app.py](app.py): Removed `cycling.sync_setpoint_on_startup()` calls, updated comments
+- [docs/changelog.md](docs/changelog.md): This entry
+
 ## 2025-12-12: Add comprehensive trigger events for state changes
 
 **Enhancement:**

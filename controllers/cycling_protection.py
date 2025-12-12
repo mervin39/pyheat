@@ -9,11 +9,13 @@ Responsibilities:
 - Drop boiler setpoint to 30°C during cooldown period
 - Monitor return temp and restore setpoint when safe
 - Track cooldown history for excessive cycling alerts
-- Persist state across AppDaemon restarts
+- Infer cooldown state from physical boiler setpoint (eliminates desync issues)
+- Persist metadata (entry_time, saved_setpoint, cooldowns_count) for history
 
 CRITICAL LOGIC:
 - Cooldown ENTRY: Triggers on EITHER flow overheat OR high return temp (OR logic)
 - Cooldown EXIT: Requires BOTH flow AND return temps safe (AND logic)
+- State detection: If boiler at 30°C, we're in COOLDOWN (physical state is truth)
 """
 
 from datetime import datetime, timedelta
@@ -195,31 +197,121 @@ class CyclingProtection:
         
         # Track if cooldowns sensor has been initialized
         self._cooldowns_sensor_initialized = False
+
+        # Boiler availability tracking (for alerting if boiler entity unavailable)
+        self.boiler_unavailable_since: Optional[datetime] = None
+        self.boiler_unavailable_alerted: bool = False
         
     def initialize_from_ha(self) -> None:
-        """Restore state from persistence file."""
+        """Detect cooldown state from physical boiler setpoint.
+
+        NEW APPROACH: Infer COOLDOWN state from actual boiler setpoint instead of
+        persisted state. This eliminates desync issues where internal state says
+        COOLDOWN but boiler is at normal setpoint (or vice versa).
+
+        Physical state detection:
+        - If boiler at CYCLING_COOLDOWN_SETPOINT (30C +/- 0.5C): we're in COOLDOWN
+          - Load metadata (entry_time, saved_setpoint) from persistence
+          - Use defaults if missing
+          - Check exit conditions immediately
+          - Resume recovery monitoring
+        - Otherwise: we're in NORMAL
+
+        Metadata (entry_time, saved_setpoint, cooldowns_count) still persisted for
+        history tracking, but state itself is inferred from physical boiler.
+        """
         # NOTE: Cooldowns sensor is initialized later via ensure_cooldowns_sensor()
         # to avoid HA API errors during app startup
-        
-        try:
-            state_dict = self.persistence.get_cycling_protection_state()
-            
-            self.state = state_dict.get('mode', self.STATE_NORMAL)
-            self.saved_setpoint = state_dict.get('saved_setpoint')
-            
-            cooldown_start_str = state_dict.get('cooldown_start')
-            if cooldown_start_str:
-                self.cooldown_entry_time = datetime.fromisoformat(cooldown_start_str)
-                
-            # If in cooldown, resume monitoring
+
+        # Get physical boiler setpoint (source of truth for state)
+        boiler_setpoint = self._get_current_setpoint()
+        if boiler_setpoint is None:
+            self.ad.log(
+                "CyclingProtection: Cannot detect state - boiler setpoint unavailable "
+                "(will retry when available)",
+                level="WARNING"
+            )
+            # Default to NORMAL and continue - will detect correctly once available
+            self.state = self.STATE_NORMAL
+            return
+
+        # Detect COOLDOWN from physical setpoint
+        is_at_cooldown_setpoint = abs(boiler_setpoint - C.CYCLING_COOLDOWN_SETPOINT) < 0.5
+
+        if is_at_cooldown_setpoint:
+            # Boiler is at cooldown setpoint - we're in COOLDOWN
+            # Load persisted metadata for context
+            try:
+                state_dict = self.persistence.get_cycling_protection_state()
+
+                # Load entry_time from persistence
+                cooldown_start_str = state_dict.get('cooldown_start')
+                if cooldown_start_str:
+                    self.cooldown_entry_time = datetime.fromisoformat(cooldown_start_str)
+                else:
+                    # No entry time - assume started now (conservative)
+                    self.cooldown_entry_time = datetime.now()
+                    self.ad.log(
+                        "CyclingProtection: Detected cooldown but no entry_time persisted - "
+                        "assuming started now",
+                        level="WARNING"
+                    )
+
+                # Load saved_setpoint from persistence
+                self.saved_setpoint = state_dict.get('saved_setpoint')
+                if self.saved_setpoint is None:
+                    # No saved setpoint - use helper as fallback
+                    helper_setpoint = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
+                    if helper_setpoint not in ['unknown', 'unavailable', None]:
+                        self.saved_setpoint = float(helper_setpoint)
+                    else:
+                        # Last resort: use reasonable default
+                        self.saved_setpoint = 50.0
+                    self.ad.log(
+                        f"CyclingProtection: Detected cooldown but no saved_setpoint persisted - "
+                        f"using fallback {self.saved_setpoint:.1f}C",
+                        level="WARNING"
+                    )
+
+            except Exception as e:
+                self.ad.log(
+                    f"CyclingProtection: Failed to load metadata: {e} - using defaults",
+                    level="WARNING"
+                )
+                self.cooldown_entry_time = datetime.now()
+                self.saved_setpoint = 50.0
+
+            # Set state to COOLDOWN
+            self.state = self.STATE_COOLDOWN
+
+            # Calculate duration for logging
+            duration_s = (datetime.now() - self.cooldown_entry_time).total_seconds()
+
+            self.ad.log(
+                f"CyclingProtection: Detected COOLDOWN from boiler setpoint "
+                f"({boiler_setpoint:.1f}C == {C.CYCLING_COOLDOWN_SETPOINT}C) - "
+                f"duration {int(duration_s)}s, will restore to {self.saved_setpoint:.1f}C",
+                level="INFO"
+            )
+
+            # Immediately check if we can exit cooldown (temps may have cooled while we were down)
+            self._check_recovery_immediate()
+
+            # If still in cooldown after check, resume monitoring
             if self.state == self.STATE_COOLDOWN:
-                self.ad.log("Restored COOLDOWN state from persistence - resuming monitoring", level="INFO")
                 self._resume_cooldown_monitoring()
-                
-        except Exception as e:
-            self.ad.log(f"Failed to restore cycling protection state: {e}", level="WARNING")
-            # Default to NORMAL on error
-            self._reset_to_normal()
+
+        else:
+            # Boiler not at cooldown setpoint - we're in NORMAL
+            self.state = self.STATE_NORMAL
+            self.saved_setpoint = None
+            self.cooldown_entry_time = None
+
+            self.ad.log(
+                f"CyclingProtection: Normal operation detected "
+                f"(boiler at {boiler_setpoint:.1f}C)",
+                level="DEBUG"
+            )
     
     def ensure_cooldowns_sensor(self) -> None:
         """Ensure the cooldowns counter sensor exists in Home Assistant.
@@ -809,20 +901,74 @@ class CyclingProtection:
             # Start recovery monitoring
             self._start_recovery_monitoring()
             
+    def _check_recovery_immediate(self) -> None:
+        """Immediately check if recovery conditions are met (synchronous version).
+
+        Called during initialization to check if cooldown can exit immediately.
+        Does not schedule follow-up checks - that's done by _resume_cooldown_monitoring().
+        """
+        if self.state != self.STATE_COOLDOWN:
+            return
+
+        now = datetime.now()
+        flow_temp = self._get_flow_temp()
+        return_temp = self._get_return_temp()
+        recovery_threshold = self._get_recovery_threshold()
+
+        if flow_temp is None or return_temp is None:
+            self.ad.log(
+                "CyclingProtection: Cannot check recovery immediately - missing temp data",
+                level="WARNING"
+            )
+            return
+
+        # Calculate time in cooldown
+        time_in_cooldown = (now - self.cooldown_entry_time).total_seconds()
+
+        # Check for timeout
+        if time_in_cooldown > C.CYCLING_COOLDOWN_MAX_DURATION_S:
+            self.ad.log(
+                f"CyclingProtection: COOLDOWN TIMEOUT on initialization - "
+                f"stuck for {int(time_in_cooldown/60)} minutes, forcing exit",
+                level="ERROR"
+            )
+            self.state = self.STATE_TIMEOUT
+            self._exit_cooldown()
+            return
+
+        # Check if temps are safe
+        max_temp = max(flow_temp, return_temp)
+        temps_safe = max_temp <= recovery_threshold
+
+        if temps_safe:
+            self.ad.log(
+                f"CyclingProtection: Recovery conditions met on initialization - exiting cooldown "
+                f"(Flow={flow_temp:.1f}C, Return={return_temp:.1f}C <= {recovery_threshold:.1f}C)",
+                level="INFO"
+            )
+            self._exit_cooldown()
+        else:
+            self.ad.log(
+                f"CyclingProtection: Still cooling on initialization - "
+                f"max temp {max_temp:.1f}C > {recovery_threshold:.1f}C "
+                f"(elapsed: {int(time_in_cooldown)}s)",
+                level="DEBUG"
+            )
+
     def _check_recovery(self, kwargs):
         """Monitor return temp and restore setpoint when cool enough.
-        
+
         Called periodically (every 10s) during cooldown to check if
         recovery threshold has been reached.
         """
         if self.state != self.STATE_COOLDOWN:
             return
-        
+
         now = datetime.now()
         flow_temp = self._get_flow_temp()
         return_temp = self._get_return_temp()
         recovery_threshold = self._get_recovery_threshold()
-        
+
         if flow_temp is None or return_temp is None:
             self.ad.log("Cannot check recovery: missing temperature data", level="WARNING")
             # Try again in 10 seconds
@@ -831,10 +977,10 @@ class CyclingProtection:
                 C.CYCLING_RECOVERY_MONITORING_INTERVAL_S
             )
             return
-        
+
         # Calculate time in cooldown
         time_in_cooldown = (now - self.cooldown_entry_time).total_seconds()
-        
+
         # Check for timeout
         if time_in_cooldown > C.CYCLING_COOLDOWN_MAX_DURATION_S:
             self.ad.log(
@@ -843,7 +989,7 @@ class CyclingProtection:
                 f"Target: {recovery_threshold:.1f}C",
                 level="ERROR"
             )
-            
+
             # Alert user via notification
             if self.alert_manager:
                 self.alert_manager.report_error(
@@ -856,16 +1002,16 @@ class CyclingProtection:
                     f"This may indicate recovery threshold needs adjustment.",
                     auto_clear=True
                 )
-            
+
             # Force exit with timeout state
             self.state = self.STATE_TIMEOUT
             self._exit_cooldown()
             return
-        
+
         # Check max of both temps against threshold (ensures BOTH are safe)
         max_temp = max(flow_temp, return_temp)
         temps_safe = max_temp <= recovery_threshold
-        
+
         # Log progress
         self.ad.log(
             f"Cooldown check: Flow={flow_temp:.1f}C Return={return_temp:.1f}C "
@@ -873,7 +1019,7 @@ class CyclingProtection:
             f"{'SAFE' if temps_safe else 'COOLING'} [{int(time_in_cooldown)}s elapsed]",
             level="DEBUG"
         )
-        
+
         # Check if recovery threshold reached
         if temps_safe:
             self.ad.log(
@@ -973,7 +1119,10 @@ class CyclingProtection:
             
     def _get_current_setpoint(self) -> Optional[float]:
         """Get current boiler setpoint from climate entity.
-        
+
+        Also tracks boiler availability for alerting if entity is unavailable
+        for an extended period (5+ minutes).
+
         Returns:
             Current setpoint in °C, or None if unavailable
         """
@@ -982,9 +1131,55 @@ class CyclingProtection:
         if setpoint in ['unknown', 'unavailable', None]:
             # Fallback: try reading from helper entity
             setpoint = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
-            
+
         if setpoint in ['unknown', 'unavailable', None]:
+            # Boiler entity unavailable - track for alerting
+            now = datetime.now()
+
+            if self.boiler_unavailable_since is None:
+                # Just became unavailable
+                self.boiler_unavailable_since = now
+                self.ad.log(
+                    "Boiler climate entity unavailable - tracking for alert if prolonged",
+                    level="WARNING"
+                )
+            else:
+                # Already unavailable - check if alert threshold reached
+                unavailable_duration = (now - self.boiler_unavailable_since).total_seconds()
+
+                if unavailable_duration > 300 and not self.boiler_unavailable_alerted:  # 5 minutes
+                    # Send alert
+                    if self.alert_manager:
+                        self.alert_manager.report_error(
+                            "boiler_entity_unavailable",
+                            self.alert_manager.SEVERITY_CRITICAL,
+                            f"Boiler climate entity ({C.OPENTHERM_CLIMATE}) has been unavailable "
+                            f"for {int(unavailable_duration/60)} minutes.\n\n"
+                            f"PyHeat cannot control heating without the boiler entity. "
+                            f"Please check:\n"
+                            f"- Home Assistant is running\n"
+                            f"- OpenTherm integration is working\n"
+                            f"- Boiler is powered on and connected",
+                            auto_clear=True
+                        )
+                        self.boiler_unavailable_alerted = True
+                        self.ad.log(
+                            f"ALERT: Boiler entity unavailable for {int(unavailable_duration/60)} minutes",
+                            level="ERROR"
+                        )
+
             return None
+
+        # Boiler entity available - clear tracking
+        if self.boiler_unavailable_since is not None:
+            unavailable_duration = (datetime.now() - self.boiler_unavailable_since).total_seconds()
+            self.ad.log(
+                f"Boiler climate entity restored after {int(unavailable_duration)} seconds",
+                level="INFO"
+            )
+            self.boiler_unavailable_since = None
+            self.boiler_unavailable_alerted = False
+
         try:
             return float(setpoint)
         except (ValueError, TypeError):
