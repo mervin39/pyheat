@@ -29,7 +29,7 @@ class BoilerController:
     - STATE_INTERLOCK_BLOCKED: Insufficient valve opening, cannot turn on
     """
     
-    def __init__(self, ad, config, alert_manager=None, valve_coordinator=None, trvs=None):
+    def __init__(self, ad, config, alert_manager=None, valve_coordinator=None, trvs=None, app_ref=None):
         """Initialize the boiler controller.
         
         Args:
@@ -38,12 +38,14 @@ class BoilerController:
             alert_manager: Optional AlertManager instance for notifications
             valve_coordinator: Optional ValveCoordinator instance for managing valve persistence
             trvs: Optional TRVController instance for valve feedback validation
+            app_ref: Optional reference to main PyHeat app for triggering recomputes
         """
         self.ad = ad
         self.config = config
         self.alert_manager = alert_manager
         self.valve_coordinator = valve_coordinator
         self.trvs = trvs
+        self.app_ref = app_ref
         
         # State machine state
         self.boiler_state = C.STATE_OFF
@@ -761,6 +763,10 @@ class BoilerController:
             self.ad.log(f"Boiler: {self.boiler_state} -> {new_state} ({reason})")
             self.boiler_state = new_state
             self.boiler_state_entry_time = now
+            
+            # Trigger CSV log for boiler state change
+            if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
+                self.app_ref.trigger_recompute(f'boiler_state_{new_state.lower()}')
     
     def _get_min_on_time(self) -> int:
         """Get minimum on time from config."""

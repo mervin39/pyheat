@@ -31,17 +31,19 @@ class SetpointRamp:
     STATE_INACTIVE = "INACTIVE"
     STATE_RAMPING = "RAMPING"
     
-    def __init__(self, ad, config, cycling_protection_ref=None):
+    def __init__(self, ad, config, cycling_protection_ref=None, app_ref=None):
         """Initialize setpoint ramp controller.
         
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
             cycling_protection_ref: Optional CyclingProtection instance for coordination
+            app_ref: Optional reference to main PyHeat app for triggering recomputes
         """
         self.ad = ad
         self.config = config
         self.cycling = cycling_protection_ref
+        self.app_ref = app_ref
         
         # Configuration (loaded from boiler.yaml)
         self.delta_trigger_c: Optional[float] = None  # Flow temp threshold above setpoint to trigger ramp
@@ -357,6 +359,7 @@ class SetpointRamp:
             
             # Only apply if actually increased
             if new_setpoint > current_setpoint:
+                old_state = self.state
                 self.state = self.STATE_RAMPING
                 self.current_ramped_setpoint = new_setpoint
                 self.ramp_steps_applied += 1
@@ -368,6 +371,10 @@ class SetpointRamp:
                     f"(step {self.ramp_steps_applied})",
                     level="INFO"
                 )
+                
+                # Trigger CSV log if state transitioned from INACTIVE to RAMPING
+                if old_state == self.STATE_INACTIVE and self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
+                    self.app_ref.trigger_recompute('setpoint_ramp_started')
                 
                 # Persist state
                 self._save_state()
@@ -485,6 +492,7 @@ class SetpointRamp:
 
                 # Reset internal state to INACTIVE
                 # This prevents evaluate_and_apply() from immediately ramping again
+                old_state = self.state
                 self._reset_to_baseline(self.baseline_setpoint)
 
                 # Apply baseline setpoint to climate entity
@@ -494,6 +502,10 @@ class SetpointRamp:
                     entity_id=C.OPENTHERM_CLIMATE,
                     temperature=self.baseline_setpoint
                 )
+                
+                # Trigger CSV log if state transitioned from RAMPING to INACTIVE
+                if old_state == self.STATE_RAMPING and self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
+                    self.app_ref.trigger_recompute('setpoint_ramp_reset')
             elif self.state == self.STATE_RAMPING:
                 # Setpoint already at baseline, but internal state is RAMPING
                 # Reset internal state to INACTIVE for consistency

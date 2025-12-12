@@ -29,7 +29,7 @@ class LoadSharingManager:
     Phase 0: Infrastructure only - no behavioral changes
     """
     
-    def __init__(self, ad, config, scheduler, load_calculator, sensors):
+    def __init__(self, ad, config, scheduler, load_calculator, sensors, app_ref=None):
         """Initialize the load sharing manager.
         
         Args:
@@ -38,12 +38,14 @@ class LoadSharingManager:
             scheduler: Scheduler instance for schedule lookahead
             load_calculator: LoadCalculator instance for capacity calculations
             sensors: SensorManager instance for current temperatures
+            app_ref: Optional reference to main PyHeat app for triggering recomputes
         """
         self.ad = ad
         self.config = config
         self.scheduler = scheduler
         self.load_calculator = load_calculator
         self.sensors = sensors
+        self.app_ref = app_ref
         
         # State machine context
         self.context = LoadSharingContext()
@@ -230,8 +232,15 @@ class LoadSharingManager:
         
         # Process schedule rooms one at a time
         for room_id, valve_pct, reason, target_temp, minutes_until in schedule_candidates:
+            # Trigger CSV log when first room activates (load sharing starts)
+            was_inactive = not self.context.is_active()
+            
             # Add room at initial valve percentage
             self._activate_schedule_room(room_id, valve_pct, reason, target_temp, now, minutes_until)
+            
+            # Trigger recompute if this was the first activation
+            if was_inactive and self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
+                self.app_ref.trigger_recompute('load_sharing_activated')
             
             # Check if sufficient
             total_capacity = self._calculate_total_system_capacity(room_states)
@@ -371,6 +380,11 @@ class LoadSharingManager:
         )
         self.context.reset()
         self.context.state = LoadSharingState.INACTIVE
+        
+        # Trigger CSV log for load sharing deactivation
+        if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
+            from datetime import datetime
+            self.app_ref.trigger_recompute('load_sharing_deactivated')
     
     def get_status(self) -> Dict:
         """Get current status for publishing to Home Assistant.

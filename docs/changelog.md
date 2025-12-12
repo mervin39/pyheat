@@ -1,6 +1,50 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Add comprehensive trigger events for state changes
+
+**Enhancement:**
+Added explicit trigger events for all major state transitions to improve CSV log analysis and debugging capabilities.
+
+**New trigger events added:**
+
+1. **Setpoint Ramp State:**
+   - `setpoint_ramp_started` - When ramping begins (INACTIVE → RAMPING)
+   - `setpoint_ramp_reset` - When ramp resets to baseline (RAMPING → INACTIVE, typically on flame OFF)
+
+2. **Pump Overrun State:**
+   - `pump_overrun_started` - When pump overrun begins (valves held open after boiler off)
+   - `pump_overrun_ended` - When pump overrun ends (valves return to normal control)
+
+3. **Load Sharing State:**
+   - `load_sharing_activated` - When first room is added (load sharing starts)
+   - `load_sharing_deactivated` - When load sharing ends (all rooms released)
+
+4. **Boiler State:**
+   - `boiler_state_off`, `boiler_state_pending_on`, `boiler_state_on`, `boiler_state_pending_off`, `boiler_state_pump_overrun`, `boiler_state_interlock_blocked`
+   - Explicit triggers for every boiler FSM state transition
+
+5. **Room Mode Changes:**
+   - Already existed: `room_{room_id}_mode_changed` triggers when user changes room mode (auto/manual/off/passive)
+
+**Implementation:**
+- Added `app_ref` parameter to SetpointRamp, ValveCoordinator, LoadSharingManager, and BoilerController
+- Each component now calls `app_ref.trigger_recompute()` with specific trigger name on state transitions
+- These triggers force CSV log entries via `recompute_and_publish()`
+
+**Benefits:**
+- State transitions always visible in CSV logs with meaningful trigger names
+- Easier to correlate events (e.g., pump overrun start with boiler state change)
+- Better debugging of complex scenarios involving multiple state machines
+- Improved analysis of system behavior over time
+
+**Files changed:**
+- [controllers/setpoint_ramp.py](controllers/setpoint_ramp.py): Added app_ref and triggers for ramp start/reset
+- [controllers/valve_coordinator.py](controllers/valve_coordinator.py): Added app_ref and triggers for pump overrun
+- [managers/load_sharing_manager.py](managers/load_sharing_manager.py): Added app_ref and triggers for activation/deactivation
+- [controllers/boiler_controller.py](controllers/boiler_controller.py): Added app_ref and triggers for state transitions
+- [app.py](app.py): Pass app_ref when creating all controllers/managers
+
 ## 2025-12-12: Add trigger events for flame and cycling_state changes
 
 **Enhancement:**

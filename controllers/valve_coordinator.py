@@ -31,15 +31,17 @@ class ValveCoordinator:
     4. Normal desired values (from room heating logic)
     """
     
-    def __init__(self, ad, trv_controller):
+    def __init__(self, ad, trv_controller, app_ref=None):
         """Initialize the valve coordinator.
         
         Args:
             ad: AppDaemon API reference
             trv_controller: TRVController instance for sending actual commands
+            app_ref: Optional reference to main PyHeat app for triggering recomputes
         """
         self.ad = ad
         self.trvs = trv_controller
+        self.app_ref = app_ref
         # Construct absolute path from app root (same pattern as config_loader)
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         persistence_file = os.path.join(app_dir, C.PERSISTENCE_FILE)
@@ -248,6 +250,11 @@ class ValveCoordinator:
             f"ValveCoordinator: Pump overrun enabled, persisting: {self.pump_overrun_snapshot}",
             level="INFO"
         )
+        
+        # Trigger CSV log for pump overrun start
+        if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
+            from datetime import datetime
+            self.app_ref.trigger_recompute('pump_overrun_started')
     
     def disable_pump_overrun_persistence(self) -> None:
         """Disable pump overrun persistence.
@@ -256,6 +263,11 @@ class ValveCoordinator:
         """
         self.pump_overrun_active = False
         self.pump_overrun_snapshot = {}
+        
+        # Trigger CSV log for pump overrun end
+        if self.app_ref and hasattr(self.app_ref, 'trigger_recompute'):
+            from datetime import datetime
+            self.app_ref.trigger_recompute('pump_overrun_ended')
         
         # Clear persistence file
         self._clear_valve_positions_in_persistence()
