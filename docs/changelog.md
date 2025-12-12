@@ -1,6 +1,54 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Enhanced Home Assistant scripts for passive mode
+
+**Enhancement:**
+Updated Home Assistant scripts to support configuring passive mode settings in a single call instead of requiring multiple separate script invocations.
+
+**Changes:**
+1. Enhanced `script.pyheat_set_mode` in [pyheat_package.yaml](config/ha_yaml/pyheat_package.yaml:720-804)
+   - Added optional passive mode parameters: `passive_min_temp`, `passive_max_temp`, `passive_valve_percent`
+   - Now follows same pattern as manual mode (which has optional `manual_setpoint`)
+   - When mode is "passive" and passive parameters are provided, automatically calls both set_mode and set_passive_settings APIs
+   - Allows setting room to passive mode with all settings in a single script call
+
+2. Added standalone `script.pyheat_set_passive_settings` in [pyheat_package.yaml](config/ha_yaml/pyheat_package.yaml:819-858)
+   - For adjusting passive settings without changing room mode
+   - Useful when room is already in passive mode and you just want to tweak the parameters
+
+3. Added `rest_command.pyheat_api_set_passive_settings` REST command in [pyheat_package.yaml](config/ha_yaml/pyheat_package.yaml:626-630)
+
+**Usage Examples:**
+
+Set room to passive mode with all settings in one call:
+```yaml
+service: script.pyheat_set_mode
+data:
+  room: lounge
+  mode: passive
+  passive_min_temp: 12.0
+  passive_max_temp: 18.0
+  passive_valve_percent: 30
+```
+
+Just update passive settings (room already in passive mode):
+```yaml
+service: script.pyheat_set_passive_settings
+data:
+  room: lounge
+  min_temp: 13.0
+  max_temp: 19.0
+  valve_percent: 40
+```
+
+**Parameter Descriptions:**
+- `passive_min_temp` (8-20°C): Comfort floor - triggers active heating if temperature drops below this
+- `passive_max_temp` (10-30°C): Upper bound - valve closes when temperature reaches/exceeds this
+- `passive_valve_percent` (0-100%): Valve opening percentage when between min and max
+
+---
+
 ## 2025-12-12: Major architectural improvement - physical state as source of truth
 
 **Major Refactor:**

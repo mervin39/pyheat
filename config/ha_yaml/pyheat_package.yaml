@@ -623,6 +623,12 @@ rest_command:
     content_type: "application/json"
     payload: "{}"
 
+  pyheat_api_set_passive_settings:
+    url: "http://localhost:5050/api/appdaemon/pyheat_set_passive_settings"
+    method: POST
+    content_type: "application/json"
+    payload: "{{ payload }}"
+
 # ---------------------------------------------------------------------------
 # Script Wrappers - User-friendly services with field validation
 # These provide a clean interface to call PyHeat services from HA
@@ -713,7 +719,7 @@ script:
 
   pyheat_set_mode:
     alias: "PyHeat: Set Room Mode"
-    description: "Change heating mode for a room (Auto/Manual/Off)"
+    description: "Change heating mode for a room (Auto/Manual/Passive/Off)"
     fields:
       room:
         description: "Room ID"
@@ -747,6 +753,33 @@ script:
             max: 35
             step: 0.5
             unit_of_measurement: "°C"
+      passive_min_temp:
+        description: "Passive mode minimum temperature / comfort floor (only used when mode is 'passive')"
+        example: 12.0
+        selector:
+          number:
+            min: 8
+            max: 20
+            step: 0.5
+            unit_of_measurement: "°C"
+      passive_max_temp:
+        description: "Passive mode maximum temperature / upper bound (only used when mode is 'passive')"
+        example: 18.0
+        selector:
+          number:
+            min: 10
+            max: 30
+            step: 0.5
+            unit_of_measurement: "°C"
+      passive_valve_percent:
+        description: "Passive mode valve opening percentage (only used when mode is 'passive')"
+        example: 30
+        selector:
+          number:
+            min: 0
+            max: 100
+            step: 5
+            unit_of_measurement: "%"
     sequence:
       - service: rest_command.pyheat_api_set_mode
         data:
@@ -756,6 +789,19 @@ script:
               "mode": "{{ mode }}"
               {% if manual_setpoint is defined %},"manual_setpoint": {{ manual_setpoint }}{% endif %}
             }
+      - if:
+          - condition: template
+            value_template: "{{ mode == 'passive' and passive_min_temp is defined and passive_max_temp is defined and passive_valve_percent is defined }}"
+        then:
+          - service: rest_command.pyheat_api_set_passive_settings
+            data:
+              payload: >
+                {
+                  "room": "{{ room }}",
+                  "min_temp": {{ passive_min_temp }},
+                  "max_temp": {{ passive_max_temp }},
+                  "valve_percent": {{ passive_valve_percent }}
+                }
 
   pyheat_reload_config:
     alias: "PyHeat: Reload Configuration"
@@ -763,5 +809,63 @@ script:
     sequence:
       - service: rest_command.pyheat_api_reload_config
         data: {}
+
+  pyheat_set_passive_settings:
+    alias: "PyHeat: Set Passive Mode Settings"
+    description: "Configure passive mode parameters for a room (min temp, max temp, and valve percent)"
+    fields:
+      room:
+        description: "Room ID"
+        example: "pete"
+        required: true
+        selector:
+          select:
+            options:
+              - pete
+              - abby
+              - office
+              - lounge
+              - games
+              - bathroom
+      min_temp:
+        description: "Minimum temperature (comfort floor) - triggers active heating if temp drops below this"
+        example: 12.0
+        required: true
+        selector:
+          number:
+            min: 8
+            max: 20
+            step: 0.5
+            unit_of_measurement: "°C"
+      max_temp:
+        description: "Maximum temperature (upper bound) - valve closes when temp reaches/exceeds this"
+        example: 18.0
+        required: true
+        selector:
+          number:
+            min: 10
+            max: 30
+            step: 0.5
+            unit_of_measurement: "°C"
+      valve_percent:
+        description: "Valve opening percentage when between min and max temp"
+        example: 30
+        required: true
+        selector:
+          number:
+            min: 0
+            max: 100
+            step: 5
+            unit_of_measurement: "%"
+    sequence:
+      - service: rest_command.pyheat_api_set_passive_settings
+        data:
+          payload: >
+            {
+              "room": "{{ room }}",
+              "min_temp": {{ min_temp }},
+              "max_temp": {{ max_temp }},
+              "valve_percent": {{ valve_percent }}
+            }
 
 
