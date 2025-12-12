@@ -4,6 +4,170 @@ This document tracks known bugs and their resolutions.
 
 ---
 
+## BUG #18: Runaway Feedback Loop - Timer Cancellation Storm Causes Rapid Cycling
+
+**Status:** ACTIVE 🔴
+**Date Discovered:** 2025-12-12
+**Date Fixed:** Not yet fixed
+**Severity:** CRITICAL - System becomes completely unresponsive, climate entity rapidly cycles
+**Category:** Boiler State Machine / Desync Detection / Timer Management
+
+### Description
+
+**Critical race condition:** When the boiler state machine transitions rapidly between states (OFF → ON → INTERLOCK_BLOCKED → OFF), a runaway feedback loop develops where timer cancellations trigger immediate recomputes, which trigger more state transitions, which trigger more timer cancellations, creating a catastrophic feedback storm.
+
+### Trigger Event
+
+Override expiration attempted to clear override target to 0.0, which failed:
+```
+2025-12-12 13:51:20.192830 INFO pyheat: Room 'lounge' override expired
+2025-12-12 13:51:20.194422 DEBUG pyheat: call_service: input_number/set_value,
+    {'entity_id': 'input_number.pyheat_lounge_override_target', 'value': 0}
+2025-12-12 13:51:20.198438 WARNING HASS: Error with websocket result: invalid_format:
+    Invalid value for input_number.pyheat_lounge_override_target: 0.0 (range 5.0 - 35.0)
+```
+
+This triggered a cascade of rapid state transitions in the boiler FSM.
+
+### The Feedback Loop Mechanism
+
+**Step 1: Rapid State Machine Transitions**
+```
+13:51:16.691: Boiler: off -> interlock_blocked (min_off_time not elapsed)
+13:51:16.721: Boiler: interlock_blocked -> off (demand ceased)
+13:51:17.584: Recompute #1433: Heating 1 room(s) - lounge
+```
+
+State machine attempts to turn boiler ON but gets blocked by `min_off_time` anti-cycling protection, causing rapid OFF → INTERLOCK_BLOCKED → OFF transitions.
+
+**Step 2: Timer Restart Creates Cancellation Event**
+```python
+# In boiler_controller.py:220
+self._start_timer(C.HELPER_BOILER_MIN_ON_TIMER, self._get_min_on_time())
+```
+
+When `_start_timer()` is called on an already-active timer:
+1. Home Assistant **cancels the existing timer first**
+2. Fires a `timer.cancelled` event
+3. Then starts a new timer
+
+**Step 3: Cancellation Event Triggers Recompute**
+```python
+# In app.py:731-744
+def timer_cancelled(self, event_name, data, kwargs):
+    entity_id = data.get('entity_id', 'unknown')
+    self.log(f"Timer cancelled event: {entity_id}", level="DEBUG")
+    self.trigger_recompute(f"timer_cancelled_{entity_id}")
+```
+
+Every timer cancellation triggers an immediate recompute.
+
+**Step 4: Climate Entity Can't Keep Up**
+
+Service calls to turn climate entity on/off take 100-500ms to complete. During rapid recomputes (every 200-500ms), the state machine checks entity state **before the previous command completes**.
+
+**Step 5: Desync Detection Amplifies Problem**
+```python
+# In boiler_controller.py:124
+if boiler_entity_state not in [expected_entity_state, "unknown", "unavailable"]:
+    # Detects desync and attempts correction
+    self._set_boiler_off()  # or _set_boiler_on()
+```
+
+Desync detector sees:
+- State machine: ON
+- Climate entity: off (previous turn_off hasn't completed yet)
+- Calls `turn_off()` to "correct" the desync
+- This creates MORE state transitions
+
+**Step 6: Infinite Loop**
+```
+Timer restart → Cancel event → Recompute → State transition → Turn on/off →
+Entity state lag → Desync detected → Turn off/on → More state transitions →
+More timer restarts → More cancel events → More recomputes → ...
+```
+
+### Observed Impact
+
+During 30-second period from **13:51:20 to 13:51:50**:
+- **90+ recomputes** triggered (normal: ~1 per minute)
+- Climate entity toggled heat/off **dozens of times**
+- `min_on_timer` cancelled and restarted repeatedly
+- Hundreds of log messages:
+  ```
+  13:51:21.120: Timer cancelled event: timer.pyheat_boiler_min_on_timer
+  13:51:22.145: Timer cancelled event: timer.pyheat_boiler_min_on_timer
+  13:51:22.322: Timer cancelled event: timer.pyheat_boiler_off_delay_timer
+  [... continues for hundreds of lines ...]
+  ```
+- Multiple desync warnings:
+  ```
+  13:51:16.710: WARNING: Climate entity is heating when state machine is interlock_blocked
+  13:51:16.740: WARNING: Climate entity is heating when state machine is off
+  13:51:18.027: WARNING: Climate entity is heating when state machine is off
+  [... repeats many times ...]
+  ```
+
+### Root Causes
+
+1. **Timer restart behavior**: Restarting an active HA timer fires a cancellation event
+2. **Cancellation events trigger recomputes**: Every cancellation immediately triggers full recompute
+3. **Climate entity latency**: Service calls take 100-500ms, causing state lag
+4. **Desync detection too aggressive**: Doesn't account for service call latency
+5. **State transition triggers timer restarts**: Every ON transition restarts `min_on_timer`
+6. **Override clearing bug**: Attempting to set override target to 0.0 (outside valid range 5.0-35.0)
+
+### Secondary Issue: Pump Overrun Timer Anomaly
+
+Pump overrun timer started at 13:50:06 for 2:30 (150s) but finished at 13:51:32 (only 86s elapsed), suggesting it was also caught in the timer cancellation cascade.
+
+### Affected Code Paths
+
+1. **[boiler_controller.py:220](../controllers/boiler_controller.py:220)**: `_start_timer()` called on active timer
+2. **[boiler_controller.py:239](../controllers/boiler_controller.py:239)**: Multiple paths that restart `min_on_timer`
+3. **[boiler_controller.py:124-190](../controllers/boiler_controller.py:124)**: Desync detection logic
+4. **[app.py:731-744](../app.py:731)**: `timer_cancelled()` triggers immediate recompute
+5. **[managers/override_manager.py](../managers/override_manager.py)**: `handle_timer_expired()` tries to set target to 0.0
+
+### Conditions Required to Trigger
+
+1. Room demand transitions (override cancelled, schedule change, target change)
+2. System recently turned on (min_off_time anti-cycling active)
+3. Boiler FSM attempts state transitions faster than climate entity can respond
+4. Timer restarts during rapid state changes
+
+### Potential Fixes
+
+**Option 1: Debounce Timer Restarts**
+- Track timer handle and only restart if handle changed or timer expired
+- Prevent cancellation storm by avoiding unnecessary restarts
+
+**Option 2: Add Service Call Tracking**
+- Track pending service calls (turn_on/turn_off)
+- Don't detect desync if recent service call is still pending
+- Add grace period (500-1000ms) after service call before checking state
+
+**Option 3: Remove Timer Cancellation as Recompute Trigger**
+- Only trigger recompute on `timer.finished`, not `timer.cancelled`
+- Cancellations are intermediate events, not meaningful state changes
+- Safety net: Continue state polling for FSM timers
+
+**Option 4: Fix Override Clearing**
+- Don't set override target to 0.0 (outside valid range)
+- Set to minimum valid value (5.0) or leave unchanged when clearing
+- Check timer state instead of target value to determine if override active
+
+**Option 5: Rate Limit Recomputes**
+- Add minimum interval (e.g., 500ms) between triggered recomputes
+- Queue recompute reasons, execute once interval elapsed
+- Prevents runaway cascades
+
+### Resolution
+
+Not yet implemented. Requires careful fix to prevent breaking anti-cycling protection while eliminating feedback loop.
+
+---
+
 ## BUG #17: Passive Mode Target Semantic Inversion - FIXED
 
 **Status:** FIXED ✅

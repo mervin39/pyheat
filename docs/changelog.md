@@ -1,6 +1,44 @@
 
 # PyHeat Changelog
 
+## 2025-12-12: Documented critical runaway feedback loop bug (BUG #18)
+
+**Bug Documentation:**
+Documented a critical race condition in the boiler state machine that causes a runaway feedback loop when rapid state transitions occur.
+
+**Issue:**
+- Restarting an active Home Assistant timer fires a cancellation event
+- Timer cancellation events trigger immediate recomputes
+- Climate entity service calls have 100-500ms latency
+- Desync detection doesn't account for service call latency
+- Creates feedback loop: Timer restart → Cancel event → Recompute → State transition → Desync detection → More transitions → More timer restarts
+
+**Trigger:**
+- Override expiration attempted to set override target to 0.0 (outside valid range 5.0-35.0)
+- Caused rapid demand fluctuations that triggered the feedback loop
+- System became unresponsive with 90+ recomputes in 30 seconds
+
+**Impact:**
+- System completely unresponsive during feedback storm
+- Climate entity rapidly toggles between heat/off states
+- Hundreds of timer cancellation events
+- Multiple desync warnings
+
+**Documentation:**
+Added comprehensive bug report as [BUG #18 in BUGS.md](BUGS.md) including:
+- Full timeline analysis of the 2025-12-12 13:51:20 incident
+- Step-by-step feedback loop mechanism
+- Root cause identification
+- Five potential fix options
+- Affected code paths with line numbers
+
+**Files Modified:**
+- [docs/BUGS.md](BUGS.md): Added BUG #18 documentation
+
+**Status:** Bug documented but not yet fixed. Requires careful fix to prevent breaking anti-cycling protection.
+
+---
+
 ## 2025-12-12: Enhanced Home Assistant scripts for passive mode
 
 **Enhancement:**
