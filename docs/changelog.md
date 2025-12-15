@@ -1,6 +1,30 @@
 
 # PyHeat Changelog
 
+## 2025-12-15: Fix sensor.pyheat_cooldowns persistence with service call API
+
+**Critical Bug Fix:**
+
+Fixed `sensor.pyheat_cooldowns` being reset to 0 despite commit 4901496's persistence logic. The issue was that `ad.set_state()` creates **temporary** entities that don't survive Home Assistant restarts with proper statistics metadata for `total_increasing` sensors.
+
+**Root Cause:**
+
+AppDaemon's `ad.set_state()` is designed for temporary state storage, not for creating persistent sensors with statistics. When used with `state_class: total_increasing`, Home Assistant's recorder may discard the state or reset statistics to 0 on restart because the sensor lacks proper registration.
+
+**Solution:**
+
+Replaced all `ad.set_state()` calls with `ad.call_service('homeassistant/set_state', ...)` which properly registers the sensor state through Home Assistant's service layer, ensuring:
+- Persistence across Home Assistant restarts
+- Proper statistics tracking for `total_increasing` sensors
+- Reliable state restoration
+
+**Changes:**
+- [controllers/cycling_protection.py](../controllers/cycling_protection.py):
+  - `_ensure_cooldowns_sensor()`: Use `call_service('homeassistant/set_state')` instead of `set_state()`
+  - `_increment_cooldowns_sensor()`: Use `call_service('homeassistant/set_state')` instead of `set_state()`
+
+This is the **definitive** fix for cooldowns counter resets - combines persistence.json with proper HA service API.
+
 ## 2025-12-15: Add passive mode override system
 
 **Major Feature:**

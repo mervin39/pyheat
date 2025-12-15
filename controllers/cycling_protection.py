@@ -63,8 +63,9 @@ def _ensure_cooldowns_sensor(ad, persistence: 'PersistenceManager') -> None:
         elif persisted_count > ha_count:
             # Persisted has higher value - update HA
             ad.log(f"Persistence has higher count ({persisted_count} > {ha_count}), updating HA sensor", level="INFO")
-            ad.set_state(
-                C.COOLDOWNS_ENTITY,
+            ad.call_service(
+                'homeassistant/set_state',
+                entity_id=C.COOLDOWNS_ENTITY,
                 state=str(persisted_count),
                 attributes={
                     'friendly_name': 'PyHeat Cooldowns',
@@ -78,8 +79,9 @@ def _ensure_cooldowns_sensor(ad, persistence: 'PersistenceManager') -> None:
     else:
         # HA sensor doesn't exist or unavailable - create with persisted count
         ad.log(f"Creating {C.COOLDOWNS_ENTITY} sensor with persisted count {persisted_count}...", level="INFO")
-        ad.set_state(
-            C.COOLDOWNS_ENTITY,
+        ad.call_service(
+            'homeassistant/set_state',
+            entity_id=C.COOLDOWNS_ENTITY,
             state=str(persisted_count),
             attributes={
                 'friendly_name': 'PyHeat Cooldowns',
@@ -120,8 +122,9 @@ def _increment_cooldowns_sensor(ad, persistence: 'PersistenceManager') -> None:
             new_count = persisted_count + 1
         
         # Update both HA and persistence
-        ad.set_state(
-            C.COOLDOWNS_ENTITY,
+        ad.call_service(
+            'homeassistant/set_state',
+            entity_id=C.COOLDOWNS_ENTITY,
             state=str(new_count),
             attributes={
                 'friendly_name': 'PyHeat Cooldowns',
