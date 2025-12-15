@@ -92,6 +92,61 @@ input_select:
       - 'Off'
     icon: mdi:cogs
 
+  # Override mode tracking (active/passive/none)
+  pyheat_pete_override_mode:
+    name: "Pete's Room Override Mode"
+    options:
+      - none
+      - active
+      - passive
+    initial: none
+    icon: mdi:timer-cog
+
+  pyheat_abby_override_mode:
+    name: "Abby's Room Override Mode"
+    options:
+      - none
+      - active
+      - passive
+    initial: none
+    icon: mdi:timer-cog
+
+  pyheat_bathroom_override_mode:
+    name: "Bathroom Override Mode"
+    options:
+      - none
+      - active
+      - passive
+    initial: none
+    icon: mdi:timer-cog
+
+  pyheat_games_override_mode:
+    name: "Dining Room Override Mode"
+    options:
+      - none
+      - active
+      - passive
+    initial: none
+    icon: mdi:timer-cog
+
+  pyheat_lounge_override_mode:
+    name: "Living Room Override Mode"
+    options:
+      - none
+      - active
+      - passive
+    initial: none
+    icon: mdi:timer-cog
+
+  pyheat_office_override_mode:
+    name: "Office Override Mode"
+    options:
+      - none
+      - active
+      - passive
+    initial: none
+    icon: mdi:timer-cog
+
 # ---------------------------------------------------------------------------
 # Input numbers (manual setpoints and override targets)
 # ---------------------------------------------------------------------------
@@ -163,6 +218,169 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
+
+  # Passive override parameters (per-room)
+  pyheat_pete_override_passive_min_temp:
+    name: "Pete's Room Passive Override Min Temp"
+    min: 8
+    max: 20
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 12.0
+
+  pyheat_pete_override_passive_max_temp:
+    name: "Pete's Room Passive Override Max Temp"
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 18.0
+
+  pyheat_pete_override_passive_valve_percent:
+    name: "Pete's Room Passive Override Valve %"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    initial: 30
+
+  pyheat_abby_override_passive_min_temp:
+    name: "Abby's Room Passive Override Min Temp"
+    min: 8
+    max: 20
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 12.0
+
+  pyheat_abby_override_passive_max_temp:
+    name: "Abby's Room Passive Override Max Temp"
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 18.0
+
+  pyheat_abby_override_passive_valve_percent:
+    name: "Abby's Room Passive Override Valve %"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    initial: 30
+
+  pyheat_office_override_passive_min_temp:
+    name: "Office Passive Override Min Temp"
+    min: 8
+    max: 20
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 12.0
+
+  pyheat_office_override_passive_max_temp:
+    name: "Office Passive Override Max Temp"
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 18.0
+
+  pyheat_office_override_passive_valve_percent:
+    name: "Office Passive Override Valve %"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    initial: 30
+
+  pyheat_lounge_override_passive_min_temp:
+    name: "Living Room Passive Override Min Temp"
+    min: 8
+    max: 20
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 12.0
+
+  pyheat_lounge_override_passive_max_temp:
+    name: "Living Room Passive Override Max Temp"
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 18.0
+
+  pyheat_lounge_override_passive_valve_percent:
+    name: "Living Room Passive Override Valve %"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    initial: 30
+
+  pyheat_games_override_passive_min_temp:
+    name: "Dining Room Passive Override Min Temp"
+    min: 8
+    max: 20
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 12.0
+
+  pyheat_games_override_passive_max_temp:
+    name: "Dining Room Passive Override Max Temp"
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 18.0
+
+  pyheat_games_override_passive_valve_percent:
+    name: "Dining Room Passive Override Valve %"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    initial: 30
+
+  pyheat_bathroom_override_passive_min_temp:
+    name: "Bathroom Passive Override Min Temp"
+    min: 8
+    max: 20
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 12.0
+
+  pyheat_bathroom_override_passive_max_temp:
+    name: "Bathroom Passive Override Max Temp"
+    min: 10
+    max: 30
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 18.0
+
+  pyheat_bathroom_override_passive_valve_percent:
+    name: "Bathroom Passive Override Valve %"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    initial: 30
 
   # Manual setpoints
   pyheat_pete_manual_setpoint:
@@ -605,6 +823,12 @@ rest_command:
     content_type: "application/json"
     payload: "{{ payload }}"
 
+  pyheat_api_override_passive:
+    url: "http://localhost:5050/api/appdaemon/pyheat_override_passive"
+    method: POST
+    content_type: "application/json"
+    payload: "{{ payload }}"
+
   pyheat_api_cancel_override:
     url: "http://localhost:5050/api/appdaemon/pyheat_cancel_override"
     method: POST
@@ -690,6 +914,80 @@ script:
               "room": "{{ room }}",
               {% if target is defined %}"target": {{ target }},{% endif %}
               {% if delta is defined %}"delta": {{ delta }},{% endif %}
+              {% if minutes is defined %}"minutes": {{ minutes }},{% endif %}
+              {% if end_time is defined %}"end_time": "{{ end_time }}",{% endif %}
+              "_dummy": null
+            }
+
+  pyheat_override_passive:
+    alias: "PyHeat: Passive Override"
+    description: "Set a temporary passive mode override for a room (comfort floor + upper limit + valve %)"
+    fields:
+      room:
+        description: "Room ID"
+        example: "lounge"
+        required: true
+        selector:
+          select:
+            options:
+              - pete
+              - abby
+              - office
+              - lounge
+              - games
+              - bathroom
+      min_temp:
+        description: "Minimum temperature / comfort floor (°C)"
+        example: 12.0
+        required: true
+        selector:
+          number:
+            min: 8
+            max: 20
+            step: 0.5
+            unit_of_measurement: "°C"
+      max_temp:
+        description: "Maximum temperature / upper limit (°C)"
+        example: 21.0
+        required: true
+        selector:
+          number:
+            min: 10
+            max: 30
+            step: 0.5
+            unit_of_measurement: "°C"
+      valve_percent:
+        description: "Valve opening percentage (%)"
+        example: 40
+        required: true
+        selector:
+          number:
+            min: 0
+            max: 100
+            step: 5
+            unit_of_measurement: "%"
+      minutes:
+        description: "Duration in minutes (use either minutes OR end_time, not both)"
+        example: 180
+        selector:
+          number:
+            min: 1
+            max: 1440
+            unit_of_measurement: "min"
+      end_time:
+        description: "End time in ISO format (e.g., 2025-12-15T18:30:00)"
+        example: "2025-12-15T18:30:00"
+        selector:
+          text:
+    sequence:
+      - service: rest_command.pyheat_api_override_passive
+        data:
+          payload: >
+            {
+              "room": "{{ room }}",
+              "min_temp": {{ min_temp }},
+              "max_temp": {{ max_temp }},
+              "valve_percent": {{ valve_percent }},
               {% if minutes is defined %}"minutes": {{ minutes }},{% endif %}
               {% if end_time is defined %}"end_time": "{{ end_time }}",{% endif %}
               "_dummy": null
