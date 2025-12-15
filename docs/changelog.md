@@ -1,6 +1,45 @@
 
 # PyHeat Changelog
 
+## 2025-12-15: Fix TypeError in schedule formatting for null defaults
+
+**Critical Bug Fix:**
+Fixed `TypeError: unsupported format string passed to NoneType.__format__` that was causing periodic recompute failures every minute and preventing temperature entities from updating properly.
+
+**Root Cause:**
+When formatting next schedule text for passive mode transitions, the code used `schedule.get('default_min_temp', 8.0)` and `schedule.get('default_valve_percent', 30)`. Python's `.get()` method only uses the default value when the KEY doesn't exist - if it exists with value `None` (explicit `null` in YAML), it returns `None`. Later, attempting to format `None` with `.0f` raised `TypeError`.
+
+**Affected Rooms:**
+Rooms with `default_min_temp: null` or `default_valve_percent: null` in [config/schedules.yaml](../config/schedules.yaml):
+- bathroom: `default_min_temp: null`
+- pete, office, abby: both fields `null`
+
+**Symptoms:**
+- `TypeError` in error.log every minute during periodic recompute
+- Spurious "Invalid sensor value" warnings in appdaemon.log (exception propagated to sensor callback handler)
+- pyheat-web showing stale/incorrect temperatures (recompute failures prevented entity updates)
+
+**Solution:**
+Changed from `.get(key, default)` to `.get(key) or DEFAULT_CONSTANT` pattern:
+- Line 261: `schedule.get('default_min_temp') or C.FROST_PROTECTION_TEMP_C_DEFAULT` (8.0°C)
+- Line 262: `schedule.get('default_valve_percent') or C.PASSIVE_VALVE_PERCENT_DEFAULT` (30%)
+- Line 301-302: Same pattern for default mode handling
+
+**Benefits:**
+- `None` values now correctly fall through to defaults
+- Uses proper constants instead of magic numbers
+- Periodic recomputes complete successfully
+- Temperature entities update in real-time
+- pyheat-web displays correct current temperatures
+
+**Files Modified:**
+- [services/status_publisher.py](../services/status_publisher.py): Lines 261-262, 301-302
+
+**Introduced By:**
+Recent changes on Dec 11-12 to schedule formatting logic (commits 860ba28, b07a552).
+
+---
+
 ## 2025-12-12: Add microsecond precision to CSV timestamps
 
 **Enhancement:**

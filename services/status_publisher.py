@@ -257,9 +257,9 @@ class StatusPublisher:
             max_temp = block['target']
             min_temp = block.get('min_target')
             if min_temp is None:
-                # Fall back to default or entity value
-                min_temp = schedule.get('default_min_temp', 8.0)
-            valve_percent = block.get('valve_percent', 30)
+                # Fall back to default or entity value (use 'or' to handle None in config)
+                min_temp = schedule.get('default_min_temp') or C.FROST_PROTECTION_TEMP_C_DEFAULT
+            valve_percent = block.get('valve_percent') or schedule.get('default_valve_percent') or C.PASSIVE_VALVE_PERCENT_DEFAULT
 
             return {
                 'time': time_str,
@@ -297,8 +297,9 @@ class StatusPublisher:
         if default_mode == 'passive':
             # Default passive mode
             max_temp = default_target
-            min_temp = schedule.get('default_min_temp', 8.0)
-            valve_percent = schedule.get('default_valve_percent', 30)
+            # Use 'or' to handle None in config (explicit null values)
+            min_temp = schedule.get('default_min_temp') or C.FROST_PROTECTION_TEMP_C_DEFAULT
+            valve_percent = schedule.get('default_valve_percent') or C.PASSIVE_VALVE_PERCENT_DEFAULT
 
             return {
                 'time': time_str,
