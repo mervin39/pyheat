@@ -98,16 +98,26 @@ When you have guests in a room (e.g., lounge) and want to maintain comfortable a
 **Testing:**
 
 - Tested with AppDaemon live reload
-- No errors in error.log after implementation
-- All components loaded successfully
-- Service registration confirmed
+- Live testing via API revealed two critical issues (fixed):
+  1. Missing `api_override_passive()` endpoint in api_handler.py (added)
+  2. Case-sensitive mode validation bug - checking "auto" vs "Auto" (fixed)
+- Full integration test successful:
+  - Created passive override via API: pete room, min=13°C, max=15°C, valve=40%, 30min
+  - All entities updated correctly in Home Assistant
+  - Timer activated and countdown working
+  - Cancel override working correctly
+  - No errors in error.log after fixes
 
-**Next Steps:**
+**Bugs Fixed During Testing:**
 
-- Create Home Assistant helper entities (requires HA restart)
-- Create HA scripts for easy passive override creation
-- Add API endpoint in api_handler.py (optional)
-- Add pyheat-web UI controls (future enhancement)
+- **[services/api_handler.py](../services/api_handler.py)**: Added missing `api_override_passive()` endpoint registration and method
+- **[services/service_handler.py](../services/service_handler.py)**: Fixed case-sensitive room mode check (`room_mode.lower() != "auto"`)
+
+**Deployment:**
+
+- Home Assistant entities created via pyheat_package.yaml (24 new entities: 6 input_select, 18 input_number)
+- REST command and script added for HA integration
+- Requires input_select and input_number reload in HA (or restart)
 
 ---
 
