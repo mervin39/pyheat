@@ -245,7 +245,7 @@ class ServiceHandler:
         mode_entity = C.HELPER_ROOM_MODE.format(room=room)
         if self.ad.entity_exists(mode_entity):
             room_mode = self.ad.get_state(mode_entity)
-            if room_mode != "auto":
+            if room_mode.lower() != "auto":
                 return {'success': False, 'error': f'Passive overrides only work in auto mode (room is in {room_mode} mode)'}
 
         # Validate all three passive params provided

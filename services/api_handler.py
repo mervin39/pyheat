@@ -55,6 +55,7 @@ class APIHandler:
         """Register all HTTP API endpoints."""
         # Register endpoints for each service operation
         self.ad.register_endpoint(self.api_override, "pyheat_override")
+        self.ad.register_endpoint(self.api_override_passive, "pyheat_override_passive")
         self.ad.register_endpoint(self.api_cancel_override, "pyheat_cancel_override")
         self.ad.register_endpoint(self.api_set_mode, "pyheat_set_mode")
         self.ad.register_endpoint(self.api_set_passive_settings, "pyheat_set_passive_settings")
@@ -119,6 +120,27 @@ class APIHandler:
         # In Appdaemon, the JSON body is passed as the first parameter (namespace)
         request_body = namespace if isinstance(namespace, dict) else {}
         return self._handle_request(self.service_handler.svc_override, request_body)
+    
+    def api_override_passive(self, namespace, data: Dict[str, Any]) -> tuple:
+        """API endpoint: POST /api/appdaemon/pyheat_override_passive
+        
+        Sets temporary passive mode override for a room.
+        
+        Request body: {
+            "room": str,                    # Required
+            "min_temp": float,              # Required: 8-20°C
+            "max_temp": float,              # Required: 10-30°C
+            "valve_percent": float,         # Required: 0-100%
+            "minutes": int,                 # Duration in minutes (mutually exclusive with end_time)
+            "end_time": str                 # ISO datetime (mutually exclusive with minutes)
+        }
+        
+        Examples:
+            {"room": "lounge", "min_temp": 12.0, "max_temp": 21.0, "valve_percent": 40, "minutes": 180}
+            {"room": "lounge", "min_temp": 12.0, "max_temp": 21.0, "valve_percent": 40, "end_time": "2025-12-15T18:30:00"}
+        """
+        request_body = namespace if isinstance(namespace, dict) else {}
+        return self._handle_request(self.service_handler.svc_override_passive, request_body)
     
     def api_cancel_override(self, namespace, data: Dict[str, Any]) -> tuple:
         """API endpoint: POST /api/appdaemon/pyheat_cancel_override
