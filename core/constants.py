@@ -293,6 +293,28 @@ HELPER_ROOM_PASSIVE_MIN_TEMP = "input_number.pyheat_{room}_passive_mode_min_temp
 PASSIVE_MAX_TEMP_DEFAULT = 18.0  # °C
 PASSIVE_VALVE_PERCENT_DEFAULT = 30  # %
 
+# Override mode tracking
+HELPER_ROOM_OVERRIDE_MODE = "input_select.pyheat_{room}_override_mode"
+
+# Passive override entities
+HELPER_ROOM_OVERRIDE_PASSIVE_MIN_TEMP = "input_number.pyheat_{room}_override_passive_min_temp"
+HELPER_ROOM_OVERRIDE_PASSIVE_MAX_TEMP = "input_number.pyheat_{room}_override_passive_max_temp"
+HELPER_ROOM_OVERRIDE_PASSIVE_VALVE_PERCENT = "input_number.pyheat_{room}_override_passive_valve_percent"
+
+# Override mode values
+OVERRIDE_MODE_NONE = "none"
+OVERRIDE_MODE_ACTIVE = "active"
+OVERRIDE_MODE_PASSIVE = "passive"
+
+# Passive override validation ranges
+PASSIVE_OVERRIDE_MIN_TEMP_MIN = 8.0   # °C
+PASSIVE_OVERRIDE_MIN_TEMP_MAX = 20.0  # °C
+PASSIVE_OVERRIDE_MAX_TEMP_MIN = 10.0  # °C
+PASSIVE_OVERRIDE_MAX_TEMP_MAX = 30.0  # °C
+PASSIVE_OVERRIDE_VALVE_MIN = 0        # %
+PASSIVE_OVERRIDE_VALVE_MAX = 100      # %
+PASSIVE_OVERRIDE_MIN_RANGE = 1.0      # °C - minimum gap between min and max (prevents oscillation)
+
 # Pump overrun persistence
 HELPER_PUMP_OVERRUN_TIMER = "timer.pyheat_boiler_pump_overrun_timer"
 

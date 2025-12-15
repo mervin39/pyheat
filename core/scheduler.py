@@ -89,20 +89,36 @@ class Scheduler:
             }
         
         # Auto mode → check for override, then schedule
-        
-        # Check for active override via override manager
-        # Override ALWAYS forces active heating (not passive)
+
+        # Check for override via override manager (active or passive)
         if self.override_manager:
-            override_target = self.override_manager.get_override_target(room_id)
-            if override_target is not None:
-                precision = self.config.rooms[room_id].get('precision', 1)
-                return {
-                    'target': round(override_target, precision),
-                    'mode': 'active',
-                    'valve_percent': None,
-                    'min_target': None,
-                    'is_default_mode': False  # Override (temporary)
-                }
+            override_mode = self.override_manager.get_override_mode(room_id)
+
+            if override_mode == C.OVERRIDE_MODE_ACTIVE:
+                # Active override
+                override_target = self.override_manager.get_override_target(room_id)
+                if override_target is not None:
+                    precision = self.config.rooms[room_id].get('precision', 1)
+                    return {
+                        'target': round(override_target, precision),
+                        'mode': 'active',
+                        'valve_percent': None,
+                        'passive_max_temp': None,
+                        'is_default_mode': False  # Override (temporary)
+                    }
+
+            elif override_mode == C.OVERRIDE_MODE_PASSIVE:
+                # Passive override
+                params = self.override_manager.get_passive_override_params(room_id)
+                if params is not None:
+                    precision = self.config.rooms[room_id].get('precision', 1)
+                    return {
+                        'target': round(params['min_temp'], precision),  # Used for comfort mode check
+                        'mode': 'passive',
+                        'valve_percent': params['valve_percent'],
+                        'passive_max_temp': round(params['max_temp'], precision),
+                        'is_default_mode': False  # Override (temporary)
+                    }
         
         # No override → get scheduled target (may be active or passive)
         scheduled_info = self.get_scheduled_target(room_id, now, holiday_mode)

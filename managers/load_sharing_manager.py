@@ -29,15 +29,16 @@ class LoadSharingManager:
     Phase 0: Infrastructure only - no behavioral changes
     """
     
-    def __init__(self, ad, config, scheduler, load_calculator, sensors, app_ref=None):
+    def __init__(self, ad, config, scheduler, load_calculator, sensors, override_manager=None, app_ref=None):
         """Initialize the load sharing manager.
-        
+
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
             scheduler: Scheduler instance for schedule lookahead
             load_calculator: LoadCalculator instance for capacity calculations
             sensors: SensorManager instance for current temperatures
+            override_manager: Optional OverrideManager instance for checking override state
             app_ref: Optional reference to main PyHeat app for triggering recomputes
         """
         self.ad = ad
@@ -45,6 +46,7 @@ class LoadSharingManager:
         self.scheduler = scheduler
         self.load_calculator = load_calculator
         self.sensors = sensors
+        self.override_manager = override_manager
         self.app_ref = app_ref
         
         # State machine context
@@ -646,7 +648,14 @@ class LoadSharingManager:
             # Skip if not in auto mode (only include auto mode rooms)
             if state.get('mode') != 'auto':
                 continue
-            
+
+            # Skip rooms with active overrides (user is explicitly controlling the room)
+            if self.override_manager:
+                override_mode = self.override_manager.get_override_mode(room_id)
+                if override_mode != C.OVERRIDE_MODE_NONE:
+                    self.ad.log(f"Load sharing: Excluding {room_id} - has {override_mode} override active", level="DEBUG")
+                    continue
+
             # Skip if already calling
             if state.get('calling', False):
                 continue
@@ -750,7 +759,14 @@ class LoadSharingManager:
             # Must be in passive operating mode RIGHT NOW
             if state.get('operating_mode') != 'passive':
                 continue
-            
+
+            # Skip rooms with active overrides (user is explicitly controlling the room)
+            if self.override_manager:
+                override_mode = self.override_manager.get_override_mode(room_id)
+                if override_mode != C.OVERRIDE_MODE_NONE:
+                    self.ad.log(f"Load sharing fallback: Excluding {room_id} - has {override_mode} override active", level="DEBUG")
+                    continue
+
             # Skip if calling (comfort/frost protection)
             if state.get('calling', False):
                 continue
@@ -827,7 +843,14 @@ class LoadSharingManager:
             # Skip if not in auto mode
             if state.get('mode') != 'auto':
                 continue
-            
+
+            # Skip rooms with active overrides (user is explicitly controlling the room)
+            if self.override_manager:
+                override_mode = self.override_manager.get_override_mode(room_id)
+                if override_mode != C.OVERRIDE_MODE_NONE:
+                    self.ad.log(f"Load sharing fallback Phase B: Excluding {room_id} - has {override_mode} override active", level="DEBUG")
+                    continue
+
             # Skip if already calling
             if state.get('calling', False):
                 continue

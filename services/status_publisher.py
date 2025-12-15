@@ -17,15 +17,17 @@ import constants as C
 class StatusPublisher:
     """Publishes PyHeat status to Home Assistant entities."""
     
-    def __init__(self, ad, config):
+    def __init__(self, ad, config, overrides=None):
         """Initialize the status publisher.
-        
+
         Args:
             ad: AppDaemon API reference
             config: ConfigLoader instance
+            overrides: Optional OverrideManager instance for checking override state
         """
         self.ad = ad
         self.config = config
+        self.overrides = overrides
     
     def _get_passive_valve_percent(self, room_id: str) -> int:
         """Get passive valve percent for a room from HA entity.
@@ -352,18 +354,11 @@ class StatusPublisher:
 
         # Auto mode - check for override first
         if mode == 'auto':
-            # Check if override is active
-            timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
-            override_active = False
+            # Check override mode via override manager
+            override_mode = self.overrides.get_override_mode(room_id) if self.overrides else C.OVERRIDE_MODE_NONE
 
-            if self.ad.entity_exists(timer_entity):
-                timer_state = self.ad.get_state(timer_entity)
-                if timer_state in ["active", "paused"]:
-                    override_active = True
-
-            # Handle override (keep existing display with countdown)
-            if override_active:
-                # Get override target
+            if override_mode == C.OVERRIDE_MODE_ACTIVE:
+                # Active override
                 target_entity = C.HELPER_ROOM_OVERRIDE_TARGET.format(room=room_id)
                 override_target = None
                 if self.ad.entity_exists(target_entity):
@@ -373,6 +368,7 @@ class StatusPublisher:
                         pass
 
                 # Get end time from timer
+                timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
                 finishes_at = self.ad.get_state(timer_entity, attribute="finishes_at")
                 end_time_str = ""
                 if finishes_at:
@@ -387,6 +383,24 @@ class StatusPublisher:
                     return f"Override: {override_target:.1f}°{end_time_str}"
                 else:
                     return f"Override{end_time_str}"
+
+            elif override_mode == C.OVERRIDE_MODE_PASSIVE:
+                # Passive override
+                params = self.overrides.get_passive_override_params(room_id)
+                timer_entity = C.HELPER_ROOM_OVERRIDE_TIMER.format(room=room_id)
+
+                if params and self.ad.entity_exists(timer_entity):
+                    finishes_at = self.ad.get_state(timer_entity, attribute="finishes_at")
+                    end_time_str = ""
+                    if finishes_at:
+                        try:
+                            end_dt = datetime.fromisoformat(finishes_at.replace('Z', '+00:00'))
+                            end_time_str = f" until {end_dt.strftime('%H:%M')}"
+                        except Exception as e:
+                            self.ad.log(f"Error formatting passive override end time for {room_id}: {e}", level="WARNING")
+                            end_time_str = " until ??:??"
+
+                    return f"Override (Passive): {params['min_temp']:.0f}-{params['max_temp']:.0f}° ({params['valve_percent']:.0f}%){end_time_str}"
 
             # Auto mode without override - show next schedule
             # Get holiday mode
@@ -821,6 +835,7 @@ class StatusPublisher:
             'manual_setpoint': data.get('manual_setpoint'),
             'formatted_next_schedule': formatted_next_schedule,  # Next schedule information for display
             'scheduled_temp': round(scheduled_temp, precision) if scheduled_temp is not None else None,
+            'override_mode': self.overrides.get_override_mode(room_id) if self.overrides else C.OVERRIDE_MODE_NONE,  # NEW: "active", "passive", or "none"
             # Additional convenience attributes
             'load_sharing': f"T{load_sharing_info.get('tier', 1)}" if (load_sharing_info and load_sharing_info.get('active')) else "off",
             'valve': data.get('valve_percent', 0),
@@ -829,6 +844,15 @@ class StatusPublisher:
             'passive_valve': data.get('passive_valve_percent') if data.get('operating_mode') == 'passive' else None,  # Scheduled valve percent
             'calling': data.get('calling', False),
         }
+
+        # Add passive override details if active
+        override_mode = self.overrides.get_override_mode(room_id) if self.overrides else C.OVERRIDE_MODE_NONE
+        if override_mode == C.OVERRIDE_MODE_PASSIVE:
+            params = self.overrides.get_passive_override_params(room_id)
+            if params:
+                attributes['override_passive_min_temp'] = params['min_temp']
+                attributes['override_passive_max_temp'] = params['max_temp']
+                attributes['override_passive_valve_percent'] = params['valve_percent']
         
         # Add override details if active
         if override_active:

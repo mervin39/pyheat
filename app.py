@@ -65,7 +65,7 @@ class PyHeat(hass.Hass):
         self.load_calculator = LoadCalculator(self, self.config, self.sensors)
         self.overrides = OverrideManager(self, self.config)
         self.scheduler = Scheduler(self, self.config, self.overrides)
-        self.load_sharing = LoadSharingManager(self, self.config, self.scheduler, self.load_calculator, self.sensors, app_ref=self)
+        self.load_sharing = LoadSharingManager(self, self.config, self.scheduler, self.load_calculator, self.sensors, override_manager=self.overrides, app_ref=self)
         self.trvs = TRVController(self, self.config, self.alerts)
         self.valve_coordinator = ValveCoordinator(self, self.trvs, app_ref=self)
         self.valve_coordinator.initialize_from_ha()  # Initialize pump overrun state from HA
@@ -75,7 +75,7 @@ class PyHeat(hass.Hass):
         self.cycling = CyclingProtection(self, self.config, self.alerts, self.boiler, app_ref=self, setpoint_ramp_ref=self.setpoint_ramp)
         # Wire cycling protection reference back to setpoint ramp (avoids circular dependency during init)
         self.setpoint_ramp.set_cycling_protection_ref(self.cycling)
-        self.status = StatusPublisher(self, self.config)
+        self.status = StatusPublisher(self, self.config, overrides=self.overrides)
         self.status.scheduler_ref = self.scheduler  # Allow status publisher to get scheduled temps
         self.status.load_calculator_ref = self.load_calculator  # Allow status publisher to get capacity data
         self.services = ServiceHandler(self, self.config, self.overrides)

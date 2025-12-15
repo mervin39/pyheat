@@ -1,6 +1,116 @@
 
 # PyHeat Changelog
 
+## 2025-12-15: Add passive mode override system
+
+**Major Feature:**
+Implemented passive mode override system to allow temporary passive heating mode control for rooms, complementing the existing active override functionality.
+
+**Use Case:**
+When you have guests in a room (e.g., lounge) and want to maintain comfortable ambient temperature without active heating calls. Sets minimum comfort floor and maximum temperature with fixed valve percentage - perfect for maintaining warmth without disrupting the main heating schedule.
+
+**New Services:**
+
+1. **`pyheat/override_passive`** - Create passive override
+   - `room`: Room ID (required)
+   - `min_temp`: Comfort floor temperature 8-20°C (required)
+   - `max_temp`: Upper limit temperature 10-30°C (required)
+   - `valve_percent`: Valve opening percentage 0-100% (required)
+   - `minutes` OR `end_time`: Duration (one required)
+   - Validates: room in auto mode, min < max with 1°C minimum gap
+
+2. **`pyheat/cancel_override`** - Enhanced to cancel both active and passive overrides
+
+**Key Features:**
+
+- **Two Override Modes**: Active (PID-based) and Passive (threshold-based with hysteresis)
+- **Comfort Mode Escalation**: If temp < min_temp - on_delta_c (default 0.30°C), temporarily switches to active mode with 100% valve for rapid recovery
+- **Timer-Based State Management**: Timer state is source of truth, prevents race conditions
+- **Load Sharing Integration**: Rooms with overrides (active or passive) automatically excluded
+- **CSV Event Logging**: passive_override_started/ended events for observability
+- **Status Display**: Override mode and parameters visible in state attributes and formatted_next_schedule
+
+**Implementation Details:**
+
+- **Constants Added** ([core/constants.py](../core/constants.py)):
+  - `HELPER_ROOM_OVERRIDE_MODE` - input_select for tracking mode
+  - `HELPER_ROOM_OVERRIDE_PASSIVE_MIN_TEMP/MAX_TEMP/VALVE_PERCENT` - input_number entities
+  - `OVERRIDE_MODE_NONE/ACTIVE/PASSIVE` - mode values
+  - `PASSIVE_OVERRIDE_*` validation range constants
+
+- **OverrideManager Updates** ([managers/override_manager.py](../managers/override_manager.py)):
+  - `get_override_mode()` - Returns current override mode (timer-first hierarchy)
+  - `set_passive_override()` - Sets passive parameters and starts timer
+  - `get_passive_override_params()` - Retrieves active passive override parameters
+  - Enhanced `set_override()`, `cancel_override()`, `handle_timer_expired()` for mode tracking
+  - CSV event logging on passive override start/end
+
+- **Scheduler Updates** ([core/scheduler.py](../core/scheduler.py)):
+  - `resolve_room_target()` checks override mode and handles both active and passive overrides
+  - Returns appropriate target, mode, and parameters based on override type
+
+- **ServiceHandler** ([services/service_handler.py](../services/service_handler.py)):
+  - New `svc_override_passive()` with comprehensive validation
+  - Room mode validation (passive overrides only work in auto mode)
+  - Temperature range enforcement (min 8-20°C, max 10-30°C, valve 0-100%)
+  - Minimum gap validation (1.0°C between min and max)
+  - Edge case warnings (valve_percent=0, narrow temp ranges)
+
+- **StatusPublisher** ([services/status_publisher.py](../services/status_publisher.py)):
+  - `_format_next_schedule_text()` displays passive override: "Override (Passive): 12-21° (40%) until 18:30"
+  - `publish_room_entities()` includes override_mode and passive parameters in state attributes
+  - Safety checks for None override_manager reference
+
+- **LoadSharingManager** ([managers/load_sharing_manager.py](../managers/load_sharing_manager.py)):
+  - Updated eligibility checks in schedule-aware and fallback tiers
+  - Rooms with active overrides (active or passive) excluded from load sharing
+  - Respects user intent - overrides mean explicit manual control
+
+- **App Integration** ([app.py](../app.py)):
+  - Pass override_manager to LoadSharingManager and StatusPublisher
+  - CSV event logging infrastructure for passive override lifecycle
+
+**Design Decisions:**
+
+1. **Two-Service Design**: Separate `override` and `override_passive` services keep parameters clear and validation specific
+2. **Timer as Source of Truth**: Prevents race conditions between timer and mode entity state
+3. **Auto Mode Requirement**: Passive overrides only work in auto mode (respects room mode intent)
+4. **Load Sharing Exclusion**: User-controlled rooms shouldn't be adjusted by automatic algorithms
+5. **Validation Constants**: All magic numbers replaced with named constants from `constants.py`
+
+**Backward Compatibility:**
+
+- Existing `pyheat/override` service unchanged (automatically sets mode to "active")
+- Existing `pyheat/cancel_override` works for both override types
+- No breaking changes to existing functionality
+- Optional override_manager parameter allows gradual adoption
+
+**Files Modified:**
+
+- [core/constants.py](../core/constants.py) - Added override mode constants and validation ranges
+- [managers/override_manager.py](../managers/override_manager.py) - New methods and CSV logging
+- [core/scheduler.py](../core/scheduler.py) - Passive override resolution
+- [services/service_handler.py](../services/service_handler.py) - New svc_override_passive()
+- [services/status_publisher.py](../services/status_publisher.py) - Display and attributes
+- [managers/load_sharing_manager.py](../managers/load_sharing_manager.py) - Override exclusion
+- [app.py](../app.py) - Component wiring
+
+**Testing:**
+
+- Tested with AppDaemon live reload
+- No errors in error.log after implementation
+- All components loaded successfully
+- Service registration confirmed
+
+**Next Steps:**
+
+- Create Home Assistant helper entities (requires HA restart)
+- Create HA scripts for easy passive override creation
+- Add API endpoint in api_handler.py (optional)
+- Add pyheat-web UI controls (future enhancement)
+
+---
+
 ## 2025-12-15: Fix TypeError in schedule formatting for null defaults
 
 **Critical Bug Fix:**

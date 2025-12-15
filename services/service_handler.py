@@ -45,6 +45,7 @@ class ServiceHandler:
         
         # Register all services
         self.ad.register_service("pyheat/override", self.svc_override)
+        self.ad.register_service("pyheat/override_passive", self.svc_override_passive)
         self.ad.register_service("pyheat/cancel_override", self.svc_cancel_override)
         self.ad.register_service("pyheat/set_mode", self.svc_set_mode)
         self.ad.register_service("pyheat/set_passive_settings", self.svc_set_passive_settings)
@@ -216,26 +217,122 @@ class ServiceHandler:
             return {"success": False, "error": str(e)}
 
 
+    def svc_override_passive(self, namespace, domain, service, kwargs):
+        """Service: pyheat.override_passive - Create passive override.
+
+        Args:
+            room (str): Room ID (required)
+            min_temp (float): Minimum temperature (°C, comfort floor) (required)
+            max_temp (float): Maximum temperature (°C, upper limit) (required)
+            valve_percent (float): Valve opening percentage (0-100%) (required)
+            minutes (int): Duration in minutes (optional, mutually exclusive with end_time)
+            end_time (str): ISO 8601 end time (optional, mutually exclusive with minutes)
+        """
+        from datetime import datetime, timedelta, timezone
+
+        room = kwargs.get('room')
+        min_temp = kwargs.get('min_temp')
+        max_temp = kwargs.get('max_temp')
+        valve_percent = kwargs.get('valve_percent')
+        minutes = kwargs.get('minutes')
+        end_time_str = kwargs.get('end_time')
+
+        # Validate room exists
+        if room not in self.config.rooms:
+            return {'success': False, 'error': f'Unknown room: {room}'}
+
+        # Validate room is in auto mode
+        mode_entity = C.HELPER_ROOM_MODE.format(room=room)
+        if self.ad.entity_exists(mode_entity):
+            room_mode = self.ad.get_state(mode_entity)
+            if room_mode != "auto":
+                return {'success': False, 'error': f'Passive overrides only work in auto mode (room is in {room_mode} mode)'}
+
+        # Validate all three passive params provided
+        if min_temp is None or max_temp is None or valve_percent is None:
+            return {'success': False, 'error': 'min_temp, max_temp, and valve_percent are required'}
+
+        # Validate exactly one of minutes/end_time
+        if (minutes is None) == (end_time_str is None):
+            return {'success': False, 'error': 'Must provide exactly one of: minutes or end_time'}
+
+        # Validate ranges using constants
+        if not (C.PASSIVE_OVERRIDE_MIN_TEMP_MIN <= min_temp <= C.PASSIVE_OVERRIDE_MIN_TEMP_MAX):
+            return {'success': False, 'error': f'min_temp must be between {C.PASSIVE_OVERRIDE_MIN_TEMP_MIN}-{C.PASSIVE_OVERRIDE_MIN_TEMP_MAX}°C'}
+        if not (C.PASSIVE_OVERRIDE_MAX_TEMP_MIN <= max_temp <= C.PASSIVE_OVERRIDE_MAX_TEMP_MAX):
+            return {'success': False, 'error': f'max_temp must be between {C.PASSIVE_OVERRIDE_MAX_TEMP_MIN}-{C.PASSIVE_OVERRIDE_MAX_TEMP_MAX}°C'}
+        if not (C.PASSIVE_OVERRIDE_VALVE_MIN <= valve_percent <= C.PASSIVE_OVERRIDE_VALVE_MAX):
+            return {'success': False, 'error': f'valve_percent must be between {C.PASSIVE_OVERRIDE_VALVE_MIN}-{C.PASSIVE_OVERRIDE_VALVE_MAX}%'}
+
+        # Validate minimum gap between min and max
+        temp_range = max_temp - min_temp
+        if temp_range < C.PASSIVE_OVERRIDE_MIN_RANGE:
+            return {'success': False, 'error': f'max_temp must be at least {C.PASSIVE_OVERRIDE_MIN_RANGE}°C above min_temp (gap: {temp_range:.1f}°C)'}
+
+        # Log warnings for edge cases
+        if valve_percent == 0:
+            self.ad.log(f"Warning: Passive override for '{room}' has valve_percent=0 (room will not receive heat)", level="WARNING")
+        if temp_range < 2.0:
+            self.ad.log(f"Warning: Passive override for '{room}' has narrow range ({temp_range:.1f}°C) - may cause oscillation", level="WARNING")
+
+        # Calculate duration
+        if minutes is not None:
+            duration_seconds = int(minutes) * 60
+        else:
+            try:
+                end_dt = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+                now = datetime.now(end_dt.tzinfo or timezone.utc)
+                if end_dt <= now:
+                    return {'success': False, 'error': 'end_time must be in the future'}
+                duration_seconds = int((end_dt - now).total_seconds())
+            except Exception as e:
+                return {'success': False, 'error': f'Invalid end_time format: {e}'}
+
+        # Set passive override
+        success = self.override_manager.set_passive_override(
+            room, min_temp, max_temp, valve_percent, duration_seconds
+        )
+
+        if success:
+            # Trigger immediate recompute
+            if self.trigger_recompute_callback:
+                self.ad.run_in(lambda kwargs: self.trigger_recompute_callback("passive_override_service"), 1)
+
+            # Calculate end_time for response
+            end_dt = datetime.now() + timedelta(seconds=duration_seconds)
+
+            return {
+                'success': True,
+                'room': room,
+                'min_temp': min_temp,
+                'max_temp': max_temp,
+                'valve_percent': valve_percent,
+                'duration_seconds': duration_seconds,
+                'end_time': end_dt.isoformat()
+            }
+        else:
+            return {'success': False, 'error': 'Failed to set passive override'}
+
     def svc_cancel_override(self, namespace, domain, service, kwargs):
-        """Service: pyheat.cancel_override - Cancel active override.
-        
+        """Service: pyheat.cancel_override - Cancel active override (both active and passive).
+
         Args:
             room (str): Room ID (required)
         """
         room = kwargs.get('room')
-        
+
         # Validate required argument
         if room is None:
             self.ad.log("pyheat.cancel_override: 'room' argument is required", level="ERROR")
             return {"success": False, "error": "room argument is required"}
-        
+
         # Validate room exists
         if room not in self.config.rooms:
             self.ad.log(f"pyheat.cancel_override: room '{room}' not found", level="ERROR")
             return {"success": False, "error": f"room '{room}' not found"}
-        
+
         self.ad.log(f"pyheat.cancel_override: room={room}")
-        
+
         try:
             # Cancel override via override manager
             if self.override_manager:
@@ -245,13 +342,13 @@ class ServiceHandler:
             else:
                 self.ad.log("pyheat.cancel_override: override_manager not available", level="ERROR")
                 return {"success": False, "error": "override_manager not available"}
-            
+
             # Trigger immediate recompute
             if self.trigger_recompute_callback:
                 self.ad.run_in(lambda kwargs: self.trigger_recompute_callback("cancel_override_service"), 1)
-            
+
             return {"success": True, "room": room}
-        
+
         except Exception as e:
             self.ad.log(f"pyheat.cancel_override failed: {e}", level="ERROR")
             return {"success": False, "error": str(e)}
