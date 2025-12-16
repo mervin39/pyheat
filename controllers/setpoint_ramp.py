@@ -341,6 +341,34 @@ class SetpointRamp:
             )
             return None
         
+        # CRITICAL: Skip ramping during DHW (hot water) events
+        # When DHW is active, flow temp sensor measures hot water temp, not CH temp
+        # This would cause incorrect ramping based on artificially high readings
+        try:
+            dhw_binary = self.ad.get_state(C.OPENTHERM_DHW)
+            dhw_flow = self.ad.get_state(C.OPENTHERM_DHW_FLOW_RATE)
+            
+            # DHW is active if binary sensor is 'on' OR flow rate is non-zero
+            dhw_active = dhw_binary == 'on'
+            if not dhw_active and dhw_flow not in ['unknown', 'unavailable', None]:
+                try:
+                    dhw_flow_rate = float(dhw_flow)
+                    dhw_active = dhw_flow_rate > 0.0
+                except (ValueError, TypeError):
+                    pass
+            
+            if dhw_active:
+                # DHW active - flow temp is hot water, not CH - skip ramping
+                return None
+                
+        except Exception as e:
+            self.ad.log(
+                f"SetpointRamp: Failed to check DHW state: {e}",
+                level="WARNING"
+            )
+            # On error, skip ramping to be safe
+            return None
+        
         # Get max setpoint
         max_setpoint = self._get_max_setpoint()
         if max_setpoint is None:

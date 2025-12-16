@@ -1,6 +1,33 @@
 
 # PyHeat Changelog
 
+## 2025-12-16: Fix setpoint ramping during DHW events
+
+**Bug Fix:**
+
+Added DHW (Domestic Hot Water) detection to setpoint ramping logic to prevent incorrect ramping during hot water events. When DHW is active, the flow temperature sensor measures hot water temperature (not central heating flow), causing the ramping algorithm to see artificially high temperatures and incorrectly ramp the setpoint.
+
+**Problem:**
+- Flow temp sensor reads 67°C during DHW event (hot water temp)
+- Ramping logic interprets this as CH flow approaching shutoff
+- Setpoint ramps from 55°C → 61°C → 65°C unnecessarily
+- When DHW ends and flame goes OFF, setpoint resets to baseline (correct but inelegant)
+- Observed in logs at 2025-12-16 12:01:37 and 12:01:46
+
+**Solution ([controllers/setpoint_ramp.py](../controllers/setpoint_ramp.py)):**
+
+Added DHW check in `evaluate_and_apply()` before ramping logic:
+- Reads `binary_sensor.opentherm_dhw` and `sensor.opentherm_dhw_flow_rate`
+- Skips ramping if DHW binary is 'on' OR flow rate > 0.0 L/min
+- Uses same detection pattern as cycling protection for consistency
+- Gracefully handles sensor unavailability (skips ramping on error)
+
+**Impact:**
+- Prevents unnecessary setpoint changes during hot water use
+- Keeps baseline setpoint stable when DHW active
+- Ramping only occurs during genuine CH heating cycles
+- More elegant behavior - no spurious ramp-then-reset sequences
+
 ## 2025-12-16: Upgrade setpoint ramping to headroom-based algorithm
 
 **Major Improvement:**
