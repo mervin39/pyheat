@@ -46,8 +46,9 @@ class SetpointRamp:
         self.app_ref = app_ref
         
         # Configuration (loaded from boiler.yaml)
-        self.delta_trigger_c: Optional[float] = None  # Flow temp threshold above setpoint to trigger ramp
-        self.delta_increase_c: Optional[float] = None  # Amount to increase setpoint each step
+        self.buffer_c: Optional[float] = None  # Headroom buffer to trigger ramping
+        self.setpoint_offset_c: Optional[int] = None  # Offset below flow temp for new setpoint
+        self.boiler_hysteresis: Optional[int] = None  # Boiler's internal hysteresis (from HA)
         
         # State
         self.state = self.STATE_INACTIVE
@@ -188,62 +189,88 @@ class SetpointRamp:
         ramp_config = self.config.boiler_config.get('setpoint_ramp', {})
         
         # Check for required configuration
-        if 'delta_trigger_c' not in ramp_config:
+        if 'buffer_c' not in ramp_config:
             raise ValueError(
-                "Missing required config: boiler.setpoint_ramp.delta_trigger_c must be defined. "
-                "This sets the flow temperature threshold above setpoint to trigger ramping. "
-                "Example: 3.0 means ramp when flow temp >= setpoint + 3.0C"
+                "Missing required config: boiler.setpoint_ramp.buffer_c must be defined. "
+                "This sets how close to boiler shutoff point (setpoint + hysteresis) to trigger ramping. "
+                "Example: 2.0 means ramp when headroom <= 2.0C"
             )
         
-        if 'delta_increase_c' not in ramp_config:
+        if 'setpoint_offset_c' not in ramp_config:
             raise ValueError(
-                "Missing required config: boiler.setpoint_ramp.delta_increase_c must be defined. "
-                "This sets how much to increase setpoint each ramp step. "
-                "Example: 1.0 means increase setpoint by 1.0C per step"
+                "Missing required config: boiler.setpoint_ramp.setpoint_offset_c must be defined. "
+                "This sets how far below flow temp to set the new setpoint. "
+                "Example: 2 means new_setpoint = floor(flow) - 2C"
             )
         
-        # Parse and validate delta_trigger_c
+        # Parse and validate buffer_c
         try:
-            self.delta_trigger_c = float(ramp_config['delta_trigger_c'])
-            if not (0.1 <= self.delta_trigger_c <= 10.0):
+            self.buffer_c = float(ramp_config['buffer_c'])
+            if not (1.0 <= self.buffer_c <= 10.0):
                 raise ValueError(
-                    f"boiler.setpoint_ramp.delta_trigger_c must be between 0.1 and 10.0C "
-                    f"(got {self.delta_trigger_c:.1f}C)"
-                )
-            
-            # Warning if too high (may trigger cooldown before ramping)
-            if self.delta_trigger_c > 4.0:
-                self.ad.log(
-                    f"WARNING: boiler.setpoint_ramp.delta_trigger_c is {self.delta_trigger_c:.1f}C "
-                    f"which is quite high. Cycling protection may trigger before ramping occurs. "
-                    f"Consider reducing to 3.0-4.0C for optimal results.",
-                    level="WARNING"
-                )
-                
-        except (ValueError, TypeError) as e:
-            raise ValueError(
-                f"Invalid boiler.setpoint_ramp.delta_trigger_c: {ramp_config['delta_trigger_c']}. "
-                f"Must be a number between 0.1 and 10.0. Error: {e}"
-            )
-        
-        # Parse and validate delta_increase_c
-        try:
-            self.delta_increase_c = float(ramp_config['delta_increase_c'])
-            if not (0.1 <= self.delta_increase_c <= 5.0):
-                raise ValueError(
-                    f"boiler.setpoint_ramp.delta_increase_c must be between 0.1 and 5.0C "
-                    f"(got {self.delta_increase_c:.1f}C)"
+                    f"boiler.setpoint_ramp.buffer_c must be between 1.0 and 10.0C "
+                    f"(got {self.buffer_c:.1f}C)"
                 )
         except (ValueError, TypeError) as e:
             raise ValueError(
-                f"Invalid boiler.setpoint_ramp.delta_increase_c: {ramp_config['delta_increase_c']}. "
-                f"Must be a number between 0.1 and 5.0. Error: {e}"
+                f"Invalid boiler.setpoint_ramp.buffer_c: {ramp_config['buffer_c']}. "
+                f"Must be a number between 1.0 and 10.0. Error: {e}"
+            )
+        
+        # Parse and validate setpoint_offset_c
+        try:
+            self.setpoint_offset_c = int(ramp_config['setpoint_offset_c'])
+            if not (1 <= self.setpoint_offset_c <= 10):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.setpoint_offset_c must be between 1 and 10C "
+                    f"(got {self.setpoint_offset_c}C)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.setpoint_offset_c: {ramp_config['setpoint_offset_c']}. "
+                f"Must be an integer between 1 and 10. Error: {e}"
+            )
+        
+        # Read boiler hysteresis from Home Assistant
+        hysteresis_state = self.ad.get_state(C.OPENTHERM_HEATING_HYSTERESIS)
+        if hysteresis_state in ['unknown', 'unavailable', None]:
+            raise ValueError(
+                f"Cannot initialize setpoint_ramp: {C.OPENTHERM_HEATING_HYSTERESIS} "
+                f"is unavailable. Ensure OpenTherm integration is configured and boiler is online."
+            )
+        
+        try:
+            self.boiler_hysteresis = int(float(hysteresis_state))
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid {C.OPENTHERM_HEATING_HYSTERESIS} value: {hysteresis_state}. "
+                f"Must be a number. Error: {e}"
+            )
+        
+        # Validate hysteresis is reasonable
+        if self.boiler_hysteresis < 3:
+            raise ValueError(
+                f"Boiler hysteresis too low ({self.boiler_hysteresis}C). "
+                f"Minimum 3C required for stable ramping."
+            )
+        
+        # CRITICAL: Stability constraint for integer setpoints with floor()
+        # Ensures new_headroom > buffer after ramping to prevent oscillation
+        # The +1 accounts for floor() precision loss (up to 0.999C)
+        if self.buffer_c + self.setpoint_offset_c + 1 > self.boiler_hysteresis:
+            raise ValueError(
+                f"Invalid setpoint_ramp config: buffer_c ({self.buffer_c}) + "
+                f"setpoint_offset_c ({self.setpoint_offset_c}) + 1 must be <= "
+                f"boiler_hysteresis ({self.boiler_hysteresis}C) to prevent oscillation. "
+                f"Current sum: {self.buffer_c + self.setpoint_offset_c + 1} > {self.boiler_hysteresis}. "
+                f"Reduce buffer_c or setpoint_offset_c."
             )
         
         self.ad.log(
             f"SetpointRamp: Configuration loaded - "
-            f"delta_trigger={self.delta_trigger_c:.1f}C, "
-            f"delta_increase={self.delta_increase_c:.1f}C",
+            f"buffer={self.buffer_c:.1f}C, "
+            f"offset={self.setpoint_offset_c}C, "
+            f"boiler_hysteresis={self.boiler_hysteresis}C",
             level="INFO"
         )
     
@@ -323,12 +350,40 @@ class SetpointRamp:
             )
             return None
         
-        # Check if we should ramp
-        should_ramp = flow_temp >= (current_setpoint + self.delta_trigger_c)
+        # Check boiler hysteresis availability (runtime check with cached fallback)
+        current_hysteresis_state = self.ad.get_state(C.OPENTHERM_HEATING_HYSTERESIS)
+        if current_hysteresis_state in ['unknown', 'unavailable', None]:
+            # Use cached value from startup, log warning
+            self.ad.log(
+                f"SetpointRamp: {C.OPENTHERM_HEATING_HYSTERESIS} unavailable at runtime - "
+                f"using cached value {self.boiler_hysteresis}C",
+                level="WARNING"
+            )
+        else:
+            # Update cached value if changed (rare but possible)
+            try:
+                runtime_hysteresis = int(float(current_hysteresis_state))
+                if runtime_hysteresis != self.boiler_hysteresis:
+                    self.ad.log(
+                        f"SetpointRamp: Boiler hysteresis changed from {self.boiler_hysteresis}C "
+                        f"to {runtime_hysteresis}C - updating cached value",
+                        level="INFO"
+                    )
+                    self.boiler_hysteresis = runtime_hysteresis
+            except (ValueError, TypeError):
+                pass  # Keep cached value
+        
+        # Calculate headroom to shutoff point (setpoint + hysteresis - flow)
+        current_headroom = current_setpoint + self.boiler_hysteresis - flow_temp
+        
+        # Check if we should ramp (headroom <= buffer)
+        should_ramp = current_headroom <= self.buffer_c
         
         if should_ramp:
-            # Calculate new setpoint
-            new_setpoint = current_setpoint + self.delta_increase_c
+            # Calculate new setpoint (integer-only for boiler compatibility)
+            # new_setpoint = floor(flow) - offset
+            from math import floor
+            new_setpoint = int(floor(flow_temp)) - self.setpoint_offset_c
             
             # Cap at max
             if new_setpoint > max_setpoint:
@@ -342,10 +397,9 @@ class SetpointRamp:
                 self.ramp_steps_applied += 1
                 
                 self.ad.log(
-                    f"SetpointRamp: Flow temp {flow_temp:.1f}C >= threshold "
-                    f"{current_setpoint + self.delta_trigger_c:.1f}C - "
-                    f"ramping {current_setpoint:.1f}C -> {new_setpoint:.1f}C "
-                    f"(step {self.ramp_steps_applied})",
+                    f"SetpointRamp: Headroom {current_headroom:.1f}C <= buffer {self.buffer_c:.1f}C - "
+                    f"ramping {current_setpoint:.1f}C -> {new_setpoint}C "
+                    f"(flow={flow_temp:.1f}C, hysteresis={self.boiler_hysteresis}C, step {self.ramp_steps_applied})",
                     level="INFO"
                 )
 
@@ -361,7 +415,7 @@ class SetpointRamp:
                 if self.ramp_steps_applied % 5 == 0:  # Log every 5th evaluation at max
                     self.ad.log(
                         f"SetpointRamp: At maximum setpoint {max_setpoint:.1f}C "
-                        f"(flow temp {flow_temp:.1f}C)",
+                        f"(flow temp {flow_temp:.1f}C, headroom {current_headroom:.1f}C)",
                         level="DEBUG"
                     )
         

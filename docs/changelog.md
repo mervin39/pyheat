@@ -1,6 +1,98 @@
 
 # PyHeat Changelog
 
+## 2025-12-16: Upgrade setpoint ramping to headroom-based algorithm
+
+**Major Improvement:**
+
+Replaced incremental setpoint ramping with physics-aware headroom-based algorithm that directly accounts for boiler's actual hysteresis, eliminating guesswork and providing more predictable anti-cycling behavior.
+
+**Problem with Old Algorithm:**
+- Incremental stepping (0.25°C) incompatible with integer-only boiler setpoints
+- No awareness of boiler's internal shutoff threshold (setpoint + hysteresis)
+- Multiple recompute cycles needed to reach target position
+- Arbitrary delta_trigger_c couldn't adapt to different boiler configurations
+
+**New Algorithm:**
+```
+current_headroom = setpoint + boiler_hysteresis - flow
+if current_headroom <= buffer_c:
+    new_setpoint = floor(flow) - setpoint_offset_c
+```
+
+Directly calculates proximity to boiler shutoff and jumps to optimal position in single step.
+
+**Configuration Changes ([config/boiler.yaml](../config/boiler.yaml)):**
+```yaml
+setpoint_ramp:
+  buffer_c: 2.0              # NEW: Trigger when headroom <= 2°C from shutoff
+  setpoint_offset_c: 2       # NEW: Set new setpoint 2°C below flow temp
+  # REMOVED: delta_trigger_c, delta_increase_c (old params)
+```
+
+**Breaking Changes:**
+- Old config parameters (`delta_trigger_c`, `delta_increase_c`) no longer recognized
+- Requires `number.opentherm_heating_hysteresis` entity from OpenTherm integration
+- Must satisfy constraint: `buffer_c + setpoint_offset_c + 1 <= boiler_hysteresis`
+
+**New Entity Dependency ([core/constants.py](../core/constants.py)):**
+- `OPENTHERM_HEATING_HYSTERESIS = "number.opentherm_heating_hysteresis"` - boiler's internal hysteresis setting
+
+**Implementation ([controllers/setpoint_ramp.py](../controllers/setpoint_ramp.py)):**
+
+1. **Validation (`_load_and_validate_config()`):**
+   - Reads `number.opentherm_heating_hysteresis` from Home Assistant
+   - Validates buffer_c (1.0-10.0°C) and setpoint_offset_c (1-10, integer)
+   - Enforces stability constraint: `buffer + offset + 1 <= hysteresis`
+   - Fails loudly if constraint violated to prevent oscillation
+   - Stores `self.boiler_hysteresis`, `self.buffer_c`, `self.setpoint_offset_c`
+
+2. **Runtime Algorithm (`evaluate_and_apply()`):**
+   - Calculates headroom to shutoff: `setpoint + hysteresis - flow`
+   - Triggers when `headroom <= buffer_c`
+   - Computes `new_setpoint = floor(flow) - offset` (integer-only for boiler compatibility)
+   - Caps at `max_setpoint`, only applies if increased
+   - Logs headroom, flow, hysteresis values for debugging
+   - Single-step convergence vs. multi-cycle incremental approach
+
+3. **Runtime Hysteresis Handling:**
+   - Checks `number.opentherm_heating_hysteresis` availability each cycle
+   - Falls back to cached startup value if unavailable (logs warning)
+   - Updates cached value if hysteresis changes (rare)
+   - Prevents feature failure from transient sensor unavailability
+
+**Validation Logic:**
+- Constraint ensures new headroom > buffer after ramping (prevents immediate re-trigger)
+- `+1` accounts for floor() precision loss (up to 0.999°C)
+- Example: buffer=2, offset=2, hysteresis=5 → 2+2+1=5 ✓ (marginally stable)
+- Example: buffer=3, offset=2, hysteresis=5 → 3+2+1=6 > 5 ✗ (would oscillate)
+
+**Behavior Changes:**
+- **Larger jumps**: New algorithm may increase setpoint by 5-10°C instantly vs. 0.25°C increments
+- **Faster response**: Single recompute cycle to reach target vs. gradual stepping
+- **Adaptive**: Automatically adjusts to different boiler hysteresis values
+- **Integer-safe**: No fractional setpoints sent to boiler
+
+**Example Scenario (hysteresis=5°C, buffer=2°C, offset=2°C):**
+```
+Initial: setpoint=55°C, flow=58°C
+Headroom: 55 + 5 - 58 = 2°C <= 2°C → TRIGGER
+New setpoint: floor(58) - 2 = 56°C
+After ramp: 56 + 5 - 59 = 2°C (stable, won't re-trigger if flow stabilizes)
+```
+
+**Migration:**
+1. Verify `number.opentherm_heating_hysteresis` exists in Home Assistant
+2. Check hysteresis value (must be ≥ 3°C, typically 5-10°C)
+3. Update `boiler.yaml` with new parameters (recommended: buffer=2, offset=2 for hysteresis=5)
+4. AppDaemon will validate configuration on startup and fail with clear error if invalid
+5. Monitor logs for "SetpointRamp: Headroom..." messages to verify behavior
+
+**Recommended Configurations:**
+- **Hysteresis 5°C**: buffer=2, offset=2 (balanced)
+- **Hysteresis 7°C**: buffer=3, offset=2 (moderate) or buffer=2, offset=3 (larger jumps)
+- **Hysteresis 10°C**: buffer=3, offset=3 (aggressive, long burns)
+
 ## 2025-12-15: Fix sensor.pyheat_cooldowns persistence with service call API
 
 **Critical Bug Fix:**
