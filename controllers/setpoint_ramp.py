@@ -46,9 +46,11 @@ class SetpointRamp:
         self.app_ref = app_ref
         
         # Configuration (loaded from boiler.yaml)
-        self.buffer_c: Optional[float] = None  # Headroom buffer to trigger ramping
+        self.buffer_c: Optional[float] = None  # Headroom buffer to trigger ramp UP
         self.setpoint_offset_c: Optional[int] = None  # Offset below flow temp for new setpoint
         self.boiler_hysteresis: Optional[int] = None  # Boiler's internal hysteresis (from HA)
+        self.ramp_down_hysteresis_c: Optional[float] = None  # Extra headroom for ramp DOWN
+        self.ramp_down_margin_c: Optional[float] = None  # Safety margin for ramp DOWN calculation
         
         # State
         self.state = self.STATE_INACTIVE
@@ -266,11 +268,41 @@ class SetpointRamp:
                 f"Reduce buffer_c or setpoint_offset_c."
             )
         
+        # Parse and validate ramp_down_hysteresis_c (optional, default 1.5)
+        self.ramp_down_hysteresis_c = float(ramp_config.get('ramp_down_hysteresis_c', 1.5))
+        try:
+            if not (1.0 <= self.ramp_down_hysteresis_c <= 3.0):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.ramp_down_hysteresis_c must be between 1.0 and 3.0C "
+                    f"(got {self.ramp_down_hysteresis_c:.1f}C)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.ramp_down_hysteresis_c: {ramp_config.get('ramp_down_hysteresis_c')}. "
+                f"Must be a number between 1.0 and 3.0. Error: {e}"
+            )
+        
+        # Parse and validate ramp_down_margin_c (optional, default 0.5)
+        self.ramp_down_margin_c = float(ramp_config.get('ramp_down_margin_c', 0.5))
+        try:
+            if not (0.0 <= self.ramp_down_margin_c <= 1.0):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.ramp_down_margin_c must be between 0.0 and 1.0C "
+                    f"(got {self.ramp_down_margin_c:.1f}C)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.ramp_down_margin_c: {ramp_config.get('ramp_down_margin_c')}. "
+                f"Must be a number between 0.0 and 1.0. Error: {e}"
+            )
+        
         self.ad.log(
             f"SetpointRamp: Configuration loaded - "
             f"buffer={self.buffer_c:.1f}C, "
             f"offset={self.setpoint_offset_c}C, "
-            f"boiler_hysteresis={self.boiler_hysteresis}C",
+            f"boiler_hysteresis={self.boiler_hysteresis}C, "
+            f"down_hysteresis={self.ramp_down_hysteresis_c:.1f}C, "
+            f"down_margin={self.ramp_down_margin_c:.1f}C",
             level="INFO"
         )
     
@@ -404,10 +436,11 @@ class SetpointRamp:
         # Calculate headroom to shutoff point (setpoint + hysteresis - flow)
         current_headroom = current_setpoint + self.boiler_hysteresis - flow_temp
         
-        # Check if we should ramp (headroom <= buffer)
-        should_ramp = current_headroom <= self.buffer_c
+        # PRIORITY 1: Check if we should RAMP UP (headroom <= buffer)
+        # This takes priority over ramp-down to ensure anti-cycling protection
+        should_ramp_up = current_headroom <= self.buffer_c
         
-        if should_ramp:
+        if should_ramp_up:
             # Calculate new setpoint (integer-only for boiler compatibility)
             # new_setpoint = floor(flow) - offset
             from math import floor
@@ -426,7 +459,7 @@ class SetpointRamp:
                 
                 self.ad.log(
                     f"SetpointRamp: Headroom {current_headroom:.1f}C <= buffer {self.buffer_c:.1f}C - "
-                    f"ramping {current_setpoint:.1f}C -> {new_setpoint}C "
+                    f"ramping UP {current_setpoint:.1f}C -> {new_setpoint}C "
                     f"(flow={flow_temp:.1f}C, hysteresis={self.boiler_hysteresis}C, step {self.ramp_steps_applied})",
                     level="INFO"
                 )
@@ -446,6 +479,49 @@ class SetpointRamp:
                         f"(flow temp {flow_temp:.1f}C, headroom {current_headroom:.1f}C)",
                         level="DEBUG"
                     )
+        
+        # PRIORITY 2: Check if we should RAMP DOWN (return to baseline when safe)
+        # Only evaluate ramp-down if:
+        # - Currently in RAMPING state
+        # - Current setpoint is above baseline (something to ramp down from)
+        # - Headroom is safe (well above ramp-up threshold)
+        if (self.state == self.STATE_RAMPING and 
+            current_setpoint > baseline_setpoint and 
+            current_headroom > self.buffer_c + self.ramp_down_hysteresis_c):
+            
+            # Calculate safe ramp-down target
+            # Use same offset as ramp-up, but add extra safety margin
+            from math import floor
+            max_down_setpoint = int(floor(flow_temp)) - self.setpoint_offset_c - int(self.ramp_down_margin_c)
+            
+            # Never go below user's baseline setpoint
+            new_setpoint = max(max_down_setpoint, int(baseline_setpoint))
+            
+            # Only apply if actually decreasing (not staying same or increasing)
+            if new_setpoint < current_setpoint:
+                self.current_ramped_setpoint = new_setpoint
+                
+                # If ramping down to baseline, transition to INACTIVE state
+                if new_setpoint <= baseline_setpoint:
+                    self.state = self.STATE_INACTIVE
+                    self.ramp_steps_applied = 0
+                
+                self.ad.log(
+                    f"SetpointRamp: Headroom {current_headroom:.1f}C > safe threshold "
+                    f"{self.buffer_c + self.ramp_down_hysteresis_c:.1f}C - "
+                    f"ramping DOWN {current_setpoint:.1f}C -> {new_setpoint}C "
+                    f"(flow={flow_temp:.1f}C, baseline={baseline_setpoint:.1f}C)",
+                    level="INFO"
+                )
+                
+                # Queue CSV log event for ramp-down
+                if self.app_ref and hasattr(self.app_ref, 'queue_csv_event'):
+                    if new_setpoint <= baseline_setpoint:
+                        self.app_ref.queue_csv_event('setpoint_ramp_reset_baseline')
+                    else:
+                        self.app_ref.queue_csv_event('setpoint_ramp_down')
+                
+                return new_setpoint
         
         return None
     

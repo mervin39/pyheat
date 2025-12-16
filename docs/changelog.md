@@ -1,6 +1,140 @@
 
 # PyHeat Changelog
 
+## 2025-12-16: Add bidirectional setpoint ramping (ramp-down support)
+
+**Major Feature:**
+
+Implemented bidirectional setpoint ramping to allow the ramped setpoint to gradually return to user's baseline when conditions are safe, improving efficiency while maintaining anti-cycling protection.
+
+**Problem:**
+
+Analysis of 12:42-12:51 heating cycle showed that when flow temperature stabilized or decreased after ramping up, the system maintained elevated setpoint (57°C) despite baseline being 55°C. This created excess headroom (growing from 2°C to 6°C) and kept the boiler at a higher-than-necessary setpoint.
+
+Example from logs:
+- 12:44:59: Ramped UP from 55°C → 56°C (flow at 58°C)
+- 12:45:19: Ramped UP from 56°C → 57°C (flow at 59°C)
+- 12:45:41: Flow dropped to 59°C (headroom 3°C, setpoint still 57°C)
+- 12:47:31: Flow dropped to 57°C (headroom 5°C, setpoint still 57°C)
+- 12:48:24: Flow dropped to 56°C (headroom 6°C, setpoint still 57°C)
+
+Result: Maintained 57°C setpoint when 55°C baseline would have been sufficient.
+
+**Solution:**
+
+Added ramp-down logic that gradually returns ramped setpoint toward user's baseline when headroom is safe.
+
+**Algorithm:**
+
+**RAMP UP (existing, priority 1):**
+```
+IF headroom <= buffer_c (2.0°C):
+  new_setpoint = floor(flow) - setpoint_offset_c
+```
+
+**RAMP DOWN (new, priority 2):**
+```
+IF state == RAMPING AND setpoint > baseline AND headroom > buffer_c + ramp_down_hysteresis_c:
+  max_down = floor(flow) - setpoint_offset_c - ramp_down_margin_c
+  new_setpoint = max(max_down, baseline)
+  IF new_setpoint < current_setpoint:
+    apply_setpoint(new_setpoint)
+```
+
+**New Configuration Parameters ([config/boiler.yaml](../config/boiler.yaml)):**
+
+```yaml
+setpoint_ramp:
+  buffer_c: 2.0                   # Existing - ramp UP threshold
+  setpoint_offset_c: 2            # Existing - offset for new setpoint
+  ramp_down_hysteresis_c: 1.5     # NEW - extra headroom for ramp DOWN (default 1.5°C)
+  ramp_down_margin_c: 0.5         # NEW - safety margin for DOWN calculation (default 0.5°C)
+```
+
+**Parameter Details:**
+
+- `ramp_down_hysteresis_c` (1.0-3.0°C, default 1.5°C):
+  - Extra headroom beyond `buffer_c` required before allowing ramp-down
+  - Safe threshold = buffer_c + ramp_down_hysteresis_c = 2.0 + 1.5 = 3.5°C
+  - Creates 1.5°C deadband between UP and DOWN thresholds to prevent oscillation
+  - Ramp UP when headroom ≤ 2.0°C, ramp DOWN when headroom > 3.5°C
+
+- `ramp_down_margin_c` (0.0-1.0°C, default 0.5°C):
+  - Extra safety buffer when calculating ramp-down target
+  - Prevents ramping down too aggressively toward trigger point
+  - new_setpoint = floor(flow) - offset_c - margin_c
+
+**Safety Constraints:**
+
+Ramp-down will NEVER occur if:
+- Current setpoint ≤ baseline (already at or below user's target)
+- State ≠ RAMPING (not currently ramped)
+- Flame ≠ ON (not actively heating)
+- Cycling state ≠ NORMAL (in cooldown)
+- Headroom ≤ safe threshold (not enough safety margin)
+- Calculated new setpoint ≥ current (would increase or stay same)
+
+Always enforces:
+- new_setpoint ≥ baseline_setpoint (never below user's target)
+- Integer setpoints (hardware constraint)
+- Single-step decrements (no aggressive multi-degree drops)
+
+**Implementation ([controllers/setpoint_ramp.py](../controllers/setpoint_ramp.py)):**
+
+1. **Configuration Loading:**
+   - Added `ramp_down_hysteresis_c` and `ramp_down_margin_c` parameters
+   - Validation: 1.0-3.0°C for hysteresis, 0.0-1.0°C for margin
+   - Default values if not specified
+
+2. **Evaluation Priority:**
+   - Priority 1: Check ramp-up conditions (anti-cycling protection takes precedence)
+   - Priority 2: Check ramp-down conditions (efficiency optimization when safe)
+
+3. **State Transitions:**
+   - RAMPING → INACTIVE when ramping down to baseline
+   - Preserves RAMPING state when ramping down but still above baseline
+
+4. **CSV Event Logging:**
+   - `setpoint_ramp_down`: Ramped down but still above baseline
+   - `setpoint_ramp_reset_baseline`: Ramped down to baseline (returned to normal)
+
+**Example Scenarios:**
+
+Scenario 1: Flow 58°C, setpoint 57°C, baseline 55°C
+- Headroom: 57 + 5 - 58 = 4.0°C > 3.5°C (safe) ✅
+- Max down: floor(58) - 2 - 0.5 = 55.5°C
+- New setpoint: max(55, 55) = 55°C
+- Action: Ramp DOWN 57°C → 55°C (return to baseline)
+
+Scenario 2: Flow 59°C, setpoint 56°C, baseline 55°C
+- Headroom: 56 + 5 - 59 = 2.0°C ≤ 3.5°C (not safe) ❌
+- Action: Stay at 56°C (too close to ramp-up threshold)
+
+**Oscillation Prevention:**
+
+The 1.5°C deadband prevents ping-pong behavior:
+- Ramp UP at headroom ≤ 2.0°C (flow ≥ 58°C at baseline)
+- Ramp DOWN at headroom > 3.5°C (flow ≤ ~56.5°C at baseline)
+- 1.5°C gap ensures significant temperature change needed for transition
+
+**Benefits:**
+
+- Gradually returns to user's desired baseline when safe
+- Reduces unnecessary high setpoints during stable burns
+- Maintains full anti-cycling protection when needed
+- Bidirectional ramping more accurately tracks heating demand
+- Improves energy efficiency (lower setpoints when possible)
+- Respects user intent (baseline is the ideal target)
+
+**Testing:**
+
+Monitor next heating cycles for:
+- Ramp-down triggers when flow stabilizes
+- No oscillation (ramp down → immediate ramp up)
+- Flame stays ON during transitions
+- Headroom remains above safe threshold
+- Successful return to baseline during stable burns
+
 ## 2025-12-16: Improve setpoint ramping response time by removing conservative trigger margin
 
 **Performance Improvement:**
