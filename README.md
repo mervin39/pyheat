@@ -56,8 +56,10 @@ PyHeat provides multi-room heating control with:
    - **Monitoring**: 10s interval checks with 30min timeout protection and excessive cycling alerts
 9. **Setpoint Ramping** (optional): Physics-aware dynamic setpoint ramping to prevent short-cycling within heating cycles
    - **Algorithm**: Monitors headroom to shutoff (setpoint + hysteresis - flow), jumps setpoint when headroom ≤ buffer
-   - **Configuration**: Enable via `input_boolean.pyheat_setpoint_ramp_enable`, configure buffer_c and setpoint_offset_c in `boiler.yaml`
-   - **DHW detection**: Skips ramping during hot water events (prevents incorrect readings from DHW flow temps)
+   - **Bidirectional**: Ramps UP to prevent shutoff, ramps DOWN to return to baseline when safe (with hysteresis deadband)
+   - **Flame-independent**: Uses flow temperature rate-of-change to detect combustion when flame sensor lags (≥2°C in 6s or ≥3°C in 10s)
+   - **Configuration**: Enable via `input_boolean.pyheat_setpoint_ramp_enable`, configure parameters in `boiler.yaml`
+   - **DHW protection**: Detects hot water events and resets to baseline if rapid rise during DHW (prevents false ramping)
    - **Reset strategy**: On flame-OFF (DHW, cooldown, loss of demand), reset to user's desired baseline setpoint
    - **Coordination**: Works alongside cycling protection - uses baseline setpoint for cooldown recovery threshold
    - **Validation**: Enforces stability constraint (buffer + offset + 1 ≤ hysteresis) to prevent oscillation

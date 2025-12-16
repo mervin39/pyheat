@@ -4027,8 +4027,19 @@ Setpoint ramping is configured in `boiler.yaml`:
 ```yaml
 boiler:
   setpoint_ramp:
-    buffer_c: 2.0            # Trigger ramping when headroom <= 2°C
-    setpoint_offset_c: 2     # Set new setpoint 2°C below flow temp
+    # RAMP UP parameters
+    buffer_c: 2.0                      # Trigger ramp UP when headroom <= 2°C
+    setpoint_offset_c: 2               # Set new setpoint 2°C below flow temp
+    
+    # RAMP DOWN parameters (bidirectional ramping)
+    ramp_down_hysteresis_c: 1.5        # Extra headroom for ramp DOWN (creates deadband)
+    ramp_down_margin_c: 0.5            # Safety margin for DOWN calculation
+    
+    # FLAME-INDEPENDENT RAMPING (flow rate-of-change detection)
+    rapid_rise_short_delta_c: 2.0      # Temperature rise for SHORT window (1.0-5.0°C)
+    rapid_rise_short_window_s: 6       # SHORT window duration (3-15s)
+    rapid_rise_long_delta_c: 3.0       # Temperature rise for LONG window (2.0-8.0°C)
+    rapid_rise_long_window_s: 10       # LONG window duration (5-30s)
 ```
 
 **Critical constraint:** `buffer_c + setpoint_offset_c + 1 <= boiler_hysteresis`
@@ -4075,7 +4086,109 @@ New headroom: 56 + 5 - 59 = 2°C (stable, won't re-trigger)
 - Adapts to different boiler hysteresis values
 - Integer setpoints match boiler's actual behavior
 
-#### DHW Detection
+#### Bidirectional Ramping (Ramp-Down)
+
+The algorithm also supports ramping DOWN to return to baseline when conditions are safe:
+
+```python
+# PRIORITY 1: Check ramp UP (anti-cycling protection)
+if current_headroom <= buffer_c:
+    new_setpoint = floor(flow_temp) - setpoint_offset_c
+    apply_setpoint(new_setpoint)
+
+# PRIORITY 2: Check ramp DOWN (efficiency, return to baseline)
+elif state == RAMPING and current_setpoint > baseline and 
+     current_headroom > buffer_c + ramp_down_hysteresis_c:
+    max_down = floor(flow_temp) - setpoint_offset_c - ramp_down_margin_c
+    new_setpoint = max(max_down, baseline)
+    if new_setpoint < current_setpoint:
+        apply_setpoint(new_setpoint)
+```
+
+**Ramp-down parameters:**
+- `ramp_down_hysteresis_c` (1.0-3.0°C, default 1.5°C): Extra headroom beyond buffer_c required before ramping down
+  - Creates deadband: ramp UP at ≤2.0°C, ramp DOWN at >3.5°C
+  - Prevents oscillation between up and down
+- `ramp_down_margin_c` (0.0-1.0°C, default 0.5°C): Safety margin when calculating down target
+  - Prevents ramping down too aggressively toward trigger point
+
+**Example (ramp-down in action):**
+```
+12:44:59: Ramped UP 55°C → 56°C (flow at 58°C, headroom 2.0°C)
+12:45:19: Ramped UP 56°C → 57°C (flow at 59°C, headroom 1.8°C)
+12:45:41: Flow dropped to 59°C (headroom 3.0°C) ← no action, within deadband
+12:47:31: Flow dropped to 57°C (headroom 5.0°C) ← ramp DOWN triggered (>3.5°C)
+12:47:32: Ramped DOWN 57°C → 56°C (gradually returning to baseline 55°C)
+```
+
+**Safety constraints:**
+- Never ramps below baseline_setpoint
+- Only when state == RAMPING (currently ramped)
+- Only when headroom is safe (well above ramp-up threshold)
+- Priority to ramp-up (anti-cycling protection takes precedence)
+- Single-step decrements (no aggressive multi-degree drops)
+
+#### Flame-Independent Ramping (Flow Rate-of-Change Detection)
+
+The algorithm allows ramping based on flame sensor OR rapid flow temperature rise:
+
+```python
+# Update flow temperature history
+self.flow_temp_history.append((now, flow_temp))
+
+# Check flame state
+flame_is_on = flame_state == 'on'
+
+# Detect rapid rise (indicates actual combustion)
+flow_rising_rapidly = self._is_flow_rising_rapidly()
+
+# Allow ramping if either condition true
+allow_ramping = flame_is_on or flow_rising_rapidly
+```
+
+**Why flame-independent ramping?**
+- **Flame sensor lag:** Sensor can lag 4+ seconds behind actual combustion start
+- **Critical window missed:** Flow can rise 7°C (53→60°C) in 5s while sensor shows OFF
+- **Physics-based proxy:** Rapid temperature rise confirms combustion regardless of sensor
+- **Prevents short-cycling:** Allows ramping during lag window that previously caused cycles
+
+**Rapid rise detection (dual-window approach):**
+```python
+# SHORT window: Catches rapid flame-up events
+if flow_rise >= 2.0°C in 6 seconds:
+    return True
+
+# LONG window: Catches significant gradual ramps
+if flow_rise >= 3.0°C in 10 seconds:
+    return True
+```
+
+**Configuration parameters:**
+```yaml
+setpoint_ramp:
+  rapid_rise_short_delta_c: 2.0   # Temperature rise for SHORT window (1.0-5.0°C)
+  rapid_rise_short_window_s: 6    # SHORT window duration (3-15s)
+  rapid_rise_long_delta_c: 3.0    # Temperature rise for LONG window (2.0-8.0°C)
+  rapid_rise_long_window_s: 10    # LONG window duration (5-30s)
+```
+
+**Flow temperature history:**
+- Maintains deque of (timestamp, flow_temp) tuples
+- 15 samples (~45 seconds at 3s poll rate)
+- Updated on each evaluate_and_apply() call
+- Used for rate-of-change analysis
+
+**Example incident (flame sensor lag):**
+```
+13:05:01: Flame OFF, flow 53°C
+13:05:13: Flow jumped to 57°C (+4°C), flame sensor still OFF ← combustion started
+13:05:17: Flame sensor finally registered ON (4s lag)
+13:05:18: Flow hit 60°C (shutoff threshold) ← too late for traditional ramping
+```
+
+With flame-independent ramping, the 57°C jump at 13:05:13 would trigger ramping immediately (≥2°C in 6s), preventing the shutoff at 13:05:18.
+
+#### DHW Detection and Reset
 
 Before evaluating ramping, the algorithm checks for DHW (Domestic Hot Water) activity:
 
@@ -4083,8 +4196,17 @@ Before evaluating ramping, the algorithm checks for DHW (Domestic Hot Water) act
 # Check both DHW binary sensor and flow rate
 dhw_active = (dhw_binary == 'on') or (dhw_flow_rate > 0.0)
 
+# If DHW active AND rapid rise detected, reset to baseline
+if dhw_active and flow_rising_rapidly:
+    if state == RAMPING:
+        reset_to_baseline()
+        return baseline_setpoint
+    else:
+        return None  # Skip ramping evaluation
+
+# If DHW active without rapid rise, skip ramping
 if dhw_active:
-    return None  # Skip ramping - flow temp is hot water, not CH
+    return None  # Flow temp is hot water, not CH
 ```
 
 **Why DHW detection is critical:**
@@ -4092,6 +4214,13 @@ if dhw_active:
 - This is NOT central heating flow - it's DHW circuit temperature
 - Without detection, algorithm would incorrectly ramp based on artificially high readings
 - DHW check prevents spurious ramping during morning/evening hot water usage
+
+**Why DHW false positives are harmless:**
+- CH (central heating) setpoint and DHW control are independent
+- Changing CH setpoint during DHW has NO effect on hot water temperature
+- If we mistakenly ramp during DHW, the elevated CH setpoint sits idle
+- When rapid rise detected during DHW, we immediately reset to baseline
+- Better to allow occasional false positives (harmless) than miss genuine heating (causes short-cycling)
 
 #### Reset Strategy: Flame-OFF Events
 
