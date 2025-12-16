@@ -1,6 +1,44 @@
 
 # PyHeat Changelog
 
+## 2025-12-16: Fix false boiler desync warnings during normal operation
+
+**Bug Fix:**
+
+Fixed race condition causing 15-20 consecutive false "Boiler state desync detected" warnings when commanding boiler on/off. PyHeat was checking for state synchronization before Home Assistant had time to update the climate entity state.
+
+**Problem:**
+
+When PyHeat commands the boiler to turn on:
+1. PyHeat calls `climate/turn_on` service
+2. Subsequent recompute triggers immediately (from timer cancellation, mode change, etc.)
+3. Desync check runs and compares:
+   - State machine: `on` (expects entity=`heat`)
+   - Climate entity actual state: `off` (HA hasn't updated yet!)
+4. PyHeat "corrects" the desync by resetting to OFF and cancelling timers
+5. Timer cancellation triggers another recompute
+6. Loop repeats 15-20 times over ~4 seconds until HA finally updates
+
+**Impact:**
+- Log spam (19+ warnings per heating cycle)
+- Unnecessary recomputes and CPU usage
+- False persistent notifications to user
+
+**Solution:**
+
+Implemented 2-second grace period after commanding boiler state changes. Desync checks are suppressed during this window while waiting for Home Assistant to update the climate entity state.
+
+**Changes:**
+- Added `BOILER_DESYNC_GRACE_PERIOD_S = 2.0` constant (configurable)
+- Track `last_boiler_command_time` in BoilerController
+- Skip desync warnings if within grace period, log at DEBUG level instead
+- Applies to both on→off and off→on state transitions
+
+**Testing:**
+Manual testing shows desync warnings eliminated during normal operation while still detecting genuine desyncs (master enable toggle, entity unavailability, etc.).
+
+---
+
 ## 2025-12-16: Implement flame-independent ramping (flow rate-of-change detection)
 
 **Major Feature:**

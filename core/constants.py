@@ -154,6 +154,11 @@ BOILER_MIN_OFF_TIME_DEFAULT = 180            # 3 minutes minimum off time
 BOILER_OFF_DELAY_DEFAULT = 30                # 30 second delay before turning off
 BOILER_PUMP_OVERRUN_DEFAULT = 180            # 3 minutes to dissipate residual heat
 
+# Desync detection grace period (seconds)
+# After commanding boiler on/off, wait this long before checking for state desync
+# Prevents false positives while Home Assistant updates climate entity state
+BOILER_DESYNC_GRACE_PERIOD_S = 2.0           # 2 seconds grace period after command
+
 # Boiler State Machine States
 STATE_OFF = "off"
 STATE_PENDING_ON = "pending_on"

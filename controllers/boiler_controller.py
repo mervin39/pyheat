@@ -55,6 +55,10 @@ class BoilerController:
         self.boiler_last_on = None
         self.boiler_last_off = None
         
+        # Desync detection - track last command time to avoid false positives
+        # during HA entity state update delay
+        self.last_boiler_command_time = None
+        
     def update_state(self, any_calling: bool, active_rooms: List[str], 
                     room_data: Dict, now: datetime) -> Tuple[str, str, Dict[str, int], bool]:
         """Update boiler state machine based on demand and conditions.
@@ -121,33 +125,50 @@ class BoilerController:
         # This is expected and normal - not a critical error.
         is_startup = getattr(self.ad, 'first_boot', False)
         
+        # Check if we're within the grace period after issuing a command
+        # Home Assistant takes time to update the climate entity state, so we wait
+        # to avoid false desync warnings during normal operation
+        within_grace_period = False
+        if self.last_boiler_command_time:
+            time_since_command = (now - self.last_boiler_command_time).total_seconds()
+            within_grace_period = time_since_command < C.BOILER_DESYNC_GRACE_PERIOD_S
+        
         if boiler_entity_state not in [expected_entity_state, "unknown", "unavailable"]:
             if self.boiler_state == C.STATE_ON and boiler_entity_state == "off":
                 # State machine thinks ON but entity is OFF - reset state machine to OFF
-                self.ad.log(
-                    f"⚠️ Boiler state desync detected: state machine={self.boiler_state} "
-                    f"(expects entity={expected_entity_state}) but climate entity={boiler_entity_state}. "
-                    f"Resetting state machine to OFF.",
-                    level="WARNING"
-                )
-                self._transition_to(C.STATE_OFF, now, "state desync correction - entity is off")
-                # Cancel timers that may be stale
-                self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
-                self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
-                
-                # Report alert (only if not during startup)
-                if self.alert_manager and not is_startup:
-                    from alert_manager import AlertManager
-                    self.alert_manager.report_error(
-                        AlertManager.ALERT_BOILER_STATE_DESYNC,
-                        AlertManager.SEVERITY_WARNING,
-                        f"Boiler state desynchronization detected and corrected.\n\n"
-                        f"**State Machine:** {self.boiler_state} (expected entity: {expected_entity_state})\n"
-                        f"**Climate Entity:** {boiler_entity_state}\n\n"
-                        f"**Action:** Reset state machine to OFF.\n\n"
-                        f"This can occur after master enable toggle, system restart, or entity unavailability.",
-                        auto_clear=True
+                # Skip check if we're within the grace period (HA may not have updated yet)
+                if within_grace_period:
+                    self.ad.log(
+                        f"Boiler state mismatch detected but within grace period "
+                        f"({time_since_command:.1f}s < {C.BOILER_DESYNC_GRACE_PERIOD_S}s) - "
+                        f"waiting for HA to update",
+                        level="DEBUG"
                     )
+                else:
+                    self.ad.log(
+                        f"Boiler state desync detected: state machine={self.boiler_state} "
+                        f"(expects entity={expected_entity_state}) but climate entity={boiler_entity_state}. "
+                        f"Resetting state machine to OFF.",
+                        level="WARNING"
+                    )
+                    self._transition_to(C.STATE_OFF, now, "state desync correction - entity is off")
+                    # Cancel timers that may be stale
+                    self._cancel_timer(C.HELPER_BOILER_MIN_ON_TIMER)
+                    self._cancel_timer(C.HELPER_BOILER_OFF_DELAY_TIMER)
+                    
+                    # Report alert (only if not during startup)
+                    if self.alert_manager and not is_startup:
+                        from alert_manager import AlertManager
+                        self.alert_manager.report_error(
+                            AlertManager.ALERT_BOILER_STATE_DESYNC,
+                            AlertManager.SEVERITY_WARNING,
+                            f"Boiler state desynchronization detected and corrected.\n\n"
+                            f"**State Machine:** {self.boiler_state} (expected entity: {expected_entity_state})\n"
+                            f"**Climate Entity:** {boiler_entity_state}\n\n"
+                            f"**Action:** Reset state machine to OFF.\n\n"
+                            f"This can occur after master enable toggle, system restart, or entity unavailability.",
+                            auto_clear=True
+                        )
             elif self.boiler_state != C.STATE_ON and boiler_entity_state == "heat":
                 # State machine thinks OFF/PENDING/OVERRUN but entity is heating
                 # During startup, this is expected and normal (entity hasn't been turned off yet)
@@ -163,10 +184,18 @@ class BoilerController:
                         level="DEBUG"
                     )
                     # Do NOT call self._set_boiler_off() - let the state machine handle it
+                elif within_grace_period:
+                    # Within grace period - HA may not have updated yet
+                    self.ad.log(
+                        f"Boiler state mismatch detected but within grace period "
+                        f"({time_since_command:.1f}s < {C.BOILER_DESYNC_GRACE_PERIOD_S}s) - "
+                        f"waiting for HA to update",
+                        level="DEBUG"
+                    )
                 else:
                     # Unexpected desync during normal operation - turn off and re-evaluate
                     self.ad.log(
-                        f"⚠️ Unexpected desync: Climate entity is heating when state machine is {self.boiler_state}. "
+                        f"Unexpected desync: Climate entity is heating when state machine is {self.boiler_state}. "
                         f"Turning off climate entity and re-evaluating demand.",
                         level="WARNING"
                     )
@@ -622,6 +651,10 @@ class BoilerController:
             self.ad.call_service('climate/turn_on',
                             entity_id=boiler_entity)
             self.ad.log(f"Boiler ON")
+            
+            # Track command time for desync detection grace period
+            self.last_boiler_command_time = datetime.now()
+            
             # Clear any previous control failure alert
             if self.alert_manager:
                 from alert_manager import AlertManager
@@ -651,6 +684,10 @@ class BoilerController:
             self.ad.call_service('climate/turn_off',
                             entity_id=boiler_entity)
             self.ad.log(f"Boiler OFF")
+            
+            # Track command time for desync detection grace period
+            self.last_boiler_command_time = datetime.now()
+            
             # Clear any previous control failure alert
             if self.alert_manager:
                 from alert_manager import AlertManager
