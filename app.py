@@ -620,28 +620,34 @@ class PyHeat(hass.Hass):
             return
         
         # Flow temperature sensor triggers immediate recompute for setpoint ramp
-        # when flow temp approaches or exceeds the setpoint trigger threshold.
+        # when flow temp approaches the boiler shutoff point (headroom becomes low).
         # This allows ramping to react within 3-4 seconds (one sensor update cycle)
         # instead of waiting up to 60 seconds for periodic recompute.
         # 
-        # Optimization: Only trigger when flow_temp >= setpoint + delta_trigger_c
-        # This is exactly when setpoint ramp needs to evaluate, not on every change.
-        # Reduces recompute overhead while maintaining full reactivity.
+        # Optimization: Only trigger when headroom <= buffer_c (approximately)
+        # Use conservative estimate: flow >= setpoint + (hysteresis - buffer - 1)
+        # This reduces recompute overhead while maintaining full reactivity.
         if sensor_name == 'heating_temp':
             try:
                 new_temp = float(new)
                 
-                # Get current setpoint and ramp trigger threshold
+                # Get current setpoint and hysteresis
                 setpoint_str = self.get_state(C.OPENTHERM_CLIMATE, attribute='temperature')
-                if setpoint_str not in ['unknown', 'unavailable', None]:
+                hysteresis_str = self.get_state(C.OPENTHERM_HEATING_HYSTERESIS)
+                
+                if (setpoint_str not in ['unknown', 'unavailable', None] and 
+                    hysteresis_str not in ['unknown', 'unavailable', None]):
                     current_setpoint = float(setpoint_str)
+                    hysteresis = int(float(hysteresis_str))
                     
-                    # Get delta_trigger_c from config (default 3.0 if not available)
-                    delta_trigger_c = self.config.boiler_config.get('setpoint_ramp', {}).get('delta_trigger_c', 3.0)
+                    # Get buffer_c from config (default 2.0)
+                    buffer_c = self.config.boiler_config.get('setpoint_ramp', {}).get('buffer_c', 2.0)
                     
-                    # Only trigger recompute when flow temp meets or exceeds ramp threshold
-                    # This is when setpoint_ramp.evaluate_and_apply() would actually ramp
-                    if new_temp >= (current_setpoint + delta_trigger_c):
+                    # Trigger when flow temp suggests low headroom
+                    # Conservative estimate: flow >= setpoint + (hysteresis - buffer - 1)
+                    # Actual check in setpoint_ramp: headroom = setpoint + hysteresis - flow <= buffer
+                    trigger_threshold = current_setpoint + hysteresis - buffer_c - 1
+                    if new_temp >= trigger_threshold:
                         self.trigger_recompute('flow_temp_ramp_threshold')
             except (ValueError, TypeError):
                 pass  # Failed to parse - just log below

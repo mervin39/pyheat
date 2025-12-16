@@ -140,8 +140,8 @@ class SetpointRamp:
                 self.baseline_setpoint = helper_setpoint
                 self.current_ramped_setpoint = boiler_setpoint
                 self.state = self.STATE_RAMPING
-                # Estimate steps applied (for logging)
-                self.ramp_steps_applied = int((boiler_setpoint - helper_setpoint) / self.delta_increase_c)
+                # Estimate steps applied (for logging) - approximate based on setpoint delta
+                self.ramp_steps_applied = int(boiler_setpoint - helper_setpoint)
 
                 self.ad.log(
                     f"SetpointRamp: Detected active ramping - boiler at {boiler_setpoint:.1f}C, "
