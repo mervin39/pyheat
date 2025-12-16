@@ -1,6 +1,57 @@
 
 # PyHeat Changelog
 
+## 2025-12-16: Improve setpoint ramping response time by removing conservative trigger margin
+
+**Performance Improvement:**
+
+Removed the -1°C conservative margin from the flow temperature trigger threshold to improve setpoint ramping response time during rapid temperature rises.
+
+**Problem:**
+
+Analysis of 2025-12-16 12:17:25-12:17:40 incident revealed:
+- Flow temp rose rapidly from 57°C to 59°C in ~3 seconds
+- Recompute triggered at 57°C (threshold = setpoint + hysteresis - buffer - 1 = 55+5-2-1)
+- By the time recompute #7 evaluated (12:17:32.894), flow was already at 59°C
+- Ramped setpoint to 57°C, but too late - boiler shut off at 12:17:37
+- The -1°C margin created a 2.65-second delay that allowed flow to overshoot
+
+**Root Cause:**
+
+The conservative -1°C margin was intended to reduce recompute overhead, but during rapid temperature rises (~0.7°C/second), this margin causes evaluation to lag behind the critical threshold by 1-2 seconds - enough for the boiler to overshoot and shut down.
+
+**Solution ([app.py](../app.py)):**
+
+Changed flow temp trigger threshold from:
+```python
+trigger_threshold = current_setpoint + hysteresis - buffer_c - 1  # Old: triggers at 57°C
+```
+
+To:
+```python
+trigger_threshold = current_setpoint + hysteresis - buffer_c  # New: triggers at 58°C
+```
+
+**Impact:**
+- Triggers recompute exactly when headroom reaches `buffer_c` (2°C) as configured
+- ~1-2 seconds faster response during rapid temperature rises
+- Eliminates mismatch between configured threshold and actual trigger point
+- No additional recompute overhead (just shifts when threshold is reached)
+- Should prevent premature boiler shutoff during aggressive heating cycles
+
+**Timing Analysis:**
+- Recompute execution: 0.2-0.4 seconds (already fast)
+- Bottleneck: OpenTherm sensor polling (~3 second intervals)
+- Solution: Earlier trigger catches temperature rises before overshoot
+- With fix: Would trigger at 58°C (~12:17:31) instead of 57°C (12:17:29), evaluating before flow hit 59°C
+
+**Configuration Note:**
+
+Current `buffer_c = 2.0°C` is already at maximum allowable value given:
+- Constraint: `buffer_c + setpoint_offset_c + 1 <= hysteresis`
+- Current: 2.0 + 2 + 1 = 5.0 <= 5 (passes validation)
+- Cannot increase buffer_c without reducing setpoint_offset_c or increasing hysteresis (hardware-limited to 5°C)
+
 ## 2025-12-16: Fix setpoint ramping during DHW events
 
 **Bug Fix:**

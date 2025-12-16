@@ -644,9 +644,9 @@ class PyHeat(hass.Hass):
                     buffer_c = self.config.boiler_config.get('setpoint_ramp', {}).get('buffer_c', 2.0)
                     
                     # Trigger when flow temp suggests low headroom
-                    # Conservative estimate: flow >= setpoint + (hysteresis - buffer - 1)
+                    # Trigger at exact threshold: flow >= setpoint + (hysteresis - buffer)
                     # Actual check in setpoint_ramp: headroom = setpoint + hysteresis - flow <= buffer
-                    trigger_threshold = current_setpoint + hysteresis - buffer_c - 1
+                    trigger_threshold = current_setpoint + hysteresis - buffer_c
                     if new_temp >= trigger_threshold:
                         self.trigger_recompute('flow_temp_ramp_threshold')
             except (ValueError, TypeError):
