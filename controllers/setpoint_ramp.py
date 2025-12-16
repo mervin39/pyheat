@@ -12,6 +12,7 @@ Responsibilities:
 
 from datetime import datetime
 from typing import Optional, Dict, Tuple, Any
+from collections import deque
 import constants as C
 
 
@@ -52,11 +53,21 @@ class SetpointRamp:
         self.ramp_down_hysteresis_c: Optional[float] = None  # Extra headroom for ramp DOWN
         self.ramp_down_margin_c: Optional[float] = None  # Safety margin for ramp DOWN calculation
         
+        # Rapid rise detection (flame-independent ramping)
+        self.rapid_rise_short_delta_c: Optional[float] = None  # Temperature rise for short window
+        self.rapid_rise_short_window_s: Optional[int] = None  # Short detection window (seconds)
+        self.rapid_rise_long_delta_c: Optional[float] = None  # Temperature rise for long window
+        self.rapid_rise_long_window_s: Optional[int] = None  # Long detection window (seconds)
+        
         # State
         self.state = self.STATE_INACTIVE
         self.baseline_setpoint: Optional[float] = None  # User's desired baseline setpoint
         self.current_ramped_setpoint: Optional[float] = None  # Current ramped value
         self.ramp_steps_applied: int = 0  # Number of ramp steps applied
+        
+        # Flow temperature history for rapid rise detection
+        # Stores (timestamp, flow_temp) tuples for rate-of-change analysis
+        self.flow_temp_history = deque(maxlen=15)  # Keep ~45s of history at 3s poll rate
         
         # Feature control entities
         self.enable_entity = C.HELPER_SETPOINT_RAMP_ENABLE
@@ -296,13 +307,69 @@ class SetpointRamp:
                 f"Must be a number between 0.0 and 1.0. Error: {e}"
             )
         
+        # Parse and validate rapid rise detection parameters (flame-independent ramping)
+        # These allow ramping even when flame sensor lags behind actual combustion
+        self.rapid_rise_short_delta_c = float(ramp_config.get('rapid_rise_short_delta_c', 2.0))
+        try:
+            if not (1.0 <= self.rapid_rise_short_delta_c <= 5.0):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.rapid_rise_short_delta_c must be between 1.0 and 5.0C "
+                    f"(got {self.rapid_rise_short_delta_c:.1f}C)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.rapid_rise_short_delta_c: {ramp_config.get('rapid_rise_short_delta_c')}. "
+                f"Must be a number between 1.0 and 5.0. Error: {e}"
+            )
+        
+        self.rapid_rise_short_window_s = int(ramp_config.get('rapid_rise_short_window_s', 6))
+        try:
+            if not (3 <= self.rapid_rise_short_window_s <= 15):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.rapid_rise_short_window_s must be between 3 and 15 seconds "
+                    f"(got {self.rapid_rise_short_window_s}s)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.rapid_rise_short_window_s: {ramp_config.get('rapid_rise_short_window_s')}. "
+                f"Must be an integer between 3 and 15. Error: {e}"
+            )
+        
+        self.rapid_rise_long_delta_c = float(ramp_config.get('rapid_rise_long_delta_c', 3.0))
+        try:
+            if not (2.0 <= self.rapid_rise_long_delta_c <= 8.0):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.rapid_rise_long_delta_c must be between 2.0 and 8.0C "
+                    f"(got {self.rapid_rise_long_delta_c:.1f}C)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.rapid_rise_long_delta_c: {ramp_config.get('rapid_rise_long_delta_c')}. "
+                f"Must be a number between 2.0 and 8.0. Error: {e}"
+            )
+        
+        self.rapid_rise_long_window_s = int(ramp_config.get('rapid_rise_long_window_s', 10))
+        try:
+            if not (5 <= self.rapid_rise_long_window_s <= 30):
+                raise ValueError(
+                    f"boiler.setpoint_ramp.rapid_rise_long_window_s must be between 5 and 30 seconds "
+                    f"(got {self.rapid_rise_long_window_s}s)"
+                )
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Invalid boiler.setpoint_ramp.rapid_rise_long_window_s: {ramp_config.get('rapid_rise_long_window_s')}. "
+                f"Must be an integer between 5 and 30. Error: {e}"
+            )
+        
         self.ad.log(
             f"SetpointRamp: Configuration loaded - "
             f"buffer={self.buffer_c:.1f}C, "
             f"offset={self.setpoint_offset_c}C, "
             f"boiler_hysteresis={self.boiler_hysteresis}C, "
             f"down_hysteresis={self.ramp_down_hysteresis_c:.1f}C, "
-            f"down_margin={self.ramp_down_margin_c:.1f}C",
+            f"down_margin={self.ramp_down_margin_c:.1f}C, "
+            f"rapid_rise_short={self.rapid_rise_short_delta_c:.1f}C/{self.rapid_rise_short_window_s}s, "
+            f"rapid_rise_long={self.rapid_rise_long_delta_c:.1f}C/{self.rapid_rise_long_window_s}s",
             level="INFO"
         )
     
@@ -359,23 +426,13 @@ class SetpointRamp:
             # Not heating - don't evaluate ramp, but preserve state
             return None
 
-        # Check if flame is actually ON
-        # Don't ramp if flame is off (even if boiler state is ON)
-        try:
-            flame_state = self.ad.get_state(C.OPENTHERM_FLAME)
-            if flame_state != 'on':
-                # Flame not on - don't ramp
-                return None
-        except Exception as e:
-            self.ad.log(
-                f"SetpointRamp: Failed to read flame state: {e}",
-                level="WARNING"
-            )
-            return None
+        # Update flow temperature history for rapid rise detection
+        now = datetime.now()
+        self.flow_temp_history.append((now, flow_temp))
         
-        # CRITICAL: Skip ramping during DHW (hot water) events
+        # CRITICAL: Check for DHW (hot water) events FIRST
         # When DHW is active, flow temp sensor measures hot water temp, not CH temp
-        # This would cause incorrect ramping based on artificially high readings
+        dhw_active = False
         try:
             dhw_binary = self.ad.get_state(C.OPENTHERM_DHW)
             dhw_flow = self.ad.get_state(C.OPENTHERM_DHW_FLOW_RATE)
@@ -388,17 +445,52 @@ class SetpointRamp:
                     dhw_active = dhw_flow_rate > 0.0
                 except (ValueError, TypeError):
                     pass
-            
-            if dhw_active:
-                # DHW active - flow temp is hot water, not CH - skip ramping
-                return None
-                
+                    
         except Exception as e:
             self.ad.log(
                 f"SetpointRamp: Failed to check DHW state: {e}",
                 level="WARNING"
             )
             # On error, skip ramping to be safe
+            return None
+        
+        # If DHW active and flow rising rapidly, reset to baseline
+        # This prevents ramping up during DHW events that look like CH heating
+        if dhw_active and self._is_flow_rising_rapidly():
+            if self.state == self.STATE_RAMPING:
+                self.ad.log(
+                    f"SetpointRamp: DHW active with rapid flow rise - resetting to baseline "
+                    f"(flow={flow_temp:.1f}C, current={current_setpoint:.1f}C, baseline={baseline_setpoint:.1f}C)",
+                    level="INFO"
+                )
+                self._reset_to_baseline(baseline_setpoint)
+                return baseline_setpoint
+            else:
+                # DHW active, not ramping - just skip evaluation
+                return None
+        elif dhw_active:
+            # DHW active but not rapid rise - skip ramping evaluation
+            return None
+        
+        # Check flame state and flow rise for flame-independent ramping
+        # Allow ramping if: flame=='on' OR flow is rising rapidly (indicates actual combustion)
+        # This handles flame sensor lag that can miss rapid heat-up events
+        flame_is_on = False
+        try:
+            flame_state = self.ad.get_state(C.OPENTHERM_FLAME)
+            flame_is_on = flame_state == 'on'
+        except Exception as e:
+            self.ad.log(
+                f"SetpointRamp: Failed to read flame state: {e}",
+                level="WARNING"
+            )
+            return None
+        
+        flow_rising_rapidly = self._is_flow_rising_rapidly()
+        allow_ramping = flame_is_on or flow_rising_rapidly
+        
+        if not allow_ramping:
+            # Neither flame on nor rapid rise - don't ramp
             return None
         
         # Get max setpoint
@@ -742,6 +834,52 @@ class SetpointRamp:
             return state == 'on'
         except Exception:
             return False
+
+    def _is_flow_rising_rapidly(self) -> bool:
+        """Detect if flow temperature is rising rapidly (indicates actual combustion).
+        
+        Uses rate-of-change analysis to identify active heating even when flame
+        sensor lags behind reality. This allows ramping during flame sensor lag.
+        
+        Checks two conditions (either triggers detection):
+        1. Short window: rapid_rise_short_delta_c rise in rapid_rise_short_window_s
+        2. Long window: rapid_rise_long_delta_c rise in rapid_rise_long_window_s
+        
+        Returns:
+            True if flow temp rising rapidly, False otherwise
+        """
+        # Need at least 2 samples for comparison
+        if len(self.flow_temp_history) < 2:
+            return False
+        
+        now = self.flow_temp_history[-1][0]  # Latest timestamp
+        current_flow = self.flow_temp_history[-1][1]  # Latest flow temp
+        
+        # Check SHORT window (e.g., >=2C rise in 3-6s)
+        short_cutoff = now.timestamp() - self.rapid_rise_short_window_s
+        short_samples = [(ts, temp) for ts, temp in self.flow_temp_history 
+                        if ts.timestamp() >= short_cutoff]
+        
+        if len(short_samples) >= 2:
+            oldest_short_temp = short_samples[0][1]
+            short_rise = current_flow - oldest_short_temp
+            
+            if short_rise >= self.rapid_rise_short_delta_c:
+                return True
+        
+        # Check LONG window (e.g., >=3C rise in 10s)
+        long_cutoff = now.timestamp() - self.rapid_rise_long_window_s
+        long_samples = [(ts, temp) for ts, temp in self.flow_temp_history 
+                       if ts.timestamp() >= long_cutoff]
+        
+        if len(long_samples) >= 2:
+            oldest_long_temp = long_samples[0][1]
+            long_rise = current_flow - oldest_long_temp
+            
+            if long_rise >= self.rapid_rise_long_delta_c:
+                return True
+        
+        return False
 
     def get_state_dict(self) -> Dict:
         """Get current state as dict for logging and status publishing.

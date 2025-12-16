@@ -1,6 +1,146 @@
 
 # PyHeat Changelog
 
+## 2025-12-16: Implement flame-independent ramping (flow rate-of-change detection)
+
+**Major Feature:**
+
+Implemented flame-independent ramping that allows setpoint ramping when flow temperature rises rapidly, even if the flame sensor hasn't registered ON yet. This mitigates flame sensor lag that can prevent timely ramping response.
+
+**Problem:**
+
+Analysis of 13:05:13-13:05:18 incident revealed that flame sensor lag can prevent ramping from protecting against short-cycling:
+
+Timeline from CSV logs:
+- 13:05:01: Flame OFF, flow 53°C
+- 13:05:13: Flow jumped to 57°C (+4°C), flame sensor still OFF
+- 13:05:17: Flame sensor registered ON (4 second lag)
+- 13:05:18: Flow hit 60°C (shutoff threshold)
+- 13:05:19: Ramping applied (too late - already at threshold)
+- 13:05:23: Flame OFF (short cycle occurred)
+
+Root Cause: Ramping logic required `flame == 'on'`, but flame sensor lagged 4 seconds behind actual combustion start. Flow temperature rose 7°C (53→60°C) in just 5 seconds while flame sensor was still reporting OFF, preventing ramping from triggering until it was too late.
+
+**Solution:**
+
+Use flow temperature rate-of-change as a proxy for combustion status. If flow temp is rising rapidly, combustion is happening regardless of flame sensor status.
+
+**Algorithm:**
+
+**Rapid Rise Detection:**
+```python
+rapid_rise_detected = (
+    flow_rise >= rapid_rise_short_delta_c in rapid_rise_short_window_s OR
+    flow_rise >= rapid_rise_long_delta_c in rapid_rise_long_window_s
+)
+```
+
+**Flame Check Logic:**
+```python
+# OLD: allow_ramping = flame_state == 'on'
+# NEW:
+allow_ramping = flame_state == 'on' OR rapid_rise_detected
+```
+
+**DHW Protection:**
+If DHW (hot water) is active AND rapid rise detected:
+- Reset to baseline immediately (prevents false ramping on DHW events)
+- Rationale: Changing CH setpoint during DHW is harmless (different control loop)
+- Better to reset quickly than risk false ramp-up
+
+**New Configuration Parameters ([config/boiler.yaml](../config/boiler.yaml)):**
+
+```yaml
+setpoint_ramp:
+  # Flame-independent ramping (handles flame sensor lag)
+  rapid_rise_short_delta_c: 2.0   # Temperature rise for SHORT window (1.0-5.0°C)
+  rapid_rise_short_window_s: 6    # SHORT window duration (3-15s)
+  rapid_rise_long_delta_c: 3.0    # Temperature rise for LONG window (2.0-8.0°C)
+  rapid_rise_long_window_s: 10    # LONG window duration (5-30s)
+```
+
+**Parameter Details:**
+
+- `rapid_rise_short_delta_c` (default 2.0°C): Temperature rise to trigger short window detection
+- `rapid_rise_short_window_s` (default 6s): Duration for short window check (e.g., ≥2°C in 6s)
+- `rapid_rise_long_delta_c` (default 3.0°C): Temperature rise to trigger long window detection
+- `rapid_rise_long_window_s` (default 10s): Duration for long window check (e.g., ≥3°C in 10s)
+
+Dual-window approach:
+- SHORT: Catches rapid flame-up events (tight window, lower threshold)
+- LONG: Catches gradual ramps that are still significant (wider window, higher threshold)
+
+Either condition allows ramping, providing robust detection across different heat-up profiles.
+
+**Implementation ([controllers/setpoint_ramp.py](../controllers/setpoint_ramp.py)):**
+
+1. **Flow Temperature History:**
+   - Added `flow_temp_history` deque (stores 15 samples, ~45s at 3s poll rate)
+   - Stores (timestamp, flow_temp) tuples for rate-of-change analysis
+   - Updated on each `evaluate_and_apply()` call
+
+2. **Rapid Rise Detection Method:**
+   - `_is_flow_rising_rapidly()`: Analyzes flow temp history
+   - Checks both short and long windows independently
+   - Returns True if either condition met
+
+3. **Modified Flame Check:**
+   - Replaced: `if flame_state != 'on': return None`
+   - With: `allow_ramping = flame_is_on or flow_rising_rapidly`
+   - Only evaluates ramping if either condition true
+
+4. **DHW Detection Enhancement:**
+   - Moved DHW check BEFORE flame check (higher priority)
+   - If DHW active AND rapid rise detected: reset to baseline immediately
+   - Prevents false ramping on hot water events that look like CH heating
+   - Safe because CH setpoint doesn't affect DHW control loop
+
+**Why DHW False Positives Are Harmless:**
+
+Key insight: CH (central heating) setpoint and DHW (hot water) control are independent:
+- DHW has its own control loop with dedicated setpoint
+- Changing CH setpoint during DHW events has NO effect on hot water temperature
+- If we mistakenly ramp up during DHW, the elevated CH setpoint sits idle
+- When DHW ends and we detect rapid rise, we immediately reset to baseline
+
+Therefore: Better to allow occasional false positives (harmless) than miss genuine heating starts (causes short-cycling).
+
+**Safety Constraints:**
+
+Flame-independent ramping will ONLY occur if:
+- Boiler state == STATE_ON (actively heating)
+- Cycling state == NORMAL (not in cooldown)
+- DHW NOT active (hot water not running)
+- Flow temp rising rapidly (≥2°C in 6s OR ≥3°C in 10s)
+- All other ramping constraints satisfied (max setpoint, buffer threshold, etc.)
+
+All existing safety checks remain in place - this only relaxes the flame sensor requirement when physics (rapid temperature rise) confirms actual combustion.
+
+**Validation:**
+
+Configuration parameters validated on startup:
+- `rapid_rise_short_delta_c`: 1.0-5.0°C
+- `rapid_rise_short_window_s`: 3-15 seconds
+- `rapid_rise_long_delta_c`: 2.0-8.0°C
+- `rapid_rise_long_window_s`: 5-30 seconds
+
+Defaults chosen based on analysis of 13:05:13-18 incident:
+- 4°C rise in 4 seconds would trigger short window (2°C in 6s)
+- 7°C rise in 5 seconds would trigger both windows
+- Provides coverage across different boiler heat-up profiles
+
+**Testing Recommendations:**
+
+Monitor for:
+- Ramping now triggers during flame sensor lag (check logs for rapid_rise detection)
+- DHW events correctly reset to baseline when rapid rise detected
+- No oscillation or false triggering during stable operation
+- Short-cycling incidents reduced when flame sensor lags
+
+**Commit:** [pending]
+
+---
+
 ## 2025-12-16: Add bidirectional setpoint ramping (ramp-down support)
 
 **Major Feature:**
