@@ -4008,15 +4008,17 @@ DEBUG: Boiler: total valve opening 120% >= min 100%, using valve bands
 
 ### Overview
 
-The `SetpointRamp` class (`setpoint_ramp.py`) implements dynamic boiler setpoint ramping to prevent short-cycling **within** heating cycles. When enabled, it incrementally raises the boiler setpoint as the flow temperature approaches it, maintaining a healthy temperature differential and preventing premature flame-OFF events.
+The `SetpointRamp` class (`setpoint_ramp.py`) implements physics-aware dynamic boiler setpoint ramping to prevent short-cycling **within** heating cycles. When enabled, it monitors the "headroom" between current flow temperature and the boiler's shutoff point (setpoint + hysteresis), and jumps the setpoint to an optimal position when headroom becomes critically low.
 
 **Key Features:**
 - Optional feature controlled by `input_boolean.pyheat_setpoint_ramp_enable`
-- Triggered when flow temperature gets within configurable threshold of current setpoint
-- Incremental ramping with configurable step size
-- Maximum setpoint limit for safety
+- Physics-aware: Uses actual boiler hysteresis from `number.opentherm_heating_hysteresis`
+- Single-step convergence: Jumps directly to target position (not incremental)
+- DHW detection: Skips ramping during hot water events (prevents incorrect readings)
+- Maximum setpoint limit for safety (`input_number.pyheat_opentherm_setpoint_ramp_max`)
 - Automatic reset to baseline on flame-OFF events
 - Coordination with cycling protection for robust short-cycling prevention
+- Integer-only setpoints for boiler compatibility
 
 ### Configuration
 
@@ -4025,40 +4027,71 @@ Setpoint ramping is configured in `boiler.yaml`:
 ```yaml
 boiler:
   setpoint_ramp:
-    delta_trigger_c: 3.0     # Start ramping when within 3°C of setpoint
-    delta_increase_c: 1.0    # Increase setpoint by 1°C per step
+    buffer_c: 2.0            # Trigger ramping when headroom <= 2°C
+    setpoint_offset_c: 2     # Set new setpoint 2°C below flow temp
 ```
 
-Home Assistant entities control the feature:
+**Critical constraint:** `buffer_c + setpoint_offset_c + 1 <= boiler_hysteresis`
+- Validated on startup, fails loudly if violated
+- Ensures stability (prevents immediate re-trigger after ramping)
+- The `+1` accounts for floor() precision loss
+
+Home Assistant entities:
 - `input_boolean.pyheat_setpoint_ramp_enable` - Enable/disable feature
+- `number.opentherm_heating_hysteresis` - Boiler's internal hysteresis (required, typically 5°C)
 - `input_number.pyheat_opentherm_setpoint` - Baseline setpoint (user's desired value)
 - `input_number.pyheat_opentherm_setpoint_ramp_max` - Maximum ramped setpoint (safety limit)
 
 ### Operation
 
-#### Ramp Activation
+#### Headroom-Based Algorithm
 
-When setpoint ramping is enabled and the boiler is firing:
+The algorithm directly calculates proximity to boiler shutoff:
 
-1. Monitor flow temperature vs. current setpoint
-2. If `flow_temp >= (setpoint - delta_trigger_c)`, trigger ramp
-3. Increase setpoint by `delta_increase_c` (e.g., 65°C → 66°C)
-4. Repeat as flow temperature continues to rise
-5. Never exceed `setpoint_ramp_max` limit
+```python
+current_headroom = setpoint + boiler_hysteresis - flow_temp
 
-**Example:**
+if current_headroom <= buffer_c:
+    new_setpoint = floor(flow_temp) - setpoint_offset_c
 ```
-Baseline setpoint: 65°C
-Flow temp: 62.5°C
-Trigger threshold: 3.0°C
 
-62.5 >= (65 - 3) → RAMP
-New setpoint: 66°C
-
-Flow continues rising to 63.5°C
-63.5 >= (66 - 3) → RAMP
-New setpoint: 67°C
+**Example (hysteresis=5°C, buffer=2°C, offset=2°C):**
 ```
+Baseline setpoint: 55°C
+Boiler shutoff point: 55 + 5 = 60°C
+Flow temp: 58.5°C
+
+Headroom: 55 + 5 - 58.5 = 1.5°C
+1.5 <= 2.0 → TRIGGER RAMP
+
+New setpoint: floor(58.5) - 2 = 56°C
+New shutoff point: 56 + 5 = 61°C
+New headroom: 56 + 5 - 59 = 2°C (stable, won't re-trigger)
+```
+
+**Why this works:**
+- Monitors actual shutoff risk, not arbitrary thresholds
+- Single jump to optimal position (not gradual stepping)
+- Adapts to different boiler hysteresis values
+- Integer setpoints match boiler's actual behavior
+
+#### DHW Detection
+
+Before evaluating ramping, the algorithm checks for DHW (Domestic Hot Water) activity:
+
+```python
+# Check both DHW binary sensor and flow rate
+dhw_active = (dhw_binary == 'on') or (dhw_flow_rate > 0.0)
+
+if dhw_active:
+    return None  # Skip ramping - flow temp is hot water, not CH
+```
+
+**Why DHW detection is critical:**
+- During hot water use, flow temp sensor reads hot water temperature (e.g., 67°C)
+- This is NOT central heating flow - it's DHW circuit temperature
+- Without detection, algorithm would incorrectly ramp based on artificially high readings
+- DHW check prevents spurious ramping during morning/evening hot water usage
 
 #### Reset Strategy: Flame-OFF Events
 
@@ -4068,7 +4101,9 @@ The setpoint is automatically reset to baseline whenever the flame goes OFF:
 # In setpoint_ramp.py:on_flame_off()
 def on_flame_off(self, entity, attribute, old, new, kwargs):
     if old == "on" and new == "off":
-        self.reset_to_baseline()
+        # Skip reset if in cooldown (cooldown owns setpoint control)
+        if cycling_state != COOLDOWN:
+            self.reset_to_baseline()
 ```
 
 **Why flame-OFF?**
@@ -4080,14 +4115,14 @@ def on_flame_off(self, entity, attribute, old, new, kwargs):
 **Flame-OFF triggers include:**
 - **DHW events**: Hot water tap usage interrupts heating, flame goes OFF
 - **Demand loss**: All rooms satisfied, no further heating needed
-- **Cooldown**: Cycling protection forces cooldown period
+- **Cooldown**: Cycling protection forces cooldown period (reset deferred until cooldown exit)
 
 #### Coordination with Cycling Protection
 
 Setpoint ramping and cycling protection work together:
 
 **Within a heating cycle:**
-- Setpoint ramp prevents flame cycling by maintaining flow temp differential
+- Setpoint ramp prevents flame cycling by maintaining adequate headroom to shutoff
 - If flame cycles anyway, cycling protection takes over with cooldown
 
 **Between heating cycles:**
@@ -4095,42 +4130,67 @@ Setpoint ramping and cycling protection work together:
 - Next heating cycle starts fresh with user's desired setpoint
 - Cycling protection monitors for excessive flame cycling across burns
 
+**Critical interaction:**
+- Cycling protection stores `(timestamp, flow_temp, setpoint)` tuples in history
+- Each flow measurement paired with its corresponding setpoint
+- Correctly handles ramped setpoints when detecting overheat conditions
+- During cooldown, setpoint ramp defers to cycling protection (cooldown owns setpoint at 30°C)
+
 **Key insight:** Setpoint ramping prevents **intra-cycle** short-cycling (flame ON→OFF→ON during single demand period). Cycling protection prevents **inter-cycle** short-cycling (rapid successive heating cycles).
 
 ### State Management
 
-#### Persistence
+#### Physical State Detection
 
-Setpoint ramp state is **ephemeral** (not persisted across AppDaemon restarts):
+Setpoint ramp state is **inferred from physical boiler setpoint** at startup (not persisted):
 
 ```python
 def initialize_from_ha(self):
-    """Always start at baseline setpoint on restart."""
-    baseline = self.ad.get_state(C.OPENTHERM_SETPOINT)
-    self.current_setpoint = float(baseline)
-    self.is_ramping = False
+    """Detect state from actual boiler setpoint."""
+    boiler_setpoint = self.ad.get_state(C.OPENTHERM_CLIMATE, attribute='temperature')
+    helper_setpoint = self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT)
+    
+    if boiler_setpoint > helper_setpoint + 0.1 and flame_is_on:
+        # Actively ramping - continue from current position
+        self.state = RAMPING
+        self.current_ramped_setpoint = boiler_setpoint
+    else:
+        # Normal operation - start at baseline
+        self.state = INACTIVE
+        self.baseline_setpoint = helper_setpoint
 ```
 
 **Rationale:**
-- On AppDaemon restart, boiler defaults to OFF state
-- When heating resumes, should start with user's current baseline preference
-- No risk of "stuck" ramped setpoint from previous session
+- Physical boiler setpoint is source of truth
+- Eliminates desync issues from stale persistence
+- Self-correcting on every restart
+- Simpler than maintaining separate state file
 
-#### In-Memory State
+#### Runtime State
 
 During operation, tracks:
-- `current_setpoint`: Current ramped setpoint (float)
-- `is_ramping`: Whether actively ramping (bool)
-- Configuration values (trigger threshold, increase step, max limit)
+- `baseline_setpoint`: User's desired baseline from helper
+- `current_ramped_setpoint`: Current ramped value (if actively ramping)
+- `state`: INACTIVE or RAMPING
+- `ramp_steps_applied`: Count of ramp steps (for logging)
+- `buffer_c`, `setpoint_offset_c`, `boiler_hysteresis`: Configuration values
 
 ### Integration Points
 
 **App.py Initialization:**
 ```python
 # Create setpoint ramp controller
-self.setpoint_ramp = SetpointRamp(self, self.config)
+self.setpoint_ramp = SetpointRamp(
+    ad=self,
+    config=self.config,
+    cycling_protection_ref=self.cycling,
+    app_ref=self
+)
 
-# Register flame sensor callback
+# Initialize from physical boiler state
+self.setpoint_ramp.initialize_from_ha()
+
+# Register flame sensor callback for automatic reset
 self.listen_state(
     self.setpoint_ramp.on_flame_off,
     C.OPENTHERM_FLAME
@@ -4141,11 +4201,32 @@ self.listen_state(
 ```python
 # In app.py:recompute_all()
 # After boiler controller decides to heat
-if boiler_state == 'STATE_FIRING':
-    self.setpoint_ramp.evaluate_and_apply(
-        flow_temp=sensors['opentherm_flow'],
+if boiler_state == C.STATE_ON and self.setpoint_ramp:
+    new_setpoint = self.setpoint_ramp.evaluate_and_apply(
+        flow_temp=flow_temp,
+        current_setpoint=current_setpoint,
+        baseline_setpoint=baseline_setpoint,
         boiler_state=boiler_state,
         cycling_state=cycling_state
+    )
+    
+    if new_setpoint is not None:
+        # Apply new ramped setpoint to climate entity
+        self.call_service(
+            'climate/set_temperature',
+            entity_id=C.OPENTHERM_CLIMATE,
+            temperature=new_setpoint
+        )
+```
+
+**Validation:**
+```python
+# Startup validation in _load_and_validate_config()
+if buffer_c + setpoint_offset_c + 1 > boiler_hysteresis:
+    raise ValueError(
+        f"Invalid setpoint_ramp config: buffer ({buffer_c}) + "
+        f"offset ({setpoint_offset_c}) + 1 must be <= "
+        f"hysteresis ({boiler_hysteresis}) to prevent oscillation"
     )
 ```
 
