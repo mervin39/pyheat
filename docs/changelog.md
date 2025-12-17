@@ -1,6 +1,39 @@
 
 # PyHeat Changelog
 
+## 2025-12-17: Fix passive override detection in pyheat-web (missing API fields)
+
+**Bug Fix:**
+
+Fixed passive override editing in pyheat-web - the modal Edit Override section was incorrectly showing active override controls (single temperature target) when a passive override was active, instead of showing the passive override controls (temperature range + valve percent).
+
+**Problem:**
+
+The `api_get_status` endpoint in [services/api_handler.py](services/api_handler.py) was not including several critical override-related fields when building the room status response for pyheat-web:
+- `override_type` ("none" or "override")
+- `override_mode` ("none", "active", or "passive") - KEY FIELD
+- `override_delta` (temperature delta for delta overrides)
+- `override_calculated_target` (calculated target from delta)
+- `override_passive_min_temp` (comfort floor for passive override)
+- `override_passive_max_temp` (upper limit for passive override)
+- `override_passive_valve_percent` (valve percent for passive override)
+
+Without `override_mode`, the web UI couldn't determine whether to show active or passive editing controls, so it always defaulted to showing active controls.
+
+**Solution:**
+
+Added all missing override fields to the room_status dictionary in the `api_get_status` endpoint. These fields are already published by status_publisher.py to the Home Assistant state entity attributes, and were already being mapped by pyheat-web server/main.py - they just weren't being passed through by the AppDaemon API.
+
+**Changes:**
+- [services/api_handler.py:403-411](services/api_handler.py#L403-411): Added override_type, override_mode, override_delta, override_calculated_target, and passive override fields to room_status response
+
+**Impact:**
+- Passive override editing now works correctly in pyheat-web
+- Modal shows proper temperature range controls (min/max) and valve percent slider when editing passive overrides
+- Active override editing unchanged (single temperature target)
+
+---
+
 ## 2025-12-16: Fix false boiler desync warnings during normal operation
 
 **Bug Fix:**

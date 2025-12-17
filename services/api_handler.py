@@ -400,8 +400,15 @@ class APIHandler:
                     "valve_feedback_consistent": valve_fb_consistent,
                     "override_end_time": override_end_time,  # ISO 8601 timestamp or null
                     # Override metadata from state entity (calculated on-the-fly)
+                    "override_type": state_attrs.get("override_type"),  # "none" or "override"
+                    "override_mode": state_attrs.get("override_mode"),  # "none", "active", or "passive"
                     "override_remaining_minutes": state_attrs.get("override_remaining_minutes"),
                     "override_target": state_attrs.get("override_target"),
+                    "override_delta": state_attrs.get("override_delta"),
+                    "override_calculated_target": state_attrs.get("override_calculated_target"),
+                    "override_passive_min_temp": state_attrs.get("override_passive_min_temp"),
+                    "override_passive_max_temp": state_attrs.get("override_passive_max_temp"),
+                    "override_passive_valve_percent": state_attrs.get("override_passive_valve_percent"),
                     "scheduled_temp": state_attrs.get("scheduled_temp"),
                     # Passive mode settings from number helpers
                     "passive_max_temp": passive_max_temp,
