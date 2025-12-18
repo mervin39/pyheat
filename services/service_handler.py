@@ -280,8 +280,16 @@ class ServiceHandler:
             duration_seconds = int(minutes) * 60
         else:
             try:
+                # Parse ISO datetime, assume local time if no timezone provided
                 end_dt = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
-                now = datetime.now(end_dt.tzinfo or timezone.utc)
+                if end_dt.tzinfo is None:
+                    # Naive datetime - assume local time
+                    end_dt = end_dt.replace(tzinfo=None)
+                    now = datetime.now()
+                else:
+                    # Timezone-aware datetime
+                    now = datetime.now(end_dt.tzinfo)
+
                 if end_dt <= now:
                     return {'success': False, 'error': 'end_time must be in the future'}
                 duration_seconds = int((end_dt - now).total_seconds())

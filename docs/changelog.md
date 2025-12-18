@@ -1,6 +1,48 @@
 
 # PyHeat Changelog
 
+## 2025-12-18: Fix passive override end_time timezone handling
+
+**Bug Fix:**
+
+Fixed passive overrides failing with "Invalid end_time format: can't compare offset-naive and offset-aware datetimes" when end_time was provided without a timezone (e.g., `'2025-12-18T10:56:00'`).
+
+**Problem:**
+
+When pyheat-web sent a passive override request with an end_time in local time format (no timezone), the service_handler.py code would:
+1. Parse the end_time as a naive datetime (no timezone info)
+2. Compare it with `datetime.now(timezone.utc)` (timezone-aware)
+3. Fail with a comparison error between naive and aware datetimes
+
+**Root Cause:**
+
+Line 284 in [services/service_handler.py](services/service_handler.py#L284):
+```python
+now = datetime.now(end_dt.tzinfo or timezone.utc)  # Used UTC as fallback for naive datetimes
+```
+
+When `end_dt.tzinfo` was None (naive), it would use `timezone.utc` making `now` timezone-aware, but `end_dt` remained naive.
+
+**Solution:**
+
+Check if the parsed datetime is naive, and if so, use local time for both the end_time and current time:
+```python
+if end_dt.tzinfo is None:
+    # Naive datetime - assume local time
+    end_dt = end_dt.replace(tzinfo=None)
+    now = datetime.now()
+else:
+    # Timezone-aware datetime
+    now = datetime.now(end_dt.tzinfo)
+```
+
+**Changes:**
+- [services/service_handler.py:283-297](services/service_handler.py#L283-L297): Fixed timezone handling for passive override end_time
+
+**Impact:**
+- Passive overrides now work with both timezone-naive and timezone-aware end_time values
+- Fixes passive override creation from pyheat-web embedded cards
+
 ## 2025-12-17: Fix passive override detection in pyheat-web (missing API fields)
 
 **Bug Fix:**
