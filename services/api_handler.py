@@ -67,7 +67,8 @@ class APIHandler:
         self.ad.register_endpoint(self.api_get_status, "pyheat_get_status")
         self.ad.register_endpoint(self.api_get_history, "pyheat_get_history")
         self.ad.register_endpoint(self.api_get_boiler_history, "pyheat_get_boiler_history")
-        
+        self.ad.register_endpoint(self.api_get_opentherm_history, "pyheat_get_opentherm_history")
+
         self.ad.log("Registered PyHeat HTTP API endpoints")
         
     def _handle_request(self, callback, request_body: Dict[str, Any]) -> tuple:
@@ -1079,5 +1080,182 @@ class APIHandler:
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
 
+    def api_get_opentherm_history(self, namespace, data: Dict[str, Any]) -> tuple:
+        """API endpoint: POST /api/appdaemon/pyheat_get_opentherm_history
+
+        Gets historical OpenTherm heating data.
+
+        Request body: {
+            "period": str  # e.g., "8h", "24h"
+        }
+
+        Returns: {
+            "flame": [{"time": str, "value": 0 | 1}],
+            "dhw": [{"time": str, "value": 0 | 1}],
+            "flow_temp": [{"time": str, "value": float}],
+            "return_temp": [{"time": str, "value": float}],
+            "setpoint": [{"time": str, "value": float}],
+            "power": [{"time": str, "value": float}]
+        }
+        """
+        from datetime import datetime, timedelta, timezone
+        import re
+
+        request_body = namespace if isinstance(namespace, dict) else {}
+
+        try:
+            period = request_body.get("period", "8h")
+
+            # Parse period format like "8h", "24h"
+            match = re.match(r'^(\d+)h$', period)
+            if not match:
+                return {"success": False, "error": "period must be in format like '8h', '24h'"}, 400
+
+            hours = int(match.group(1))
+            if hours < 1 or hours > 48:
+                return {"success": False, "error": "period hours must be between 1 and 48"}, 400
+
+            # Calculate time range
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(hours=hours)
+
+            # Initialize data arrays
+            flame_data = []
+            dhw_data = []
+            flow_temp_data = []
+            return_temp_data = []
+            setpoint_data = []
+            power_data = []
+
+            # Get flame history (binary sensor)
+            if self.ad.entity_exists(C.OPENTHERM_FLAME):
+                flame_history = self.ad.get_history(
+                    entity_id=C.OPENTHERM_FLAME,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if flame_history and len(flame_history) > 0:
+                    for state_obj in flame_history[0]:
+                        try:
+                            state = state_obj.get("state")
+                            if state in ("on", "off"):
+                                flame_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "value": 1 if state == "on" else 0
+                                })
+                        except (KeyError, TypeError):
+                            continue
+
+            # Get DHW history (binary sensor)
+            if self.ad.entity_exists(C.OPENTHERM_DHW):
+                dhw_history = self.ad.get_history(
+                    entity_id=C.OPENTHERM_DHW,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if dhw_history and len(dhw_history) > 0:
+                    for state_obj in dhw_history[0]:
+                        try:
+                            state = state_obj.get("state")
+                            if state in ("on", "off"):
+                                dhw_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "value": 1 if state == "on" else 0
+                                })
+                        except (KeyError, TypeError):
+                            continue
+
+            # Get flow temperature history
+            if self.ad.entity_exists(C.OPENTHERM_HEATING_TEMP):
+                flow_temp_history = self.ad.get_history(
+                    entity_id=C.OPENTHERM_HEATING_TEMP,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if flow_temp_history and len(flow_temp_history) > 0:
+                    for state_obj in flow_temp_history[0]:
+                        try:
+                            if state_obj["state"] not in ("unavailable", "unknown", None):
+                                flow_temp_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "value": float(state_obj["state"])
+                                })
+                        except (ValueError, KeyError, TypeError):
+                            continue
+
+            # Get return temperature history
+            if self.ad.entity_exists(C.OPENTHERM_HEATING_RETURN_TEMP):
+                return_temp_history = self.ad.get_history(
+                    entity_id=C.OPENTHERM_HEATING_RETURN_TEMP,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if return_temp_history and len(return_temp_history) > 0:
+                    for state_obj in return_temp_history[0]:
+                        try:
+                            if state_obj["state"] not in ("unavailable", "unknown", None):
+                                return_temp_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "value": float(state_obj["state"])
+                                })
+                        except (ValueError, KeyError, TypeError):
+                            continue
+
+            # Get setpoint temperature history (from dedicated sensor)
+            if self.ad.entity_exists(C.OPENTHERM_HEATING_SETPOINT_TEMP):
+                setpoint_history = self.ad.get_history(
+                    entity_id=C.OPENTHERM_HEATING_SETPOINT_TEMP,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if setpoint_history and len(setpoint_history) > 0:
+                    for state_obj in setpoint_history[0]:
+                        try:
+                            if state_obj["state"] not in ("unavailable", "unknown", None):
+                                setpoint_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "value": float(state_obj["state"])
+                                })
+                        except (ValueError, KeyError, TypeError):
+                            continue
+
+            # Get boiler power history
+            if self.ad.entity_exists(C.OPENTHERM_POWER):
+                power_history = self.ad.get_history(
+                    entity_id=C.OPENTHERM_POWER,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+                if power_history and len(power_history) > 0:
+                    for state_obj in power_history[0]:
+                        try:
+                            if state_obj["state"] not in ("unavailable", "unknown", None):
+                                power_data.append({
+                                    "time": state_obj["last_changed"],
+                                    "value": float(state_obj["state"])
+                                })
+                        except (ValueError, KeyError, TypeError):
+                            continue
+
+            return {
+                "flame": flame_data,
+                "dhw": dhw_data,
+                "flow_temp": flow_temp_data,
+                "return_temp": return_temp_data,
+                "setpoint": setpoint_data,
+                "power": power_data
+            }, 200
+
+        except Exception as e:
+            self.ad.log(f"get_opentherm_history API error: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+            return {"success": False, "error": str(e)}, 500
 
 

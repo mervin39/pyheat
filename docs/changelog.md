@@ -1,6 +1,52 @@
 
 # PyHeat Changelog
 
+## 2025-12-18: Add OpenTherm history API endpoint
+
+**New API Endpoint:**
+
+Added `pyheat_get_opentherm_history` API endpoint to provide historical OpenTherm heating data for visualization in pyheat-web.
+
+**What it does:**
+
+Returns historical data for OpenTherm sensors over a specified time period:
+- Flame status (binary sensor)
+- DHW status (binary sensor)
+- Flow temperature
+- Return temperature
+- Setpoint temperature
+- Boiler power
+
+**Changes:**
+
+- [services/api_handler.py:1082-1259](services/api_handler.py#L1082-L1259): Added `api_get_opentherm_history()` method
+- [services/api_handler.py:70](services/api_handler.py#L70): Registered `pyheat_get_opentherm_history` endpoint
+
+**Request Format:**
+```json
+{
+  "period": "8h"  // e.g., "3h", "8h", "24h"
+}
+```
+
+**Response Format:**
+```json
+{
+  "flame": [{"time": "ISO timestamp", "value": 0 | 1}],
+  "dhw": [{"time": "ISO timestamp", "value": 0 | 1}],
+  "flow_temp": [{"time": "ISO timestamp", "value": float}],
+  "return_temp": [{"time": "ISO timestamp", "value": float}],
+  "setpoint": [{"time": "ISO timestamp", "value": float}],
+  "power": [{"time": "ISO timestamp", "value": float}]
+}
+```
+
+**Usage:**
+
+Powers the OpenTherm heating chart in the pyheat-web Info tab, showing real-time boiler performance and temperature dynamics.
+
+---
+
 ## 2025-12-18: Replace dynamic cooldowns sensor with HA counter helper
 
 **Architecture Improvement:**
