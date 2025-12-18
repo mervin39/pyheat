@@ -10,7 +10,8 @@ Responsibilities:
 - Monitor return temp and restore setpoint when safe
 - Track cooldown history for excessive cycling alerts
 - Infer cooldown state from physical boiler setpoint (eliminates desync issues)
-- Persist metadata (entry_time, saved_setpoint, cooldowns_count) for history
+- Persist metadata (entry_time, saved_setpoint) for history
+- Increment HA counter helper (counter.pyheat_cooldowns) on each cooldown event
 
 CRITICAL LOGIC:
 - Cooldown ENTRY: Triggers on EITHER flow overheat OR high return temp (OR logic)
@@ -23,121 +24,20 @@ from typing import Optional, Dict, List, Tuple
 from collections import deque
 import os
 import constants as C
-from persistence import PersistenceManager
 
 
-def _ensure_cooldowns_sensor(ad, persistence: 'PersistenceManager') -> None:
-    """Ensure the cooldowns counter sensor exists in Home Assistant.
-    
-    Creates sensor.pyheat_cooldowns if it doesn't exist or is unavailable.
-    Uses maximum value between HA sensor and persisted count to ensure
-    strictly increasing behavior (survives HA restarts/unavailability).
-    
+def _increment_cooldowns_counter(ad) -> None:
+    """Increment the cooldowns counter by 1.
+
+    Uses HA counter helper for automatic persistence.
+
     Args:
         ad: AppDaemon API reference
-        persistence: PersistenceManager instance for reading/writing persisted count
-    """
-    # Get persisted count
-    persisted_count = persistence.get_cooldowns_count()
-    
-    # Check if sensor exists in HA
-    current_state = ad.get_state(C.COOLDOWNS_ENTITY)
-    ad.log(f"Checking cooldowns sensor: current_state={current_state}, persisted={persisted_count}", level="DEBUG")
-    
-    # Parse HA sensor value if valid
-    ha_count = None
-    if current_state not in [None, 'unknown', 'unavailable']:
-        try:
-            ha_count = int(float(current_state))
-        except (ValueError, TypeError):
-            ad.log(f"Invalid cooldowns sensor state: {current_state}", level="WARNING")
-    
-    # Determine authoritative count: max(HA, persisted)
-    # This ensures strictly increasing behavior even if HA resets
-    if ha_count is not None:
-        authoritative_count = max(ha_count, persisted_count)
-        if ha_count > persisted_count:
-            # HA has higher value - update persistence
-            ad.log(f"HA sensor has higher count ({ha_count} > {persisted_count}), updating persistence", level="INFO")
-            persistence.update_cooldowns_count(ha_count)
-        elif persisted_count > ha_count:
-            # Persisted has higher value - update HA
-            ad.log(f"Persistence has higher count ({persisted_count} > {ha_count}), updating HA sensor", level="INFO")
-            ad.call_service(
-                'homeassistant/set_state',
-                entity_id=C.COOLDOWNS_ENTITY,
-                state=str(persisted_count),
-                attributes={
-                    'friendly_name': 'PyHeat Cooldowns',
-                    'state_class': 'total_increasing',
-                    'icon': 'mdi:snowflake-thermometer'
-                }
-            )
-        else:
-            # Values match - all good
-            ad.log(f"Cooldowns sensor matches persistence ({ha_count})", level="DEBUG")
-    else:
-        # HA sensor doesn't exist or unavailable - create with persisted count
-        ad.log(f"Creating {C.COOLDOWNS_ENTITY} sensor with persisted count {persisted_count}...", level="INFO")
-        ad.call_service(
-            'homeassistant/set_state',
-            entity_id=C.COOLDOWNS_ENTITY,
-            state=str(persisted_count),
-            attributes={
-                'friendly_name': 'PyHeat Cooldowns',
-                'state_class': 'total_increasing',
-                'icon': 'mdi:snowflake-thermometer'
-            }
-        )
-        ad.log(f"Created {C.COOLDOWNS_ENTITY} sensor", level="INFO")
-
-
-def _increment_cooldowns_sensor(ad, persistence: 'PersistenceManager') -> None:
-    """Increment the cooldowns counter sensor by 1.
-    
-    Updates both HA sensor and persisted count to ensure durability.
-    Uses max(HA, persisted) + 1 to handle any inconsistencies.
-    
-    Args:
-        ad: AppDaemon API reference
-        persistence: PersistenceManager instance for reading/writing persisted count
     """
     try:
-        # Get both values
-        persisted_count = persistence.get_cooldowns_count()
-        current_state = ad.get_state(C.COOLDOWNS_ENTITY)
-        
-        # Parse HA sensor value if valid
-        ha_count = None
-        if current_state not in [None, 'unknown', 'unavailable']:
-            try:
-                ha_count = int(float(current_state))
-            except (ValueError, TypeError):
-                ad.log(f"Invalid cooldowns sensor state during increment: {current_state}", level="WARNING")
-        
-        # Calculate new count: max(HA, persisted) + 1
-        if ha_count is not None:
-            new_count = max(ha_count, persisted_count) + 1
-        else:
-            new_count = persisted_count + 1
-        
-        # Update both HA and persistence
-        ad.call_service(
-            'homeassistant/set_state',
-            entity_id=C.COOLDOWNS_ENTITY,
-            state=str(new_count),
-            attributes={
-                'friendly_name': 'PyHeat Cooldowns',
-                'state_class': 'total_increasing',
-                'icon': 'mdi:snowflake-thermometer'
-            }
-        )
-        persistence.update_cooldowns_count(new_count)
-        
-        ad.log(f"Incremented cooldowns: {persisted_count} -> {new_count} (HA was {ha_count})", level="DEBUG")
-        
+        ad.call_service('counter/increment', entity_id=C.COOLDOWNS_ENTITY)
     except Exception as e:
-        ad.log(f"Error incrementing cooldowns sensor: {e}", level="WARNING")
+        ad.log(f"Error incrementing cooldowns counter: {e}", level="WARNING")
 
 
 class CyclingProtection:
@@ -197,9 +97,6 @@ class CyclingProtection:
 
         # Recovery monitoring handle
         self.recovery_handle = None
-        
-        # Track if cooldowns sensor has been initialized
-        self._cooldowns_sensor_initialized = False
 
         # Boiler availability tracking (for alerting if boiler entity unavailable)
         self.boiler_unavailable_since: Optional[datetime] = None
@@ -220,12 +117,10 @@ class CyclingProtection:
           - Resume recovery monitoring
         - Otherwise: we're in NORMAL
 
-        Metadata (entry_time, saved_setpoint, cooldowns_count) still persisted for
-        history tracking, but state itself is inferred from physical boiler.
+        Metadata (entry_time, saved_setpoint) still persisted for history tracking,
+        but state itself is inferred from physical boiler. Cooldowns count is now
+        managed by HA counter helper (counter.pyheat_cooldowns).
         """
-        # NOTE: Cooldowns sensor is initialized later via ensure_cooldowns_sensor()
-        # to avoid HA API errors during app startup
-
         # Get physical boiler setpoint (source of truth for state)
         boiler_setpoint = self._get_current_setpoint()
         if boiler_setpoint is None:
@@ -315,22 +210,7 @@ class CyclingProtection:
                 f"(boiler at {boiler_setpoint:.1f}C)",
                 level="DEBUG"
             )
-    
-    def ensure_cooldowns_sensor(self) -> None:
-        """Ensure the cooldowns counter sensor exists in Home Assistant.
-        
-        Should be called after app initialization is complete (e.g., from first recompute)
-        to avoid HA API errors during startup.
-        """
-        if self._cooldowns_sensor_initialized:
-            return
-        
-        try:
-            _ensure_cooldowns_sensor(self.ad, self.persistence)
-            self._cooldowns_sensor_initialized = True
-        except Exception as e:
-            self.ad.log(f"Failed to ensure cooldowns sensor: {e}", level="ERROR")
-    
+
     def on_dhw_state_change(self, entity, attribute, old, new, kwargs):
         """Track DHW sensor state changes for history-based detection.
         
@@ -825,9 +705,9 @@ class CyclingProtection:
         
         # Add to history for excessive cycling detection
         self.cooldown_history.append((now, return_temp, original_setpoint))
-        
-        # Increment cooldowns counter in Home Assistant and persistence
-        _increment_cooldowns_sensor(self.ad, self.persistence)
+
+        # Increment cooldowns counter in Home Assistant
+        _increment_cooldowns_counter(self.ad)
         
         # Check for excessive cycling
         recent_cooldowns = [

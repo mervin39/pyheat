@@ -816,8 +816,6 @@ class PyHeat(hass.Hass):
     def initial_recompute(self, kwargs):
         """Initial recompute after startup."""
         self.log("Running initial recompute...")
-        # Ensure cooldowns sensor exists (delayed from init to avoid HA API errors)
-        self.cycling.ensure_cooldowns_sensor()
         self.recompute_all(datetime.now(), "initial")
 
     def second_recompute(self, kwargs):

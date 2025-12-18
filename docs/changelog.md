@@ -1,6 +1,64 @@
 
 # PyHeat Changelog
 
+## 2025-12-18: Replace dynamic cooldowns sensor with HA counter helper
+
+**Architecture Improvement:**
+
+Replaced dynamically-created `sensor.pyheat_cooldowns` with proper Home Assistant counter helper `counter.pyheat_cooldowns` for reliable persistence and simpler implementation.
+
+**Problem:**
+
+The cooldowns counter has had persistent issues despite multiple fix attempts:
+- **2025-12-04**: Initially created using `ad.set_state()`
+- **2025-12-09**: Added persistence.json logic because counter was resetting to 0 on HA restarts
+- **2025-12-15**: Switched to `ad.call_service('homeassistant/set_state')` to fix persistence
+- **Current**: Entity doesn't exist in HA (404 error), requires complex dual-persistence logic
+
+**Root Cause:**
+
+Dynamic entity creation via AppDaemon's `set_state()` or `call_service('homeassistant/set_state')` is not the right tool for persistent counter sensors. These approaches:
+- Don't properly register entities in HA's entity registry
+- Don't integrate correctly with HA's recorder/statistics system
+- Require complex persistence workarounds (persistence.json)
+- Can desync between HA state and persisted state
+
+**Solution:**
+
+Use Home Assistant's built-in `counter` helper, which is designed exactly for this use case:
+- Built-in persistence across restarts (no persistence.json needed)
+- Proper HA entity registry integration
+- Simple increment API: `counter/increment`
+- Unbounded counting (no min/max limits required)
+
+**Changes:**
+
+- [config/ha_yaml/pyheat_package.yaml:28-35](config/ha_yaml/pyheat_package.yaml#L28-L35): Added `counter.pyheat_cooldowns` with `restore: true`
+- [core/constants.py:341-342](core/constants.py#L341-L342): Changed `COOLDOWNS_ENTITY` from `sensor.pyheat_cooldowns` to `counter.pyheat_cooldowns`
+- [controllers/cycling_protection.py:28-37](controllers/cycling_protection.py#L28-L37): Replaced complex `_ensure_cooldowns_sensor()` and `_increment_cooldowns_sensor()` with simple `_increment_cooldowns_counter()` that just calls `counter/increment`
+- [controllers/cycling_protection.py:709](controllers/cycling_protection.py#L709): Updated cooldown entry to use new increment function
+- [controllers/cycling_protection.py:13-14](controllers/cycling_protection.py#L13-L14): Updated module docstring to reflect counter helper usage
+- [controllers/cycling_protection.py:119-121](controllers/cycling_protection.py#L119-L121): Updated initialize_from_ha docstring
+- [app.py:816-819](app.py#L816-L819): Removed `ensure_cooldowns_sensor()` call from initial_recompute
+- [core/persistence.py:148-170](core/persistence.py#L148-L170): Removed `cooldowns_count` from cycling_protection state dict, removed `get_cooldowns_count()` and `update_cooldowns_count()` methods (no longer needed)
+- [README.md:476,530-532](README.md#L476): Updated documentation to reference `counter.pyheat_cooldowns` instead of `sensor.pyheat_cooldowns`
+
+**Migration:**
+
+After deploying:
+1. The new `counter.pyheat_cooldowns` will start from 0
+2. Users can manually set the initial value via HA UI if they want to preserve their count
+3. Old `sensor.pyheat_cooldowns` entity (if it exists) can be deleted from HA
+4. No code changes needed - counter increments automatically on cooldown events
+
+**Benefits:**
+
+- Eliminates all persistence issues (HA handles this natively)
+- Simpler code (removed ~120 lines of complex state management)
+- Proper HA entity registry integration
+- Reliable across restarts, reloads, and HA unavailability
+- Unbounded counting suitable for years of operation
+
 ## 2025-12-18: Fix passive override end_time timezone handling
 
 **Bug Fix:**

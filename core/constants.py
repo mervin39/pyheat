@@ -338,8 +338,8 @@ STATUS_ENTITY = "sensor.pyheat_status"
 # Boiler state entity (for reliable graph shading history)
 BOILER_STATE_ENTITY = "sensor.pyheat_boiler_state"
 
-# Cooldowns counter sensor (total_increasing for cumulative count)
-COOLDOWNS_ENTITY = "sensor.pyheat_cooldowns"
+# Cooldowns counter (HA counter helper for persistent cumulative count)
+COOLDOWNS_ENTITY = "counter.pyheat_cooldowns"
 
 # Cooldown active binary sensor
 COOLDOWN_ACTIVE_ENTITY = "binary_sensor.pyheat_cooldown_active"

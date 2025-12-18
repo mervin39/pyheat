@@ -473,7 +473,7 @@ CYCLING_RECOVERY_MIN_C = 45          # Absolute minimum recovery temp
 #### Monitoring
 
 **Home Assistant Entities:**
-- `sensor.pyheat_cooldowns` - Total cooldown events (total_increasing)
+- `counter.pyheat_cooldowns` - Total cooldown events (HA counter helper)
 - `sensor.pyheat_status` attributes:
   - `cycling_protection.state` - Current state (NORMAL/COOLDOWN/TIMEOUT)
   - `cycling_protection.cooldown_start` - Timestamp of current cooldown
@@ -527,9 +527,9 @@ Toggle `input_boolean.pyheat_master_enable` to turn entire system on/off.
 
 ### Counters
 
-`sensor.pyheat_cooldowns` - Cumulative cooldown events counter:
+`counter.pyheat_cooldowns` - Cumulative cooldown events counter:
 - Increments each time cycling protection triggers a cooldown
-- Uses `state_class: total_increasing` for HA statistics integration
+- HA counter helper with automatic persistence across restarts
 - Useful for monitoring boiler cycling patterns over time
 
 ### Room State Entities

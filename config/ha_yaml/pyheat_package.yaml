@@ -26,6 +26,15 @@ input_boolean:
     icon: mdi:chart-line-stacked
 
 # ---------------------------------------------------------------------------
+# Counters (persistent, unbounded)
+# ---------------------------------------------------------------------------
+counter:
+  pyheat_cooldowns:
+    name: "PyHeat Cooldowns"
+    icon: mdi:snowflake-thermometer
+    restore: true
+
+# ---------------------------------------------------------------------------
 # Input selects (load sharing mode control + per-room modes)
 # ---------------------------------------------------------------------------
 input_select:
