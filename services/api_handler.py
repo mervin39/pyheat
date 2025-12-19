@@ -1147,25 +1147,80 @@ class APIHandler:
                         except (KeyError, TypeError):
                             continue
 
-            # Get DHW history (binary sensor)
+            # Get DHW history (binary sensor + flow rate)
+            # DHW is active if binary='on' OR flow_rate>0 (matches pyheat logic)
+            dhw_binary_events = []
+            dhw_flow_events = []
+
             if self.ad.entity_exists(C.OPENTHERM_DHW):
                 dhw_history = self.ad.get_history(
                     entity_id=C.OPENTHERM_DHW,
                     start_time=start_time,
                     end_time=end_time
                 )
-
                 if dhw_history and len(dhw_history) > 0:
                     for state_obj in dhw_history[0]:
                         try:
                             state = state_obj.get("state")
                             if state in ("on", "off"):
-                                dhw_data.append({
+                                dhw_binary_events.append({
                                     "time": state_obj["last_changed"],
-                                    "value": 1 if state == "on" else 0
+                                    "binary": 1 if state == "on" else 0
                                 })
                         except (KeyError, TypeError):
                             continue
+
+            if self.ad.entity_exists(C.OPENTHERM_DHW_FLOW_RATE):
+                dhw_flow_history = self.ad.get_history(
+                    entity_id=C.OPENTHERM_DHW_FLOW_RATE,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                if dhw_flow_history and len(dhw_flow_history) > 0:
+                    for state_obj in dhw_flow_history[0]:
+                        try:
+                            state = state_obj.get("state")
+                            if state not in ("unavailable", "unknown", None):
+                                flow_rate = float(state)
+                                dhw_flow_events.append({
+                                    "time": state_obj["last_changed"],
+                                    "flow": 1 if flow_rate > 0.0 else 0
+                                })
+                        except (ValueError, KeyError, TypeError):
+                            continue
+
+            # Merge binary and flow events with forward-fill
+            # Collect all unique timestamps
+            all_times = set()
+            binary_dict = {}
+            flow_dict = {}
+
+            for event in dhw_binary_events:
+                time = event["time"]
+                all_times.add(time)
+                binary_dict[time] = event["binary"]
+
+            for event in dhw_flow_events:
+                time = event["time"]
+                all_times.add(time)
+                flow_dict[time] = event["flow"]
+
+            # Forward-fill and combine
+            current_binary = 0
+            current_flow = 0
+            for time in sorted(all_times):
+                # Update current states
+                if time in binary_dict:
+                    current_binary = binary_dict[time]
+                if time in flow_dict:
+                    current_flow = flow_dict[time]
+
+                # DHW active if binary=1 OR flow=1
+                dhw_active = current_binary == 1 or current_flow == 1
+                dhw_data.append({
+                    "time": time,
+                    "value": 1 if dhw_active else 0
+                })
 
             # Get flow temperature history
             if self.ad.entity_exists(C.OPENTHERM_HEATING_TEMP):

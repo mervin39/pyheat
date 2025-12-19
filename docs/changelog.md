@@ -1,6 +1,26 @@
 
 # PyHeat Changelog
 
+## 2025-12-19: Enhanced DHW detection in OpenTherm history API
+
+**DHW Detection Enhancement:**
+
+Updated `pyheat_get_opentherm_history` API endpoint to use the same DHW detection logic as the rest of pyheat:
+- **Previous:** Only checked binary sensor `binary_sensor.opentherm_dhw`
+- **Now:** Checks binary sensor OR flow rate sensor (matches pyheat's detection logic)
+- DHW is considered active if `binary_sensor.opentherm_dhw` is 'on' OR `sensor.opentherm_dhw_flow_rate` > 0
+
+This captures DHW events that are only detected via flow rate, improving accuracy for pyheat-web Info tab visualization.
+
+**Technical Implementation:**
+- Collects history from both `OPENTHERM_DHW` binary sensor and `OPENTHERM_DHW_FLOW_RATE` sensor
+- Forward-fills sensor states to properly combine them at each timestamp
+- Uses OR logic: DHW=1 if binary=1 OR flow=1
+- Matches the logic used in `setpoint_ramp.py` and `cycling_protection.py`
+
+**Changes:**
+- [services/api_handler.py:1150-1223](services/api_handler.py#L1150-L1223): Updated DHW history collection to use both sensors
+
 ## 2025-12-18: Add OpenTherm history API endpoint
 
 **New API Endpoint:**
