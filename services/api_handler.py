@@ -68,6 +68,8 @@ class APIHandler:
         self.ad.register_endpoint(self.api_get_history, "pyheat_get_history")
         self.ad.register_endpoint(self.api_get_boiler_history, "pyheat_get_boiler_history")
         self.ad.register_endpoint(self.api_get_opentherm_history, "pyheat_get_opentherm_history")
+        self.ad.register_endpoint(self.api_get_settings, "pyheat_get_settings")
+        self.ad.register_endpoint(self.api_set_settings, "pyheat_set_settings")
 
         self.ad.log("Registered PyHeat HTTP API endpoints")
         
@@ -1312,5 +1314,33 @@ class APIHandler:
             import traceback
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}, 500
+
+    def api_get_settings(self, namespace, data: Dict[str, Any]) -> tuple:
+        """API endpoint: GET/POST /api/appdaemon/pyheat_get_settings
+
+        Gets current system settings.
+
+        Request body: {} (empty)
+        Returns: System settings configuration
+        """
+        request_body = namespace if isinstance(namespace, dict) else {}
+        return self._handle_request(self.service_handler.svc_get_settings, request_body)
+
+    def api_set_settings(self, namespace, data: Dict[str, Any]) -> tuple:
+        """API endpoint: POST /api/appdaemon/pyheat_set_settings
+
+        Updates system settings.
+
+        Request body: {
+            "master_enable": bool (optional),
+            "holiday_mode": bool (optional),
+            "opentherm_setpoint": float (optional, 30-80),
+            "setpoint_ramp_enable": bool (optional),
+            "setpoint_ramp_max": float (optional, 30-80),
+            "load_sharing_mode": str (optional, Off/Conservative/Balanced/Aggressive)
+        }
+        """
+        request_body = namespace if isinstance(namespace, dict) else {}
+        return self._handle_request(self.service_handler.svc_set_settings, request_body)
 
 

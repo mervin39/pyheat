@@ -24,6 +24,7 @@ from typing import Optional, Dict, List, Tuple
 from collections import deque
 import os
 import constants as C
+from persistence import PersistenceManager
 
 
 def _increment_cooldowns_counter(ad) -> None:

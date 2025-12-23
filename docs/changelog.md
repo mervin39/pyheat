@@ -1,6 +1,59 @@
 
 # PyHeat Changelog
 
+## 2025-12-23: Add system settings API
+
+**New API Endpoints:**
+
+Added `pyheat_get_settings` and `pyheat_set_settings` API endpoints to allow external access to system-level configuration settings for pyheat-web Settings page.
+
+**What it does:**
+
+- `pyheat_get_settings`: Returns current values of all configurable system settings
+  - master_enable (bool): Global system on/off switch
+  - holiday_mode (bool): Holiday/away mode toggle
+  - opentherm_setpoint (float): Boiler water temperature setpoint (30-80°C)
+  - setpoint_ramp_enable (bool): Enable/disable setpoint ramping
+  - setpoint_ramp_max (float): Maximum ceiling for setpoint ramping (30-80°C)
+  - load_sharing_mode (str): Load sharing aggressiveness (Off/Conservative/Balanced/Aggressive)
+
+- `pyheat_set_settings`: Updates one or more system settings
+  - Accepts optional parameters for each setting
+  - Validates ranges and types
+  - Triggers system recompute when needed
+  - Returns list of updated settings
+
+**Changes:**
+
+- [services/service_handler.py:855-1011](services/service_handler.py#L855-L1011): Added `svc_get_settings()` and `svc_set_settings()` methods
+- [services/service_handler.py:58-59](services/service_handler.py#L58-L59): Registered new services
+- [services/api_handler.py:1318-1344](services/api_handler.py#L1318-L1344): Added `api_get_settings()` and `api_set_settings()` HTTP endpoints
+- [services/api_handler.py:71-72](services/api_handler.py#L71-L72): Registered HTTP endpoints
+
+**Request Format (pyheat_set_settings):**
+```json
+{
+  "master_enable": true,
+  "holiday_mode": false,
+  "opentherm_setpoint": 65.0,
+  "setpoint_ramp_enable": true,
+  "setpoint_ramp_max": 75.0,
+  "load_sharing_mode": "Balanced"
+}
+```
+
+**Response Format (pyheat_get_settings):**
+```json
+{
+  "master_enable": true,
+  "holiday_mode": false,
+  "opentherm_setpoint": 65.0,
+  "setpoint_ramp_enable": true,
+  "setpoint_ramp_max": 75.0,
+  "load_sharing_mode": "Balanced"
+}
+```
+
 ## 2025-12-19: Enhanced DHW detection in OpenTherm history API
 
 **DHW Detection Enhancement:**

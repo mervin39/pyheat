@@ -55,7 +55,9 @@ class ServiceHandler:
         self.ad.register_service("pyheat/get_rooms", self.svc_get_rooms)
         self.ad.register_service("pyheat/replace_schedules", self.svc_replace_schedules)
         self.ad.register_service("pyheat/get_status", self.svc_get_status)
-        
+        self.ad.register_service("pyheat/get_settings", self.svc_get_settings)
+        self.ad.register_service("pyheat/set_settings", self.svc_set_settings)
+
         self.ad.log("Registered PyHeat services")
         
     def svc_override(self, namespace, domain, service, kwargs):
@@ -848,6 +850,164 @@ class ServiceHandler:
             
         except Exception as e:
             self.ad.log(f"pyheat.get_status failed: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+            return {"success": False, "error": str(e)}
+
+    def svc_get_settings(self, namespace, domain, service, kwargs):
+        """Service: pyheat.get_settings - Get current system settings.
+
+        Returns current values of all configurable system settings.
+
+        Returns:
+            Dict with settings: {
+                "master_enable": bool,
+                "holiday_mode": bool,
+                "opentherm_setpoint": float,
+                "setpoint_ramp_enable": bool,
+                "setpoint_ramp_max": float,
+                "load_sharing_mode": str
+            }
+        """
+        try:
+            # Get all settings from HA input entities
+            master_enable = self.ad.get_state(C.HELPER_MASTER_ENABLE) == "on" if self.ad.entity_exists(C.HELPER_MASTER_ENABLE) else False
+            holiday_mode = self.ad.get_state(C.HELPER_HOLIDAY_MODE) == "on" if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE) else False
+
+            # Get numeric settings
+            opentherm_setpoint = 0.0
+            if self.ad.entity_exists(C.HELPER_OPENTHERM_SETPOINT):
+                try:
+                    opentherm_setpoint = float(self.ad.get_state(C.HELPER_OPENTHERM_SETPOINT))
+                except (ValueError, TypeError):
+                    opentherm_setpoint = 0.0
+
+            setpoint_ramp_enable = self.ad.get_state(C.HELPER_SETPOINT_RAMP_ENABLE) == "on" if self.ad.entity_exists(C.HELPER_SETPOINT_RAMP_ENABLE) else False
+
+            setpoint_ramp_max = 0.0
+            if self.ad.entity_exists(C.HELPER_SETPOINT_RAMP_MAX):
+                try:
+                    setpoint_ramp_max = float(self.ad.get_state(C.HELPER_SETPOINT_RAMP_MAX))
+                except (ValueError, TypeError):
+                    setpoint_ramp_max = 0.0
+
+            # Get load sharing mode
+            load_sharing_mode = "Off"
+            if self.ad.entity_exists(C.HELPER_LOAD_SHARING_MODE):
+                load_sharing_mode = self.ad.get_state(C.HELPER_LOAD_SHARING_MODE) or "Off"
+
+            return {
+                "master_enable": master_enable,
+                "holiday_mode": holiday_mode,
+                "opentherm_setpoint": opentherm_setpoint,
+                "setpoint_ramp_enable": setpoint_ramp_enable,
+                "setpoint_ramp_max": setpoint_ramp_max,
+                "load_sharing_mode": load_sharing_mode
+            }
+
+        except Exception as e:
+            self.ad.log(f"pyheat.get_settings failed: {e}", level="ERROR")
+            import traceback
+            self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
+            return {"success": False, "error": str(e)}
+
+    def svc_set_settings(self, namespace, domain, service, kwargs):
+        """Service: pyheat.set_settings - Update system settings.
+
+        Updates one or more system settings. Only provided values will be updated.
+
+        Args:
+            master_enable (bool): Global system on/off (optional)
+            holiday_mode (bool): Holiday/away mode (optional)
+            opentherm_setpoint (float): Boiler water temperature 30-80°C (optional)
+            setpoint_ramp_enable (bool): Enable setpoint ramping (optional)
+            setpoint_ramp_max (float): Max ramp setpoint 30-80°C (optional)
+            load_sharing_mode (str): Off/Conservative/Balanced/Aggressive (optional)
+
+        Returns:
+            Dict with success and updated settings
+        """
+        try:
+            updated = []
+
+            # Update master enable
+            if "master_enable" in kwargs:
+                value = kwargs["master_enable"]
+                if self.ad.entity_exists(C.HELPER_MASTER_ENABLE):
+                    service_name = "input_boolean/turn_on" if value else "input_boolean/turn_off"
+                    self.ad.call_service(service_name, entity_id=C.HELPER_MASTER_ENABLE)
+                    updated.append("master_enable")
+                    self.ad.log(f"Set master_enable to {value}")
+
+            # Update holiday mode
+            if "holiday_mode" in kwargs:
+                value = kwargs["holiday_mode"]
+                if self.ad.entity_exists(C.HELPER_HOLIDAY_MODE):
+                    service_name = "input_boolean/turn_on" if value else "input_boolean/turn_off"
+                    self.ad.call_service(service_name, entity_id=C.HELPER_HOLIDAY_MODE)
+                    updated.append("holiday_mode")
+                    self.ad.log(f"Set holiday_mode to {value}")
+
+            # Update OpenTherm setpoint
+            if "opentherm_setpoint" in kwargs:
+                value = float(kwargs["opentherm_setpoint"])
+                if value < 30.0 or value > 80.0:
+                    return {"success": False, "error": "opentherm_setpoint must be between 30 and 80"}
+                if self.ad.entity_exists(C.HELPER_OPENTHERM_SETPOINT):
+                    self.ad.call_service("input_number/set_value",
+                                       entity_id=C.HELPER_OPENTHERM_SETPOINT,
+                                       value=value)
+                    updated.append("opentherm_setpoint")
+                    self.ad.log(f"Set opentherm_setpoint to {value}")
+
+            # Update setpoint ramp enable
+            if "setpoint_ramp_enable" in kwargs:
+                value = kwargs["setpoint_ramp_enable"]
+                if self.ad.entity_exists(C.HELPER_SETPOINT_RAMP_ENABLE):
+                    service_name = "input_boolean/turn_on" if value else "input_boolean/turn_off"
+                    self.ad.call_service(service_name, entity_id=C.HELPER_SETPOINT_RAMP_ENABLE)
+                    updated.append("setpoint_ramp_enable")
+                    self.ad.log(f"Set setpoint_ramp_enable to {value}")
+
+            # Update setpoint ramp max
+            if "setpoint_ramp_max" in kwargs:
+                value = float(kwargs["setpoint_ramp_max"])
+                if value < 30.0 or value > 80.0:
+                    return {"success": False, "error": "setpoint_ramp_max must be between 30 and 80"}
+                if self.ad.entity_exists(C.HELPER_SETPOINT_RAMP_MAX):
+                    self.ad.call_service("input_number/set_value",
+                                       entity_id=C.HELPER_SETPOINT_RAMP_MAX,
+                                       value=value)
+                    updated.append("setpoint_ramp_max")
+                    self.ad.log(f"Set setpoint_ramp_max to {value}")
+
+            # Update load sharing mode
+            if "load_sharing_mode" in kwargs:
+                value = kwargs["load_sharing_mode"]
+                valid_modes = ["Off", "Conservative", "Balanced", "Aggressive"]
+                if value not in valid_modes:
+                    return {"success": False, "error": f"load_sharing_mode must be one of: {', '.join(valid_modes)}"}
+                if self.ad.entity_exists(C.HELPER_LOAD_SHARING_MODE):
+                    self.ad.call_service("input_select/select_option",
+                                       entity_id=C.HELPER_LOAD_SHARING_MODE,
+                                       option=value)
+                    updated.append("load_sharing_mode")
+                    self.ad.log(f"Set load_sharing_mode to {value}")
+
+            if not updated:
+                return {"success": False, "error": "No valid settings provided"}
+
+            # Trigger recompute if needed (changes to master_enable or holiday_mode especially)
+            if self.trigger_recompute_callback:
+                self.trigger_recompute_callback()
+
+            return {
+                "success": True,
+                "updated": updated
+            }
+
+        except Exception as e:
+            self.ad.log(f"pyheat.set_settings failed: {e}", level="ERROR")
             import traceback
             self.ad.log(f"Traceback: {traceback.format_exc()}", level="ERROR")
             return {"success": False, "error": str(e)}
