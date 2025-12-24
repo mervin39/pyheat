@@ -108,7 +108,6 @@ input_select:
       - none
       - active
       - passive
-    initial: none
     icon: mdi:timer-cog
 
   pyheat_abby_override_mode:
@@ -117,7 +116,6 @@ input_select:
       - none
       - active
       - passive
-    initial: none
     icon: mdi:timer-cog
 
   pyheat_bathroom_override_mode:
@@ -126,7 +124,6 @@ input_select:
       - none
       - active
       - passive
-    initial: none
     icon: mdi:timer-cog
 
   pyheat_games_override_mode:
@@ -135,7 +132,6 @@ input_select:
       - none
       - active
       - passive
-    initial: none
     icon: mdi:timer-cog
 
   pyheat_lounge_override_mode:
@@ -144,7 +140,6 @@ input_select:
       - none
       - active
       - passive
-    initial: none
     icon: mdi:timer-cog
 
   pyheat_office_override_mode:
@@ -153,7 +148,6 @@ input_select:
       - none
       - active
       - passive
-    initial: none
     icon: mdi:timer-cog
 
 # ---------------------------------------------------------------------------
@@ -236,7 +230,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 12.0
 
   pyheat_pete_override_passive_max_temp:
     name: "Pete's Room Passive Override Max Temp"
@@ -245,7 +238,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 18.0
 
   pyheat_pete_override_passive_valve_percent:
     name: "Pete's Room Passive Override Valve %"
@@ -254,7 +246,6 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     mode: slider
-    initial: 30
 
   pyheat_abby_override_passive_min_temp:
     name: "Abby's Room Passive Override Min Temp"
@@ -263,7 +254,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 12.0
 
   pyheat_abby_override_passive_max_temp:
     name: "Abby's Room Passive Override Max Temp"
@@ -272,7 +262,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 18.0
 
   pyheat_abby_override_passive_valve_percent:
     name: "Abby's Room Passive Override Valve %"
@@ -281,7 +270,6 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     mode: slider
-    initial: 30
 
   pyheat_office_override_passive_min_temp:
     name: "Office Passive Override Min Temp"
@@ -290,7 +278,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 12.0
 
   pyheat_office_override_passive_max_temp:
     name: "Office Passive Override Max Temp"
@@ -299,7 +286,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 18.0
 
   pyheat_office_override_passive_valve_percent:
     name: "Office Passive Override Valve %"
@@ -308,7 +294,6 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     mode: slider
-    initial: 30
 
   pyheat_lounge_override_passive_min_temp:
     name: "Living Room Passive Override Min Temp"
@@ -317,7 +302,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 12.0
 
   pyheat_lounge_override_passive_max_temp:
     name: "Living Room Passive Override Max Temp"
@@ -326,7 +310,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 18.0
 
   pyheat_lounge_override_passive_valve_percent:
     name: "Living Room Passive Override Valve %"
@@ -335,7 +318,6 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     mode: slider
-    initial: 30
 
   pyheat_games_override_passive_min_temp:
     name: "Dining Room Passive Override Min Temp"
@@ -344,7 +326,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 12.0
 
   pyheat_games_override_passive_max_temp:
     name: "Dining Room Passive Override Max Temp"
@@ -353,7 +334,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 18.0
 
   pyheat_games_override_passive_valve_percent:
     name: "Dining Room Passive Override Valve %"
@@ -362,7 +342,6 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     mode: slider
-    initial: 30
 
   pyheat_bathroom_override_passive_min_temp:
     name: "Bathroom Passive Override Min Temp"
@@ -371,7 +350,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 12.0
 
   pyheat_bathroom_override_passive_max_temp:
     name: "Bathroom Passive Override Max Temp"
@@ -380,7 +358,6 @@ input_number:
     step: 0.1
     unit_of_measurement: "°C"
     mode: box
-    initial: 18.0
 
   pyheat_bathroom_override_passive_valve_percent:
     name: "Bathroom Passive Override Valve %"
@@ -389,7 +366,6 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     mode: slider
-    initial: 30
 
   # Manual setpoints
   pyheat_pete_manual_setpoint:

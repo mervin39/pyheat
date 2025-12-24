@@ -1,6 +1,43 @@
 
 # PyHeat Changelog
 
+## 2025-12-24: Fix HA package configuration for state persistence
+
+**Bug Fix:**
+
+Fixed Home Assistant entity state persistence for override-related helpers to prevent state corruption after HA restarts.
+
+**Root Cause:**
+
+Override mode selects had `initial: none` parameter, which caused HA to reset them to "none" on restart instead of restoring the previous state. When combined with timers that have `restore: true`, this created corrupted state where a timer could be active but mode was "none", causing warnings and incorrect override behavior.
+
+**Changes to pyheat_package.yaml:**
+
+1. **Removed `initial: none` from override mode selects (6 entities):**
+   - These entities now auto-restore like other mode selects (consistent with file pattern)
+   - No longer reset to "none" on HA restart
+   - Prevents timer/mode state mismatch
+
+2. **Removed `initial:` values from passive override parameters (18 entities):**
+   - `*_override_passive_min_temp` (was `initial: 12.0`)
+   - `*_override_passive_max_temp` (was `initial: 18.0`)
+   - `*_override_passive_valve_percent` (was `initial: 30`)
+   - These now auto-restore user values instead of resetting to defaults
+   - Note: `input_number` doesn't support `restore:` parameter
+
+**Why this matters:**
+
+- Entities **without** `initial:` → HA auto-restores from `.storage/core.restore_state`
+- Entities **with** `initial:` → HA resets to `initial:` value on restart (ignores stored state)
+- Only `input_boolean`, `input_select`, `timer`, and `counter` support explicit `restore:` parameter
+- `input_number` always auto-restores unless `initial:` is specified
+
+This change ensures consistent state restoration: all pyheat helper entities now auto-restore their state across HA restarts.
+
+**Changes:**
+
+- [config/ha_yaml/pyheat_package.yaml](config/ha_yaml/pyheat_package.yaml): Removed `initial:` parameters from override entities
+
 ## 2025-12-23: Add system settings API
 
 **New API Endpoints:**
