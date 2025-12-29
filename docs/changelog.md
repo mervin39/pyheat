@@ -1,6 +1,44 @@
 
 # PyHeat Changelog
 
+## 2025-12-29: Fix passive override graph rendering
+
+**Bug Fix:**
+
+Fixed room card temperature graphs to correctly display passive overrides as min/max range lines instead of incorrectly showing them as active override lines.
+
+**What was broken:**
+
+When a passive override was active, the room card graph would display a single red or blue setpoint line (like an active override), instead of showing the passive min/max temperature range lines.
+
+**Root Causes:**
+
+1. **Backend (pyheat):** The history API was classifying all overrides with an `override_target` value as active overrides (heating/cooling), without checking if the override mode was "passive"
+2. **Backend (pyheat):** The passive min/max data wasn't being extracted from the `override_passive_min_temp` and `override_passive_max_temp` state attributes that exist during passive overrides
+3. **Frontend (pyheat-web):** The graph only displayed passive lines when `operatingMode === 'passive'`, but for passive overrides in auto mode, `operatingMode` stays as "auto"
+
+**The Fix:**
+
+**Backend changes:**
+1. Check the `override_mode` attribute - when `override_mode == "passive"`, mark as `override_type: "none"` so the frontend doesn't render an active override line
+2. Extract `override_passive_min_temp` and `override_passive_max_temp` from state entity attributes when a passive override is active, adding these to the passive_min and passive_max history arrays
+
+**Frontend changes:**
+3. Changed passive line rendering to show lines whenever passive min/max data exists, rather than only when `operatingMode === 'passive'`
+
+**Why This Was Needed:**
+
+Passive overrides set the `override_passive_min_temp` and `override_passive_max_temp` attributes immediately, but the `operating_mode` attribute doesn't update until the next recompute cycle. By extracting these override-specific attributes and rendering them unconditionally when present, we ensure the passive min/max lines appear on the graph immediately when the override is set.
+
+**Impact:**
+
+This is a visual-only fix - no backend functionality is affected. Passive overrides will now display correctly on room card graphs with the same min/max range visualization as scheduled passive mode.
+
+**Changes:**
+
+- [services/api_handler.py](services/api_handler.py): Check override_mode and extract override passive min/max attributes
+- **pyheat-web** frontend: Updated TemperatureChart component and rebuilt/deployed
+
 ## 2025-12-24: Fix HA package configuration for state persistence
 
 **Bug Fix:**

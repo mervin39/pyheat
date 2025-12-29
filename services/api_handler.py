@@ -781,21 +781,44 @@ class APIHandler:
                             # Extract override info
                             # override_target exists only when override is active
                             override_target = attrs.get("override_target")
+                            override_mode = attrs.get("override_mode")
                             scheduled_temp = attrs.get("scheduled_temp")
 
                             if override_target is not None:
-                                # Override is active - determine if heating (positive) or cooling (negative)
-                                override_type = "none"
-                                if scheduled_temp is not None:
-                                    if override_target > scheduled_temp:
-                                        override_type = "heating"  # Red - boosting above schedule
-                                    elif override_target < scheduled_temp:
-                                        override_type = "cooling"  # Blue - reducing below schedule
-                                    else:
-                                        override_type = "neutral"  # Same as schedule (rare edge case)
+                                # Check if this is a passive override - treat like passive mode for graphing
+                                if override_mode == "passive":
+                                    # Passive override: don't show as active override line
+                                    # (passive min/max lines are extracted separately)
+                                    override_type = "none"
+
+                                    # Extract passive override min/max temps for graphing
+                                    # These are separate from scheduled passive mode values
+                                    override_passive_min = attrs.get("override_passive_min_temp")
+                                    override_passive_max = attrs.get("override_passive_max_temp")
+
+                                    if override_passive_min is not None:
+                                        passive_min_data.append({
+                                            "time": timestamp,
+                                            "value": override_passive_min
+                                        })
+                                    if override_passive_max is not None:
+                                        passive_max_data.append({
+                                            "time": timestamp,
+                                            "value": override_passive_max
+                                        })
                                 else:
-                                    # No scheduled_temp available, just mark as active override
-                                    override_type = "active"
+                                    # Active override - determine if heating (positive) or cooling (negative)
+                                    override_type = "none"
+                                    if scheduled_temp is not None:
+                                        if override_target > scheduled_temp:
+                                            override_type = "heating"  # Red - boosting above schedule
+                                        elif override_target < scheduled_temp:
+                                            override_type = "cooling"  # Blue - reducing below schedule
+                                        else:
+                                            override_type = "neutral"  # Same as schedule (rare edge case)
+                                    else:
+                                        # No scheduled_temp available, just mark as active override
+                                        override_type = "active"
 
                                 override_data.append({
                                     "time": timestamp,
